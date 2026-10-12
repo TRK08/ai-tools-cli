@@ -1,9 +1,10 @@
-import { lstat, mkdir, mkdtemp, readlink, rename, rm, symlink, unlink } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hasErrorCode } from '../state/errors.ts';
+import { WORKSPACE_PREFIX } from '../state/paths.ts';
 
 /** Mutation seam for testing handled filesystem failures without touching real agents. */
-export const installerFileSystem = { lstat, mkdir, mkdtemp, readlink, rename, rm, symlink, unlink };
+export const installerFileSystem = { lstat, mkdir, mkdtemp, rename, rm };
 export type InstallerFileSystem = Omit<typeof installerFileSystem, 'mkdtemp'> & {
   readonly mkdtemp: (prefix: string) => Promise<string>;
 };
@@ -45,16 +46,19 @@ export class FileTransaction {
   private readonly undo: (() => Promise<void>)[] = [];
 
   private constructor(
-    readonly backup: string,
+    readonly workspace: string,
     private readonly fs: InstallerFileSystem,
   ) {}
 
   static async run<T>(
-    backupRoot: string,
+    workspaceParent: string,
     fs: InstallerFileSystem,
     run: (files: FileTransaction) => Promise<T>,
   ): Promise<T> {
-    const files = new FileTransaction(await fs.mkdtemp(join(backupRoot, 'operation-')), fs);
+    const files = new FileTransaction(
+      await fs.mkdtemp(join(workspaceParent, WORKSPACE_PREFIX)),
+      fs,
+    );
     let result: T;
     try {
       result = await run(files);
@@ -69,18 +73,27 @@ export class FileTransaction {
       }
       if (errors.length) {
         throw new Error(
-          `Operation and rollback failed; recovery files remain at ${files.backup}.`,
+          `Operation and rollback failed; recovery files remain at ${files.workspace}.`,
           {
             cause: new AggregateError([cause, ...errors]),
           },
         );
       }
-      await fs.rm(files.backup, { recursive: true, force: true });
+      await fs
+        .rm(files.workspace, { recursive: true, force: true })
+        .catch((cleanupError: unknown) => {
+          throw new Error(
+            `Operation rolled back, but workspace cleanup failed: ${files.workspace}.`,
+            {
+              cause: new AggregateError([cause, cleanupError]),
+            },
+          );
+        });
       throw cause;
     }
     // The state commit succeeded. A cleanup failure must never roll files back against the new lock.
-    await fs.rm(files.backup, { recursive: true, force: true }).catch((cause: unknown) => {
-      throw new Error(`Operation committed, but backup cleanup failed: ${files.backup}.`, {
+    await fs.rm(files.workspace, { recursive: true, force: true }).catch((cause: unknown) => {
+      throw new Error(`Operation committed, but workspace cleanup failed: ${files.workspace}.`, {
         cause,
       });
     });
@@ -90,17 +103,5 @@ export class FileTransaction {
   async move(source: string, destination: string): Promise<void> {
     await this.fs.rename(source, destination);
     this.undo.push(() => this.fs.rename(destination, source));
-  }
-
-  async connect(target: string, path: string): Promise<void> {
-    await this.fs.symlink(target, path);
-    this.undo.push(async () => {
-      const current = await inspectPath(path, this.fs);
-      if (!current) return;
-      if (!current.isSymbolicLink() || (await this.fs.readlink(path)) !== target) {
-        throw new Error(`Connection changed during rollback: ${path}.`);
-      }
-      await this.fs.unlink(path);
-    });
   }
 }

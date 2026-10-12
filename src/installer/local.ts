@@ -1,4 +1,4 @@
-import { dirname, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import type { RuntimeContext } from '../runtime.ts';
 import { prepareDirectory } from '../sources/directory.ts';
 import { assertScopeLocation } from '../state/filesystem.ts';
@@ -8,7 +8,9 @@ import {
   assertSkillName,
   getSkillDirectory,
   getStatePaths,
+  LOCK_TEMP_PREFIX,
   portableSourcePath,
+  WORKSPACE_PREFIX,
 } from '../state/paths.ts';
 import { StateStore } from '../state/store.ts';
 import { createEmptyLock, type InstallationRecord } from '../state/types.ts';
@@ -24,7 +26,6 @@ export interface LocalInstallerOptions {
   readonly fileSystem?: InstallerFileSystem;
   readonly store?: StateStore;
   readonly prepare?: typeof prepareDirectory;
-  /** Synchronous presentation before replacement; business operations never write to stdout. */
   readonly report?: (message: string) => void;
 }
 
@@ -33,7 +34,7 @@ export interface LocalChange {
   readonly name: string;
 }
 
-/** Task 004 supports only project directory sources and explicitly selected Codex. */
+/** Task 004 supports project directories and explicit Codex, which reads the shared copy directly. */
 export class LocalInstaller {
   private readonly paths;
   private readonly fs;
@@ -50,10 +51,6 @@ export class LocalInstaller {
     this.prepare = options.prepare ?? prepareDirectory;
   }
 
-  private connectionPath(name: string): string {
-    return join(this.paths.cwd, '.agents', 'skills', name);
-  }
-
   private assertSupported(record: InstallationRecord): void {
     if (
       record.source.kind !== 'directory' ||
@@ -62,7 +59,7 @@ export class LocalInstaller {
       record.connections.some(
         (connection) =>
           connection.agent !== 'codex' ||
-          resolve(this.paths.cwd, connection.path) !== this.connectionPath(record.name),
+          resolve(this.paths.cwd, connection.path) !== getSkillDirectory(this.paths, record.name),
       )
     ) {
       throw new Error('This stage supports only local directory installations for Codex.');
@@ -70,21 +67,15 @@ export class LocalInstaller {
   }
 
   private async checkParents(create = false): Promise<void> {
-    await directoryChain(this.paths.cwd, ['.skills-installer', 'skills'], this.fs, create);
     await directoryChain(this.paths.cwd, ['.agents', 'skills'], this.fs, create);
   }
 
-  private async checkConnection(name: string, record?: InstallationRecord): Promise<boolean> {
-    const path = this.connectionPath(name);
+  private async inspectCopy(name: string, record?: InstallationRecord): Promise<boolean> {
+    const path = getSkillDirectory(this.paths, name);
     const stats = await inspectPath(path, this.fs);
     if (!stats) return false;
-    const target = relative(dirname(path), getSkillDirectory(this.paths, name));
-    if (
-      !record?.connections.some((connection) => connection.agent === 'codex') ||
-      !stats.isSymbolicLink() ||
-      (await this.fs.readlink(path)) !== target
-    ) {
-      throw new Error(`Foreign Codex destination; remove or move it yourself: ${path}.`);
+    if (!record || !stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error(`Foreign shared-copy destination: ${path}.`);
     }
     return true;
   }
@@ -94,12 +85,8 @@ export class LocalInstaller {
     record: InstallationRecord | undefined,
     force: boolean,
   ): Promise<string | null> {
+    if (!(await this.inspectCopy(name, record))) return null;
     const path = getSkillDirectory(this.paths, name);
-    const stats = await inspectPath(path, this.fs);
-    if (!stats) return null;
-    if (!record || !stats.isDirectory() || stats.isSymbolicLink()) {
-      throw new Error(`Foreign shared-copy destination: ${path}.`);
-    }
     let contentHash: string;
     try {
       contentHash = await hashDirectory(path);
@@ -109,15 +96,10 @@ export class LocalInstaller {
         cause,
       });
     }
-    if (!force && contentHash !== record.contentHash) {
+    if (!force && contentHash !== record!.contentHash) {
       throw new Error(`Installed ${name} has local changes; use --force to replace its contents.`);
     }
     return contentHash;
-  }
-
-  private async workDirectories(): Promise<void> {
-    await directoryChain(this.paths.cwd, ['.skills-installer', 'tmp'], this.fs, true);
-    await directoryChain(this.paths.cwd, ['.skills-installer', 'backups'], this.fs, true);
   }
 
   async add(source: string, force = false): Promise<LocalChange> {
@@ -130,19 +112,23 @@ export class LocalInstaller {
           sourceIdentityKey(record.source, this.paths) === sourceIdentityKey(identity, this.paths),
       );
       await this.checkParents();
-      // Protect edits before potentially long source preparation, then check again before replacement.
       if (previousSource) {
         this.assertSupported(previousSource);
-        await this.checkConnection(previousSource.name, previousSource);
         await this.checkCopy(previousSource.name, previousSource, force);
       }
-      await this.workDirectories();
-      const prepared = await this.prepare(source, {
-        cwd: this.paths.cwd,
-        temporaryDirectory: this.paths.temporaryDirectory,
-        excludedDirectories: [join(this.paths.home, '.skills-installer')],
-      });
-      try {
+      await directoryChain(this.paths.cwd, ['.agents'], this.fs, true);
+      return FileTransaction.run(this.paths.agentsDirectory, this.fs, async (files) => {
+        const global = getStatePaths({ cwd: this.paths.cwd, home: this.paths.home }, 'global');
+        const prepared = await this.prepare(source, {
+          cwd: this.paths.cwd,
+          temporaryDirectory: files.workspace,
+          excludedPaths: [global.skillsDirectory, global.lockPath, global.operationLockPath],
+          excludedPrefixes: [
+            join(global.agentsDirectory, WORKSPACE_PREFIX),
+            join(global.root, LOCK_TEMP_PREFIX),
+          ],
+        });
+        // The operation owns the temporary base and cleans it after commit or rollback.
         const name = prepared.name;
         assertSkillName(name);
         if (previousSource && previousSource.name !== name) {
@@ -152,57 +138,47 @@ export class LocalInstaller {
         const previous = Object.hasOwn(lock.skills, name) ? lock.skills[name] : undefined;
         if (previous) this.assertSupported(previous);
         await this.checkParents();
-        const connected = await this.checkConnection(name, previous);
         const currentHash = await this.checkCopy(name, previous, force);
         const destination = getSkillDirectory(this.paths, name);
+        const connected = previous?.connections.some((connection) => connection.agent === 'codex');
         if (
           previous &&
+          connected &&
           previous.contentHash === prepared.contentHash &&
           previous.version === prepared.version &&
-          currentHash === prepared.contentHash &&
-          connected
+          currentHash === prepared.contentHash
         ) {
           return { status: 'unchanged', name };
         }
-        const replaceCopy = currentHash !== prepared.contentHash;
-        if (replaceCopy && previous)
-          this.options.report?.(`Replacing ${name}; affected agents: codex.`);
+        let reported = false;
+        const reportReplacement = () => {
+          if (previous && !reported) {
+            this.options.report?.(`Replacing ${name}; affected agents: codex.`);
+            reported = true;
+          }
+        };
+        if (currentHash !== prepared.contentHash) reportReplacement();
         await this.checkParents(true);
-        return await FileTransaction.run(this.paths.backupDirectory, this.fs, async (files) => {
-          // Revalidate immediately before mutations, including changes made during presentation/mkdir.
-          await this.checkParents();
-          const stillConnected = await this.checkConnection(name, previous);
-          const finalHash = await this.checkCopy(name, previous, force);
-          if (finalHash !== prepared.contentHash) {
-            if (!replaceCopy && previous) {
-              this.options.report?.(`Replacing ${name}; affected agents: codex.`);
-            }
-            if (await inspectPath(destination, this.fs)) {
-              await files.move(destination, join(files.backup, 'skill'));
-            }
-            await files.move(prepared.directory, destination);
+        const finalHash = await this.checkCopy(name, previous, force);
+        if (finalHash !== prepared.contentHash) {
+          reportReplacement();
+          if (await this.inspectCopy(name, previous)) {
+            await files.move(destination, join(files.workspace, 'previous'));
           }
-          if (!stillConnected) {
-            const path = this.connectionPath(name);
-            await files.connect(relative(dirname(path), destination), path);
-          }
-          const record: InstallationRecord = {
-            name,
-            source: { kind: 'directory', path: portableSourcePath(identity.path, this.paths) },
-            version: prepared.version,
-            policy: 'local',
-            contentHash: prepared.contentHash,
-            agents: ['codex'],
-            connections: [
-              { agent: 'codex', path: relative(this.paths.cwd, this.connectionPath(name)) },
-            ],
-          };
-          await state.write({ ...lock, skills: { ...lock.skills, [name]: record } });
-          return { status: 'success', name };
-        });
-      } finally {
-        await prepared.cleanup();
-      }
+          await files.move(prepared.directory, destination);
+        }
+        const record: InstallationRecord = {
+          name,
+          source: { kind: 'directory', path: portableSourcePath(identity.path, this.paths) },
+          version: prepared.version,
+          policy: 'local',
+          contentHash: prepared.contentHash,
+          agents: ['codex'],
+          connections: [{ agent: 'codex', path: relative(this.paths.cwd, destination) }],
+        };
+        await state.write({ ...lock, skills: { ...lock.skills, [name]: record } });
+        return { status: 'success', name };
+      });
     });
   }
 
@@ -219,23 +195,13 @@ export class LocalInstaller {
       if (!record || !lock) return { status: 'unchanged', name };
       this.assertSupported(record);
       await this.checkParents();
-      await this.checkConnection(name, record);
-      const destination = getSkillDirectory(this.paths, name);
-      const copy = await inspectPath(destination, this.fs);
-      if (copy && (!copy.isDirectory() || copy.isSymbolicLink())) {
-        throw new Error(`Foreign shared-copy destination: ${destination}.`);
-      }
-      await this.workDirectories();
-      return FileTransaction.run(this.paths.backupDirectory, this.fs, async (files) => {
+      await this.inspectCopy(name, record);
+      await directoryChain(this.paths.cwd, ['.agents'], this.fs, true);
+      return FileTransaction.run(this.paths.agentsDirectory, this.fs, async (files) => {
         await this.checkParents();
-        if (await this.checkConnection(name, record)) {
-          await files.move(this.connectionPath(name), join(files.backup, 'connection'));
+        if (await this.inspectCopy(name, record)) {
+          await files.move(getSkillDirectory(this.paths, name), join(files.workspace, 'previous'));
         }
-        const currentCopy = await inspectPath(destination, this.fs);
-        if (currentCopy && (!currentCopy.isDirectory() || currentCopy.isSymbolicLink())) {
-          throw new Error(`Foreign shared-copy destination: ${destination}.`);
-        }
-        if (currentCopy) await files.move(destination, join(files.backup, 'skill'));
         const skills = { ...lock.skills };
         delete skills[name];
         await state.write({ ...lock, skills });

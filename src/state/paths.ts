@@ -3,14 +3,17 @@ import type { InstallationScope } from '../installer/types.ts';
 import type { FileSystemRoots } from '../runtime.ts';
 import { PROJECT_IN_HOME_MESSAGE, StateError } from './errors.ts';
 
+export const INSTALLER_LOCK_NAME = 'skills-installer-lock.json';
+export const WORKSPACE_PREFIX = '.skills-installer-work-';
+export const LOCK_TEMP_PREFIX = '.skills-installer-lock-';
+
 export interface StatePaths extends FileSystemRoots {
   readonly scope: InstallationScope;
   readonly root: string;
   readonly skillsDirectory: string;
   readonly lockPath: string;
   readonly operationLockPath: string;
-  readonly temporaryDirectory: string;
-  readonly backupDirectory: string;
+  readonly agentsDirectory: string;
 }
 
 export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope): StatePaths {
@@ -22,17 +25,18 @@ export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope):
   if (scope === 'project' && cwd === home) {
     throw new StateError('PROJECT_IN_HOME', PROJECT_IN_HOME_MESSAGE);
   }
-  const root = join(scope === 'project' ? cwd : home, '.skills-installer');
+  const base = scope === 'project' ? cwd : home;
+  const agentsDirectory = join(base, '.agents');
+  const root = scope === 'project' ? cwd : agentsDirectory;
   return Object.freeze({
     cwd,
     home,
     scope,
     root,
-    skillsDirectory: join(root, 'skills'),
-    lockPath: join(root, 'lock.json'),
-    operationLockPath: join(root, 'operation.lock'),
-    temporaryDirectory: join(root, 'tmp'),
-    backupDirectory: join(root, 'backups'),
+    agentsDirectory,
+    skillsDirectory: join(agentsDirectory, 'skills'),
+    lockPath: join(root, INSTALLER_LOCK_NAME),
+    operationLockPath: join(root, '.skills-installer-operation.lock'),
   });
 }
 

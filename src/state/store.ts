@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StateError, hasErrorCode } from './errors.ts';
-import { assertScopeLocation, ensureOwnedDirectory } from './filesystem.ts';
+import { assertScopeLocation } from './filesystem.ts';
 import { assertSourceCompatible } from './identity.ts';
 import { withScopeLock } from './mutex.ts';
-import type { StatePaths } from './paths.ts';
+import { LOCK_TEMP_PREFIX, type StatePaths } from './paths.ts';
 import { parseLockFile, serializeLockFile } from './schema.ts';
 import type { LockFile } from './types.ts';
 
@@ -125,15 +125,17 @@ export class StateStore {
         assertSourceCompatible(previous, record.name, record.source, this.paths);
       }
     }
-    await ensureOwnedDirectory(this.paths.temporaryDirectory);
-    const temporaryPath = join(this.paths.temporaryDirectory, `lock-${randomUUID()}.json`);
+    const temporaryPath = join(this.paths.root, `${LOCK_TEMP_PREFIX}${randomUUID()}.tmp`);
+    let committed = false;
     try {
       await this.io.writeTemporaryFile(temporaryPath, content);
       await this.io.rename(temporaryPath, this.paths.lockPath);
+      committed = true;
     } finally {
-      await unlink(temporaryPath).catch((cause: unknown) => {
-        if (!hasErrorCode(cause, 'ENOENT')) throw cause;
-      });
+      if (!committed)
+        await unlink(temporaryPath).catch((cause: unknown) => {
+          if (!hasErrorCode(cause, 'ENOENT')) throw cause;
+        });
     }
   }
 }

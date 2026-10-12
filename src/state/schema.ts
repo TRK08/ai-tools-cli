@@ -1,10 +1,11 @@
-import { isAbsolute } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import type { AgentId } from '../installer/types.ts';
 import type { SourceIdentity } from '../sources/types.ts';
 import { StateError } from './errors.ts';
 import { normalizeRegistryUrl } from './identity.ts';
 import {
   assertSkillName,
+  getSkillDirectory,
   portableConnectionPath,
   portableSourcePath,
   validatePathText,
@@ -124,7 +125,20 @@ function record(
   if (
     connections.some((item) => !desiredAgents.includes(item.agent)) ||
     new Set(connections.map((item) => item.agent)).size !== connections.length ||
-    new Set(connections.map((item) => item.path)).size !== connections.length
+    connections.some(
+      (item, index) =>
+        connections.slice(0, index).some((other) => other.path === item.path) &&
+        !(
+          resolve(paths.cwd, item.path) === getSkillDirectory(paths, name) &&
+          connections
+            .filter((other) => other.path === item.path)
+            .every((other) =>
+              (paths.scope === 'project' ? ['codex', 'opencode', 'cursor'] : ['codex']).includes(
+                other.agent,
+              ),
+            )
+        ),
+    )
   )
     invalid('Managed connections must have unique agents/paths and belong to desired agents.');
   const archiveHash = Object.hasOwn(entry, 'archiveHash')
@@ -164,12 +178,12 @@ function normalize(value: unknown, paths: StatePaths, storageInput: boolean): Lo
         .sort()
         .map((name) => [name, record(skills[name], name, paths, storageInput)]),
     );
-    const managedPaths = new Set<string>();
+    const managedPaths = new Map<string, string>();
     for (const entry of Object.values(records)) {
       for (const connection of entry.connections) {
-        if (managedPaths.has(connection.path))
+        if (managedPaths.has(connection.path) && managedPaths.get(connection.path) !== entry.name)
           invalid('Different skills cannot manage the same connection path.');
-        managedPaths.add(connection.path);
+        managedPaths.set(connection.path, entry.name);
       }
     }
     return {

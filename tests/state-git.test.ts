@@ -20,38 +20,37 @@ it('keeps shared lock, all skill resources and agent links in Git while ignoring
       join(fixture.roots.cwd, '.gitignore'),
     );
     const kept = [
-      '.skills-installer/lock.json',
-      '.skills-installer/skills/demo/SKILL.md',
-      '.skills-installer/skills/demo/resources.tgz',
-      '.skills-installer/skills/demo/node_modules/resource/index.js',
-      '.skills-installer/skills/demo/dist/asset.js',
-      '.skills-installer/skills/demo/.DS_Store',
-      '.skills-installer/skills/demo/.skills-installer/tmp/resource',
-      '.skills-installer/skills/demo/.skills-installer/backups/resource',
-      '.skills-installer/skills/demo/.skills-installer/operation.lock',
-      'nested/.skills-installer/lock.json',
-      'nested/.skills-installer/skills/demo/resources.tgz',
+      'skills-installer-lock.json',
+      'skills-lock.json',
+      '.agents/skills/demo/SKILL.md',
+      '.agents/skills/demo/resources.tgz',
+      '.agents/skills/demo/node_modules/resource/index.js',
+      '.agents/skills/demo/dist/asset.js',
+      '.agents/skills/demo/.DS_Store',
+      '.agents/skills/demo/.agents/.skills-installer-work-resource/file',
+      '.agents/skills/demo/.skills-installer-lock-resource.tmp',
+      '.agents/skills/demo/.skills-installer-operation.lock',
+      'nested/skills-installer-lock.json',
+      'nested/.agents/skills/demo/resources.tgz',
     ];
     const ignored = [
-      '.skills-installer/tmp/lock-example.json',
-      '.skills-installer/backups/demo/SKILL.md',
-      '.skills-installer/operation.lock',
-      'nested/.skills-installer/tmp/source/example',
-      'nested/.skills-installer/backups/demo/SKILL.md',
-      'nested/.skills-installer/operation.lock',
+      '.agents/.skills-installer-work-example/previous/SKILL.md',
+      '.skills-installer-operation.lock',
+      '.skills-installer-lock-example.tmp',
+      'nested/.agents/.skills-installer-work-example/source/skill/SKILL.md',
+      'nested/.skills-installer-operation.lock',
+      'nested/.skills-installer-lock-example.tmp',
     ];
     for (const path of [...kept, ...ignored]) {
       const absolute = join(fixture.roots.cwd, path);
       await mkdir(dirname(absolute), { recursive: true });
       await writeFile(absolute, 'fixture');
     }
-    const links = ['.claude', '.agents', '.opencode', '.pi', '.cursor'].map(
-      (directory) => `${directory}/skills/demo.tgz`,
-    );
+    const links = ['.claude', '.pi'].map((directory) => `${directory}/skills/demo.tgz`);
     for (const path of links) {
       const absolute = join(fixture.roots.cwd, path);
       await mkdir(dirname(absolute), { recursive: true });
-      await symlink('../../.skills-installer/skills/demo', absolute);
+      await symlink('../../.agents/skills/demo', absolute);
     }
     const result = spawnSync('git', ['check-ignore', '--no-index', '--stdin'], {
       cwd: fixture.roots.cwd,

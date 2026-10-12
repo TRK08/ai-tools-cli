@@ -39,6 +39,68 @@ async function assertNoLinks(path: string): Promise<void> {
 }
 
 describe('local directory source', () => {
+  it('excludes new state files, installed copies and stale operation work without excluding cwd or resources', async () => {
+    await withTestEnvironment(async (fixture) => {
+      const source = fixture.roots.cwd;
+      await writeFile(join(source, 'SKILL.md'), skillText);
+      await writeFile(join(source, 'skills-installer-lock.json'), 'owned lock');
+      await writeFile(join(source, '.skills-installer-operation.lock'), 'busy');
+      await writeFile(join(source, '.skills-installer-lock-example.tmp'), 'partial lock');
+      await writeFile(join(source, 'skills-lock.json'), 'foreign Vercel lock');
+      await mkdir(join(source, '.agents', 'skills', 'vitest'), { recursive: true });
+      await writeFile(join(source, '.agents', 'skills', 'vitest', 'SKILL.md'), 'installed skill');
+      await mkdir(join(source, '.agents', '.skills-installer-work-example', 'previous'), {
+        recursive: true,
+      });
+      await writeFile(
+        join(source, '.agents', '.skills-installer-work-example', 'previous', 'SKILL.md'),
+        'retained snapshot',
+      );
+      await symlink('.agents/skills', join(source, 'installed-alias'));
+      await symlink('skills-installer-lock.json', join(source, 'lock-alias'));
+      await mkdir(join(source, 'resources'), { recursive: true });
+      await writeFile(join(source, 'resources', 'skills-installer-lock.json'), 'resource');
+      await writeFile(
+        join(source, 'resources', '.skills-installer-lock-resource.tmp'),
+        'resource temp name',
+      );
+      const prepared = await prepareDirectory('.', options(fixture));
+      try {
+        expect(await readFile(join(prepared.directory, 'SKILL.md'), 'utf8')).toBe(skillText);
+        expect(await readFile(join(prepared.directory, 'skills-lock.json'), 'utf8')).toBe(
+          'foreign Vercel lock',
+        );
+        expect(
+          await readFile(
+            join(prepared.directory, 'resources', 'skills-installer-lock.json'),
+            'utf8',
+          ),
+        ).toBe('resource');
+        expect(
+          await readFile(
+            join(prepared.directory, 'resources', '.skills-installer-lock-resource.tmp'),
+            'utf8',
+          ),
+        ).toBe('resource temp name');
+        for (const path of [
+          'skills-installer-lock.json',
+          '.skills-installer-operation.lock',
+          '.skills-installer-lock-example.tmp',
+          '.agents/skills',
+          '.agents/.skills-installer-work-example',
+          'installed-alias',
+          'lock-alias',
+        ]) {
+          await expect(lstat(join(prepared.directory, path))).rejects.toMatchObject({
+            code: 'ENOENT',
+          });
+        }
+      } finally {
+        await prepared.cleanup();
+      }
+    });
+  });
+
   it('prepares the minimum skill with lexical identity and an idempotent cleanup', async () => {
     await withTestEnvironment(async (fixture) => {
       const source = join(fixture.roots.cwd, 'demo');
@@ -262,14 +324,14 @@ describe('local directory source', () => {
     await withTestEnvironment(async (fixture) => {
       const source = fixture.roots.cwd;
       await makeSkill(source);
-      const state = join(source, '.skills-installer');
-      await mkdir(join(state, 'skills', 'old'), { recursive: true });
-      await mkdir(join(state, 'backups'));
-      await writeFile(join(state, 'lock.json'), 'existing lock');
-      await writeFile(join(state, 'skills', 'old', 'SKILL.md'), 'old installed instructions');
-      await writeFile(join(state, 'backups', 'old'), 'existing backup');
-      await mkdir(join(source, 'nested', '.skills-installer'), { recursive: true });
-      await writeFile(join(source, 'nested', '.skills-installer', 'operation.lock'), 'busy');
+      const state = join(source, '.agents', 'skills');
+      await makeSkill(join(state, 'existing'));
+      await writeFile(join(source, 'skills-installer-lock.json'), 'existing lock');
+      await mkdir(join(source, 'nested', '.agents'), { recursive: true });
+      await writeFile(
+        join(source, 'nested', '.agents', 'skills-installer-lock.json'),
+        'global state',
+      );
       const temporaryDirectory = join(source, 'work');
       await mkdir(temporaryDirectory);
       await writeFile(join(temporaryDirectory, 'unrelated-owned-work'), 'temporary');
@@ -281,10 +343,15 @@ describe('local directory source', () => {
       const prepared = await prepareDirectory('.', {
         cwd: source,
         temporaryDirectory,
-        excludedDirectories: [join(source, 'nested', '.skills-installer')],
+        excludedPaths: [join(source, 'nested', '.agents')],
       });
       try {
-        expect(await readdir(prepared.directory)).toEqual(['SKILL.md', 'nested', 'work-sibling']);
+        expect(await readdir(prepared.directory)).toEqual([
+          '.agents',
+          'SKILL.md',
+          'nested',
+          'work-sibling',
+        ]);
         expect(await readdir(join(prepared.directory, 'nested'))).toEqual([]);
         expect(await readFile(join(prepared.directory, 'work-sibling', 'resource'), 'utf8')).toBe(
           'included',
@@ -315,13 +382,13 @@ describe('local directory source', () => {
     });
   });
 
-  it('preserves resources and source folders merely named .skills-installer', async () => {
+  it('preserves resources and source folders merely named .agents', async () => {
     await withTestEnvironment(async (fixture) => {
-      const source = join(fixture.roots.home, 'examples', '.skills-installer');
+      const source = join(fixture.roots.home, 'examples', '.agents');
       await makeSkill(source);
-      await mkdir(join(source, 'resources', '.skills-installer'), { recursive: true });
+      await mkdir(join(source, 'resources', '.agents'), { recursive: true });
       await writeFile(
-        join(source, 'resources', '.skills-installer', 'lock.json'),
+        join(source, 'resources', '.agents', 'skills-installer-lock.json'),
         'example resource',
       );
       const original = await hashDirectory(source);
@@ -329,7 +396,7 @@ describe('local directory source', () => {
       try {
         expect(
           await readFile(
-            join(prepared.directory, 'resources', '.skills-installer', 'lock.json'),
+            join(prepared.directory, 'resources', '.agents', 'skills-installer-lock.json'),
             'utf8',
           ),
         ).toBe('example resource');
@@ -346,13 +413,13 @@ describe('local directory source', () => {
       await makeSkill(fixture.roots.cwd);
       const actualState = join(fixture.roots.cwd, 'actual-global-state');
       await mkdir(actualState);
-      await writeFile(join(actualState, 'lock.json'), 'previous global lock');
-      const globalState = join(fixture.roots.home, '.skills-installer');
+      await writeFile(join(actualState, 'skills-installer-lock.json'), 'global state');
+      const globalState = join(fixture.roots.home, '.agents');
       await symlink(actualState, globalState);
       const original = await hashDirectory(fixture.roots.cwd);
       const prepared = await prepareDirectory('.', {
         ...options(fixture),
-        excludedDirectories: [globalState],
+        excludedPaths: [globalState],
       });
       try {
         expect(await readdir(prepared.directory)).toEqual(['SKILL.md']);
@@ -366,14 +433,15 @@ describe('local directory source', () => {
   it('does not follow a cyclic link at an excluded storage root', async () => {
     await withTestEnvironment(async (fixture) => {
       await makeSkill(fixture.roots.cwd);
-      await symlink('.skills-installer', join(fixture.roots.cwd, '.skills-installer'));
+      await mkdir(join(fixture.roots.cwd, '.agents'));
+      await symlink('skills', join(fixture.roots.cwd, '.agents', 'skills'));
       const prepared = await prepareDirectory('.', options(fixture));
       try {
-        expect(await readdir(prepared.directory)).toEqual(['SKILL.md']);
+        expect(await readdir(prepared.directory)).toEqual(['.agents', 'SKILL.md']);
       } finally {
         await prepared.cleanup();
       }
-      expect((await lstat(join(fixture.roots.cwd, '.skills-installer'))).isSymbolicLink()).toBe(
+      expect((await lstat(join(fixture.roots.cwd, '.agents', 'skills'))).isSymbolicLink()).toBe(
         true,
       );
     });
@@ -383,7 +451,7 @@ describe('local directory source', () => {
     await withTestEnvironment(async (fixture) => {
       const source =
         kind === 'state'
-          ? join(fixture.roots.cwd, '.skills-installer', 'skills', 'demo')
+          ? join(fixture.roots.cwd, '.agents', 'skills', 'demo')
           : join(options(fixture).temporaryDirectory, 'demo');
       await makeSkill(source);
       const original = await hashDirectory(source);
@@ -478,9 +546,9 @@ describe('local directory source', () => {
         await makeSkill(source);
         const resource = join(source, 'z-resource');
         await writeFile(resource, Buffer.alloc(150_000, 0x42));
-        const state = join(fixture.roots.cwd, '.skills-installer');
+        const state = join(fixture.roots.cwd, '.agents');
         await makeSkill(join(state, 'skills', 'existing'));
-        await writeFile(join(state, 'lock.json'), 'previous lock');
+        await writeFile(join(fixture.roots.cwd, 'skills-installer-lock.json'), 'existing lock');
         const original = await hashDirectory(fixture.roots.cwd);
         const injected = Object.assign(new Error(`injected ${failure}`), { code: 'EACCES' });
         let calls = 0;

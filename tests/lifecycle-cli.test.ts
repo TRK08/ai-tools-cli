@@ -40,8 +40,9 @@ describe('lifecycle CLI', () => {
       expect(added.stdout).toContain('Added demo (codex).');
       expect(added.stderr).toBe('');
       const link = join(context.roots.cwd, '.agents', 'skills', 'demo');
-      const lockPath = join(context.roots.cwd, '.skills-installer', 'lock.json');
-      expect(await readlink(link)).toBe('../../.skills-installer/skills/demo');
+      const lockPath = join(context.roots.cwd, 'skills-installer-lock.json');
+      expect((await lstat(link)).isDirectory()).toBe(true);
+      expect((await lstat(link)).isSymbolicLink()).toBe(false);
       const lock = JSON.parse(await readFile(lockPath, 'utf8'));
       expect(lock.skills.demo.agents).toEqual(['codex']);
       expect(lock.skills.demo.connections).toEqual([
@@ -57,7 +58,7 @@ describe('lifecycle CLI', () => {
       expect(removed.stdout).toContain('Removed demo');
       await expect(lstat(link)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(
-        lstat(join(context.roots.cwd, '.skills-installer', 'skills', 'demo')),
+        lstat(join(context.roots.cwd, '.agents', 'skills', 'demo')),
       ).rejects.toMatchObject({ code: 'ENOENT' });
       expect(JSON.parse(await readFile(lockPath, 'utf8')).skills).toEqual({});
       expect(await readFile(join(path, 'SKILL.md'), 'utf8')).toBe(skillText);
@@ -109,7 +110,9 @@ describe('lifecycle CLI', () => {
       const result = cli(context, args);
       expect(result.status).toBe(1);
       expect(result.stderr).toMatch(message);
-      await expect(lstat(join(context.roots.cwd, '.skills-installer'))).rejects.toMatchObject({
+      await expect(
+        lstat(join(context.roots.cwd, 'skills-installer-lock.json')),
+      ).rejects.toMatchObject({
         code: 'ENOENT',
       });
       await expect(
@@ -130,7 +133,7 @@ describe('lifecycle CLI', () => {
       await symlink(path, link);
       const conflict = cli(context, ['add', './demo', '-a', 'codex', '--force']);
       expect(conflict.status).toBe(1);
-      expect(conflict.stderr).toContain('Foreign Codex');
+      expect(conflict.stderr).toContain('Foreign shared-copy');
       expect(await readlink(link)).toBe(path);
       await rm(link);
     });

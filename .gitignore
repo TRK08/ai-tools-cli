@@ -5,13 +5,13 @@ coverage/
 .DS_Store
 
 # Ignore work files before allowing skill resources that may use the same directory names.
-**/.skills-installer/tmp/
-**/.skills-installer/backups/
-**/.skills-installer/operation.lock
+**/.agents/.skills-installer-work-*/
+**/.skills-installer-operation.lock
+**/.skills-installer-lock-*.tmp
 
 # Project state and skill contents are shared, including resources matching rules above.
-!**/.skills-installer/lock.json
-!**/.skills-installer/skills/**
+!**/skills-installer-lock.json
+!**/.agents/skills/**
 !**/.claude/skills/*
 !**/.agents/skills/*
 !**/.opencode/skills/*

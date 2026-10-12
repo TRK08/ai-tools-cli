@@ -97,8 +97,11 @@ describe('state paths and portable schema', () => {
       const roots = { ...fixture.roots, cwd: join(fixture.roots.cwd, 'packages', 'nested') };
       const project = getStatePaths(roots, 'project');
       const global = getStatePaths(roots, 'global');
-      expect(project.root).toBe(join(roots.cwd, '.skills-installer'));
-      expect(global.root).toBe(join(roots.home, '.skills-installer'));
+      expect(project.root).toBe(roots.cwd);
+      expect(project.skillsDirectory).toBe(join(roots.cwd, '.agents', 'skills'));
+      expect(project.lockPath).toBe(join(roots.cwd, 'skills-installer-lock.json'));
+      expect(global.root).toBe(join(roots.home, '.agents'));
+      expect(global.lockPath).toBe(join(roots.home, '.agents', 'skills-installer-lock.json'));
       expect(project.lockPath).not.toBe(global.lockPath);
       expect(getSkillDirectory(project, 'demo')).toBe(join(project.skillsDirectory, 'demo'));
       expect(() => getStatePaths({ ...roots, cwd: 'relative' }, 'project')).toThrow();
@@ -290,6 +293,68 @@ describe('state paths and portable schema', () => {
 });
 
 describe('strict lock reading', () => {
+  it('allows project direct-reader agents to share only their own canonical directory', async () => {
+    await withTestEnvironment(async (fixture) => {
+      const paths = getStatePaths(fixture.roots, 'project');
+      const canonical = '.agents/skills/demo';
+      const record: InstallationRecord = {
+        ...directoryRecord(fixture),
+        agents: ['codex', 'opencode', 'cursor', 'claude-code'],
+        connections: [
+          { agent: 'codex', path: canonical },
+          { agent: 'opencode', path: canonical },
+          { agent: 'cursor', path: canonical },
+          { agent: 'claude-code', path: '.claude/skills/demo' },
+        ],
+      };
+      const parsed = parseLockFile(JSON.parse(serializeLockFile(oneRecord(record), paths)), paths);
+      expect(parsed.skills.demo?.connections).toHaveLength(4);
+      expect(() =>
+        serializeLockFile(
+          oneRecord({
+            ...record,
+            connections: record.connections.map((connection) => ({
+              ...connection,
+              path: canonical,
+            })),
+          }),
+          paths,
+        ),
+      ).toThrow();
+      expect(() =>
+        serializeLockFile(
+          oneRecord({
+            ...record,
+            connections: record.connections.map((connection) => ({
+              ...connection,
+              path: '.agents/skills/another',
+            })),
+          }),
+          paths,
+        ),
+      ).toThrow();
+      expect(() =>
+        serializeLockFile(
+          oneRecord({ ...record, connections: [record.connections[0]!, record.connections[0]!] }),
+          paths,
+        ),
+      ).toThrow();
+      const global = getStatePaths(fixture.roots, 'global');
+      expect(() =>
+        serializeLockFile(
+          oneRecord({
+            ...record,
+            connections: record.connections.map((connection) => ({
+              ...connection,
+              path: getSkillDirectory(global, 'demo'),
+            })),
+          }),
+          global,
+        ),
+      ).toThrow();
+    });
+  });
+
   it('rejects multiple skill records claiming the same managed path', async () => {
     await withTestEnvironment(async (fixture) => {
       const paths = getStatePaths(fixture.roots, 'project');
@@ -304,8 +369,8 @@ describe('strict lock reading', () => {
       const paths = getStatePaths(fixture.roots, 'project');
       const store = new StateStore(paths);
       expect(await store.read()).toBeNull();
-      await expect(access(paths.root)).rejects.toMatchObject({ code: 'ENOENT' });
-      await mkdir(paths.root);
+      await expect(access(paths.lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      await mkdir(paths.root, { recursive: true });
       expect(await store.read()).toBeNull();
       await store.write(createEmptyLock());
       expect(await store.read()).toEqual(createEmptyLock());
@@ -336,7 +401,7 @@ describe('strict lock reading', () => {
   ])('rejects $name without overwriting it', async (scenario) => {
     await withTestEnvironment(async (fixture) => {
       const paths = getStatePaths(fixture.roots, 'project');
-      await mkdir(paths.root);
+      await mkdir(paths.root, { recursive: true });
       await writeFile(paths.lockPath, scenario.content);
       const store = new StateStore(paths);
       await expect(store.read()).rejects.toMatchObject({ code: scenario.code });
@@ -420,7 +485,7 @@ describe('strict lock reading', () => {
 
   it('rejects state-root and lock symlinks without reading or writing their target', async () => {
     await withTestEnvironment(async (fixture) => {
-      const paths = getStatePaths(fixture.roots, 'project');
+      const paths = getStatePaths(fixture.roots, 'global');
       const outside = join(fixture.temporaryRoot, 'outside-state');
       await mkdir(outside);
       const sentinel = join(outside, 'lock.json');
@@ -431,7 +496,7 @@ describe('strict lock reading', () => {
       await expect(store.write(createEmptyLock())).rejects.toMatchObject({ code: 'INVALID_PATH' });
       expect(await readFile(sentinel, 'utf8')).toBe('keep');
       await rm(paths.root);
-      await mkdir(paths.root);
+      await mkdir(paths.root, { recursive: true });
       await symlink(sentinel, paths.lockPath);
       await expect(store.read()).rejects.toMatchObject({ code: 'INVALID_LOCK' });
       await expect(store.write(createEmptyLock())).rejects.toMatchObject({ code: 'INVALID_LOCK' });
@@ -495,7 +560,9 @@ describe('atomic writes and scope locking', () => {
         ).rejects.toBe(failure);
         expect(await readFile(paths.lockPath, 'utf8')).toBe(old);
         expect((await store.read())?.skills.demo?.contentHash).toBe(record.contentHash);
-        expect(await readdir(paths.temporaryDirectory)).toEqual([]);
+        expect(
+          (await readdir(paths.root)).filter((name) => name.startsWith('.skills-installer-lock-')),
+        ).toEqual([]);
         await expect(access(paths.operationLockPath)).rejects.toMatchObject({ code: 'ENOENT' });
       });
     },
@@ -604,7 +671,7 @@ describe('atomic writes and scope locking', () => {
     await withTestEnvironment(async (fixture) => {
       const paths = getStatePaths(fixture.roots, 'project');
       const store = new StateStore(paths);
-      await mkdir(paths.root);
+      await mkdir(paths.root, { recursive: true });
       await writeFile(paths.operationLockPath, 'stale lock');
       await expect(store.write(createEmptyLock())).rejects.toMatchObject({ code: 'SCOPE_BUSY' });
       expect(await readFile(paths.operationLockPath, 'utf8')).toBe('stale lock');

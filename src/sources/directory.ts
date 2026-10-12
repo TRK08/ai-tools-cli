@@ -1,8 +1,9 @@
 import { constants, type BigIntStats } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { hasErrorCode } from '../state/errors.ts';
 import { hashDirectory } from '../state/hash.ts';
 import { validatePathText } from '../state/paths.ts';
+import { INSTALLER_LOCK_NAME, LOCK_TEMP_PREFIX, WORKSPACE_PREFIX } from '../state/paths.ts';
 import { SourceError } from './errors.ts';
 import { directorySourceFileSystem, type DirectorySourceFileSystem } from './filesystem.ts';
 import { readSkillMetadata } from './frontmatter.ts';
@@ -12,8 +13,10 @@ export interface PrepareDirectoryOptions {
   readonly cwd: string;
   /** Existing dedicated temporary base supplied by the caller, never taken from process.env. */
   readonly temporaryDirectory: string;
-  /** Additional CLI storage roots, e.g. global state; project state is excluded by default. */
-  readonly excludedDirectories?: readonly string[];
+  /** Additional CLI files or directory roots, e.g. global state. */
+  readonly excludedPaths?: readonly string[];
+  /** Absolute pathname prefixes reserved for unique operation directories and lock temp files. */
+  readonly excludedPrefixes?: readonly string[];
   readonly fileSystem?: DirectorySourceFileSystem;
 }
 
@@ -77,7 +80,9 @@ export async function prepareDirectory(
   if (
     !isAbsolute(options.cwd) ||
     !isAbsolute(options.temporaryDirectory) ||
-    options.excludedDirectories?.some((path) => !isAbsolute(path))
+    [...(options.excludedPaths ?? []), ...(options.excludedPrefixes ?? [])].some(
+      (path) => !isAbsolute(path),
+    )
   ) {
     throw new SourceError(
       'INVALID_SOURCE',
@@ -94,8 +99,10 @@ export async function prepareDirectory(
     validatePathText(options.temporaryDirectory);
     const excluded: Buffer[] = [];
     for (const path of [
-      join(options.cwd, '.skills-installer'),
-      ...(options.excludedDirectories ?? []),
+      join(options.cwd, '.agents', 'skills'),
+      join(options.cwd, INSTALLER_LOCK_NAME),
+      join(options.cwd, '.skills-installer-operation.lock'),
+      ...(options.excludedPaths ?? []),
     ]) {
       validatePathText(path);
       const lexical = Buffer.from(resolve(path));
@@ -107,7 +114,27 @@ export async function prepareDirectory(
         if (!['ENOENT', 'ENOTDIR', 'ELOOP'].some((code) => hasErrorCode(cause, code))) throw cause;
       }
     }
-    const isExcluded = (path: Buffer) => excluded.some((root) => within(root, path));
+    const prefixes: Buffer[] = [];
+    for (const prefix of [
+      join(options.cwd, '.agents', WORKSPACE_PREFIX),
+      join(options.cwd, LOCK_TEMP_PREFIX),
+      ...(options.excludedPrefixes ?? []),
+    ]) {
+      validatePathText(prefix);
+      prefixes.push(Buffer.from(prefix));
+      try {
+        prefixes.push(
+          Buffer.from(
+            join((await fs.realpath(Buffer.from(dirname(prefix)))).toString(), basename(prefix)),
+          ),
+        );
+      } catch (cause) {
+        if (!['ENOENT', 'ENOTDIR', 'ELOOP'].some((code) => hasErrorCode(cause, code))) throw cause;
+      }
+    }
+    const isExcluded = (path: Buffer) =>
+      excluded.some((root) => within(root, path)) ||
+      prefixes.some((prefix) => path.subarray(0, prefix.length).equals(prefix));
     const sourceRoot = await fs.realpath(Buffer.from(identityPath));
     const rootStats = await fs.lstat(sourceRoot);
     if (!rootStats.isDirectory()) {

@@ -5,7 +5,7 @@ export const LOCK_VERSION = 1;
 
 export interface ManagedConnection {
   readonly agent: AgentId;
-  /** Relative to cwd in a project record; absolute in a global record. */
+  /** Direct shared directory or agent symlink; project paths are relative to cwd. */
   readonly path: string;
 }
 

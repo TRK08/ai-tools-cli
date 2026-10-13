@@ -1,6 +1,6 @@
 import { dirname, join, parse, relative, resolve } from 'node:path';
 import type { RuntimeContext } from '../runtime.ts';
-import { prepareDirectory } from '../sources/directory.ts';
+import { localSourceIdentity, prepareLocalSource } from '../sources/local.ts';
 import { assertScopeLocation } from '../state/filesystem.ts';
 import { hashDirectory } from '../state/hash.ts';
 import { assertSourceCompatible, sourceIdentityKey } from '../state/identity.ts';
@@ -34,7 +34,7 @@ export interface LocalInstallerOptions {
   readonly scope?: InstallationScope;
   readonly fileSystem?: InstallerFileSystem;
   readonly store?: StateStore;
-  readonly prepare?: typeof prepareDirectory;
+  readonly prepare?: typeof prepareLocalSource;
   readonly report?: (message: string) => void;
 }
 
@@ -51,7 +51,7 @@ class NoConnections extends Error {
   }
 }
 
-/** Directory lifecycle with one shared copy and independently registered agent connections. */
+/** Local source lifecycle with one shared copy and independently registered agent connections. */
 export class LocalInstaller {
   private readonly paths;
   private readonly fs;
@@ -65,12 +65,12 @@ export class LocalInstaller {
     this.paths = getStatePaths(context.roots, options.scope ?? 'project');
     this.fs = options.fileSystem ?? installerFileSystem;
     this.store = options.store ?? new StateStore(this.paths);
-    this.prepare = options.prepare ?? prepareDirectory;
+    this.prepare = options.prepare ?? prepareLocalSource;
   }
 
   private assertSupported(record: InstallationRecord): void {
-    if (record.source.kind !== 'directory') {
-      throw new Error('This stage supports only local directory installations.');
+    if (record.source.kind === 'registry') {
+      throw new Error('This stage supports only local directory and archive installations.');
     }
     for (const connection of record.connections) {
       const path = resolveConnectionPath(connection.path, this.paths);
@@ -195,7 +195,7 @@ export class LocalInstaller {
     await assertScopeLocation(this.paths);
     return this.store.transaction(async (state) => {
       const lock = (await state.read()) ?? createEmptyLock();
-      const identity = { kind: 'directory' as const, path: resolve(this.paths.cwd, source) };
+      const identity = await localSourceIdentity(source, this.paths.cwd);
       const previousSource = Object.values(lock.skills).find(
         (record) =>
           sourceIdentityKey(record.source, this.paths) === sourceIdentityKey(identity, this.paths),
@@ -310,22 +310,25 @@ export class LocalInstaller {
               !changed &&
               !errors.length &&
               previous?.contentHash === prepared.contentHash &&
-              previous.version === prepared.version
+              previous.version === prepared.version &&
+              previous.archiveHash === prepared.archiveHash
             )
               return { status: 'unchanged', name };
             const record: InstallationRecord = {
               name,
-              source: { kind: 'directory', path: portableSourcePath(identity.path, this.paths) },
+              source: { ...identity, path: portableSourcePath(identity.path, this.paths) },
               version: prepared.version,
               policy: 'local',
               contentHash: prepared.contentHash,
+              ...(prepared.archiveHash === undefined ? {} : { archiveHash: prepared.archiveHash }),
               agents: [...new Set([...(previous?.agents ?? []), ...connections.keys()])],
               connections: [...connections.values()],
             };
             if (
               changed ||
               previous?.contentHash !== record.contentHash ||
-              previous.version !== record.version
+              previous.version !== record.version ||
+              previous.archiveHash !== record.archiveHash
             ) {
               await state.write({ ...lock, skills: { ...lock.skills, [name]: record } });
             }

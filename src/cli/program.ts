@@ -18,9 +18,7 @@ export function createProgram(
   const program = new Command();
   program
     .name('skills-installer')
-    .description(
-      'Install and manage local skill directories for five agents in project or global scope.',
-    )
+    .description('Install and manage local skills for five agents in project or global scope.')
     .version(version)
     .allowExcessArguments(false)
     .action(() => {
@@ -39,8 +37,8 @@ export function createProgram(
 
   program
     .command('add')
-    .description('Add a local skill directory; select agents interactively without -a')
-    .argument('<source>', 'local directory containing SKILL.md')
+    .description('Add a local directory or archive; select agents interactively without -a')
+    .argument('<source>', 'local directory, .tar.gz or .tgz containing SKILL.md')
     .option('-a, --agent <agent>', agentHelp, collectAgent, [])
     .option('-g, --global', 'use global scope')
     .option('--force', 'replace modified managed contents')

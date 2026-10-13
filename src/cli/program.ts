@@ -1,7 +1,9 @@
+import { AGENTS } from '../agents/catalog.ts';
 import { errorMessage } from '../errors.ts';
 import { Command } from 'commander';
 import { parseAgents } from '../installer/agents.ts';
-import { LocalInstaller, type LocalChange, type RegistrySelection } from '../installer/local.ts';
+import { Installer } from '../installer/installer.ts';
+import type { InstallationChange, RegistrySelection } from '../installer/types.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import type { RuntimeContext } from '../runtime.ts';
 import { selectAgents, type PromptStreams } from './agents-prompt.ts';
@@ -32,6 +34,12 @@ interface AddOptions {
   readonly yes?: boolean;
 }
 
+/**
+ * Создаёт команды Commander и связывает их с Installer, диалогами и телеметрией.
+ *
+ * @remarks Регистрация не запускает операции; выполнение начинается при parseAsync. Корни и HTTP берутся
+ * из context.
+ */
 export function createProgram(
   version: string,
   context: RuntimeContext,
@@ -53,20 +61,28 @@ export function createProgram(
   const scopeOf = (options: { global?: boolean }): InstallationScope =>
     options.global ? 'global' : 'project';
   const installer = (options: { global?: boolean; registry?: string }) =>
-    new LocalInstaller(context, {
+    new Installer(context, {
       scope: scopeOf(options),
       report: output.write,
       ...(options.registry === undefined ? {} : { registry: options.registry }),
     });
-  const checkResult = (result: LocalChange) => {
+  /** Преобразует partial/failed в ошибку CLI с диагностикой отдельных подключений. */
+  const checkResult = (result: InstallationChange) => {
     if (result.status === 'partial' || result.status === 'failed')
       throw new Error(`${failureLabel(result.status)}: ${result.errors.join('; ')}`);
   };
-  const agentHelp = 'claude-code, codex, opencode, pi, cursor; можно указать несколько раз';
+  const agentHelp = `${[...AGENTS]
+    .sort((a, b) => a.helpOrder - b.helpOrder)
+    .map((agent) => agent.id)
+    .join(', ')}; можно указать несколько раз`;
   const telemetryFor = (command: Command) =>
     new Telemetry(context, version, { disabled: !!command.optsWithGlobals().withoutStat });
   const registryClient = (registry?: string) =>
     new RegistryClient(getRegistryUrl(registry, context.env), context.http);
+  /**
+   * Выполняет общий сценарий add/find: область, агенты, карточка, установка и вывод результата. До чтения
+   * источника проверяет non-TTY-параметры; по завершении ожидает доставку телеметрии.
+   */
   const addSkill = async (
     source: string,
     options: AddOptions,
@@ -90,7 +106,7 @@ export function createProgram(
       );
     const ui = createAddUi(context, streams, options.yes);
     const telemetry = telemetryFor(command);
-    const target = new LocalInstaller(context, {
+    const target = new Installer(context, {
       scope,
       report: output.write,
       telemetry,
@@ -200,7 +216,7 @@ export function createProgram(
       ) => {
         const ui = createUpdatesUi(streams, options.yes, scopeOf(options));
         const telemetry = telemetryFor(command);
-        const result = await new LocalInstaller(context, {
+        const result = await new Installer(context, {
           scope: scopeOf(options),
           report: ui.report,
           reviewUpdate: ui.review,
@@ -246,7 +262,7 @@ export function createProgram(
         }
         const selected = requested.length ? matching : await ui.select(records);
         if (selected === null || !(await ui.review(selected))) return;
-        const results: LocalChange[] = [];
+        const results: InstallationChange[] = [];
         for (const record of selected) {
           try {
             const affected = record.agents.filter(

@@ -1,10 +1,11 @@
 import { cancel, confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
-import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../installer/local.ts';
+import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../installer/types.ts';
 import type { PromptStreams } from './agents-prompt.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import { renderTable } from './table.ts';
 import { failureLabel, scopeLabel } from './labels.ts';
 
+/** Создаёт callbacks подтверждения и итогового вывода update, сохраняя preview каждой записи. */
 export function createUpdatesUi(
   streams: PromptStreams,
   yes = false,
@@ -41,6 +42,11 @@ export function createUpdatesUi(
     }
   };
 
+  /**
+   * Показывает доступное изменение и получает решение; unchanged/pinned не открывают вопрос.
+   *
+   * @returns approve/decline/cancel; без TTY для изменения требуется --yes.
+   */
   const review = async (preview: UpdatePreview): Promise<UpdateDecision> => {
     start();
     previews.set(preview.name, preview);
@@ -84,6 +90,7 @@ export function createUpdatesUi(
     return isCancel(accepted) ? 'cancel' : accepted ? 'approve' : 'decline';
   };
 
+  /** Выводит результаты обработанной части пакета и счётчики; отдельно показывает отказ и отмену. */
   const finish = (batch: UpdateBatch) => {
     start();
     if (!batch.results.length) {

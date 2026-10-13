@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
 import { installerFileSystem } from '../src/installer/filesystem.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import type { AgentId, InstallationScope } from '../src/installer/types.ts';
 import { prepareDirectory } from '../src/sources/directory.ts';
 import { hashDirectory } from '../src/state/hash.ts';
@@ -31,7 +31,7 @@ async function fixture(context: TestEnvironment, scope: InstallationScope = 'pro
     source,
     paths,
     copy: join(paths.skillsDirectory, 'demo'),
-    installer: new LocalInstaller(context, { scope }),
+    installer: new Installer(context, { scope }),
     store: new StateStore(paths),
   };
 }
@@ -104,7 +104,7 @@ describe.each(['project', 'global'] as const)('%s agent lifecycle', (scope) => {
       const before = await snapshot(f.copy, f.paths.lockPath);
       await writeFile(join(f.source, 'SKILL.md'), text.replace('v1', 'v2'));
       const symlink = vi.fn().mockRejectedValue(new Error('connection failure'));
-      const result = await new LocalInstaller(context, {
+      const result = await new Installer(context, {
         scope,
         fileSystem: { ...installerFileSystem, symlink },
       }).add('./demo', false, ['claude-code', 'pi']);
@@ -121,7 +121,7 @@ describe('connection failures and isolation', () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context, 'global');
       const custom = { ...context, env: { CLAUDE_CONFIG_DIR: join(f.copy, 'config') } };
-      const result = await new LocalInstaller(custom, { scope: 'global' }).add('./demo', false, [
+      const result = await new Installer(custom, { scope: 'global' }).add('./demo', false, [
         'claude-code',
       ]);
       expect(result).toMatchObject({
@@ -163,7 +163,7 @@ describe('connection failures and isolation', () => {
         ...context,
         roots: { cwd: context.roots.home, home: context.roots.home },
       };
-      const global = new LocalInstaller(globalContext, { scope: 'global' });
+      const global = new Installer(globalContext, { scope: 'global' });
       await global.add(f.source, false, ids);
       await global.remove('demo');
       expect(await snapshot(f.copy, f.paths.lockPath)).toEqual(before);
@@ -188,7 +188,7 @@ describe('connection failures and isolation', () => {
         },
       };
       const f = await fixture(context, 'global');
-      await new LocalInstaller(custom, { scope: 'global' }).add('./demo', false, [
+      await new Installer(custom, { scope: 'global' }).add('./demo', false, [
         'claude-code',
         'opencode',
       ]);
@@ -263,7 +263,7 @@ describe('connection failures and isolation', () => {
   it('cleans an unused new copy when every link creation fails', async () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context);
-      const result = await new LocalInstaller(context, {
+      const result = await new Installer(context, {
         fileSystem: {
           ...installerFileSystem,
           symlink: vi.fn().mockRejectedValue(new Error('denied')),
@@ -283,7 +283,7 @@ describe('connection failures and isolation', () => {
         if (path === f.copy) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
         return installerFileSystem.lstat(path);
       });
-      const result = await new LocalInstaller(context, {
+      const result = await new Installer(context, {
         fileSystem: { ...installerFileSystem, lstat: lstatMissing },
       }).add('./demo', false, ['codex', 'cursor', 'opencode']);
       expect(result.status).toBe('failed');
@@ -327,7 +327,7 @@ describe('connection failures and isolation', () => {
         rename: vi.fn().mockRejectedValue(new Error('commit failed')),
       });
       await writeFile(join(f.source, 'SKILL.md'), text.replace('v1', 'v2'));
-      const installer = new LocalInstaller(context, { store });
+      const installer = new Installer(context, { store });
       await expect(installer.add('./demo', false, ['claude-code'])).rejects.toThrow(
         'commit failed',
       );
@@ -343,7 +343,7 @@ describe('connection failures and isolation', () => {
   it('validates unknown/empty agents before preparation or filesystem changes', async () => {
     await withTestEnvironment(async (context) => {
       const prepare = vi.fn(prepareDirectory);
-      const installer = new LocalInstaller(context, { prepare });
+      const installer = new Installer(context, { prepare });
       await expect(installer.add('missing', false, ['unknown' as AgentId])).rejects.toThrow(
         'Неизвестный агент',
       );

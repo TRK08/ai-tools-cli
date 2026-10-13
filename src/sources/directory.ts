@@ -12,11 +12,11 @@ import { isCancellation } from '../cancellation.ts';
 
 export interface PrepareDirectoryOptions {
   readonly cwd: string;
-  /** Existing dedicated temporary base supplied by the caller, never taken from process.env. */
+  /** Существующая временная база вызывающего кода; не определяется через process.env. */
   readonly temporaryDirectory: string;
-  /** Additional CLI files or directory roots, e.g. global state. */
+  /** Дополнительные файлы и корни каталогов CLI, например глобальное состояние. */
   readonly excludedPaths?: readonly string[];
-  /** Absolute pathname prefixes reserved for unique operation directories and lock temp files. */
+  /** Абсолютные префиксы временных каталогов операций и файлов атомарной записи lock. */
   readonly excludedPrefixes?: readonly string[];
   readonly fileSystem?: DirectorySourceFileSystem;
   readonly signal?: AbortSignal | undefined;
@@ -33,6 +33,10 @@ function within(root: Buffer, path: Buffer): boolean {
   return path.equals(root) || path.subarray(0, prefix.length).equals(prefix);
 }
 
+/**
+ * Копирует файл блоками, проверяя inode и размер, затем сохраняет его права. Между I/O проверяет отмену;
+ * оба дескриптора закрываются до завершения операции.
+ */
 async function copyFile(
   source: Buffer,
   destination: Buffer,
@@ -87,7 +91,14 @@ async function copyFile(
   }
 }
 
-/** Create an owned snapshot; do not install it, write state or touch any agent. */
+/**
+ * Создаёт снимок локального скилла с разыменованными ссылками и исходными байтами/правами файлов.
+ * Исключает состояние CLI и временные ресурсы, отклоняет циклы и специальные объекты.
+ *
+ * @returns PreparedSource внутри temporaryDirectory; самостоятельный потребитель обязан вызвать cleanup.
+ * @remarks При ошибке/отмене очищает собственный workspace; сбой очистки сохраняется вместе с исходной
+ * причиной.
+ */
 export async function prepareDirectory(
   source: string,
   options: PrepareDirectoryOptions,
@@ -128,7 +139,7 @@ export async function prepareDirectory(
       try {
         excluded.push(await fs.realpath(lexical));
       } catch (cause) {
-        // Unresolvable excluded roots have no reachable target; retain the lexical path.
+        // Недоступный исключённый корень не имеет достижимой цели; сохраняем лексический путь.
         if (!['ENOENT', 'ENOTDIR', 'ELOOP'].some((code) => hasErrorCode(cause, code))) throw cause;
       }
     }
@@ -151,6 +162,7 @@ export async function prepareDirectory(
         if (!['ENOENT', 'ENOTDIR', 'ELOOP'].some((code) => hasErrorCode(cause, code))) throw cause;
       }
     }
+    /** Исключает служебные корни целиком и зарезервированные префиксы временных путей CLI. */
     const isExcluded = (path: Buffer) =>
       excluded.some((root) => within(root, path)) ||
       prefixes.some((prefix) => path.subarray(0, prefix.length).equals(prefix));
@@ -167,7 +179,7 @@ export async function prepareDirectory(
         'Состояние CLI нельзя использовать как локальный источник.',
       );
     }
-    // Check SKILL.md before creating work files; symlinks are validated by the walker.
+    // Проверяем наличие SKILL.md до временных файлов; ссылки проверяет обход дерева.
     await fs.lstat(childPath(sourceRoot, Buffer.from('SKILL.md')));
     signal?.throwIfAborted();
     const temporaryRoot = await fs.realpath(Buffer.from(resolve(options.temporaryDirectory)));
@@ -183,6 +195,10 @@ export async function prepareDirectory(
     const directory = join(workspace, 'skill');
     const destinationRoot = Buffer.from(directory);
 
+    /**
+     * Обходит дерево с разыменованием ссылок, исключениями и проверкой циклов по inode. Создаёт объекты
+     * только внутри destinationRoot и проверяет отмену между I/O.
+     */
     async function visit(
       path: Buffer,
       destination: Buffer,

@@ -8,6 +8,7 @@ export type SourceErrorCode =
   | 'PREPARATION_FAILED';
 
 export class SourceError extends Error {
+  /** Сохраняет код ошибки подготовки и исходную причину, включая составную ошибку очистки. */
   constructor(
     readonly code: SourceErrorCode,
     message: string,

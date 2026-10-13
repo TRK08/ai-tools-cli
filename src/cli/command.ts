@@ -8,12 +8,14 @@ const titles: Record<string, string> = {
   'Commands:': 'Команды:',
 };
 
-// Only generated Commander syntax is translated; descriptions and user data are preserved.
+// Переводится только генерируемый синтаксис Commander; описания и данные сохраняются.
+/** Переводит только служебные обозначения синтаксиса Commander; пользовательские данные сохраняет. */
 function usage(value: string): string {
   return value.replaceAll('[options]', '[параметры]').replaceAll('[command]', '[команда]');
 }
 
 export class RussianCommand extends Command {
+  /** Настраивает русскую справку Commander и описания стандартных параметров. */
   constructor(name?: string) {
     super(name);
     this.helpOption('-h, --help', 'показать справку по команде');
@@ -26,10 +28,15 @@ export class RussianCommand extends Command {
     });
   }
 
+  /** Создаёт дочернюю команду с той же русской справкой и обработкой ошибок. */
   override createCommand(name?: string): Command {
     return new RussianCommand(name);
   }
 
+  /**
+   * Переводит стандартные ошибки аргументов и подсказки Commander, сохраняя имена и параметры. Затем
+   * передаёт ошибку штатному обработчику Commander; управление не возвращается.
+   */
   override error(message: string, options?: ErrorOptions): never {
     switch (options?.code) {
       case 'commander.missingArgument':

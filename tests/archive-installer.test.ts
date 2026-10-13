@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
 import { installerFileSystem } from '../src/installer/filesystem.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths, WORKSPACE_PREFIX } from '../src/state/paths.ts';
 import { StateStore } from '../src/state/store.ts';
@@ -29,7 +29,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
         );
         const original = await readFile(source);
         const paths = getStatePaths(f.roots, scope);
-        const installer = new LocalInstaller(f, { scope });
+        const installer = new Installer(f, { scope });
         expect((await installer.add(source, false, ids)).status).toBe('success');
         const copy = join(paths.skillsDirectory, 'demo');
         const record = (await new StateStore(paths).read())!.skills.demo!;
@@ -74,7 +74,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
         const source = join(f.roots.cwd, 'demo.tgz');
         await writeFile(source, archiveBytes([{ path: 'SKILL.md', contents: skillText }]));
         const paths = getStatePaths(f.roots, scope);
-        const installer = new LocalInstaller(f, { scope });
+        const installer = new Installer(f, { scope });
         await installer.add(source, false, ids);
         const copy = join(paths.skillsDirectory, 'demo');
         const before = {
@@ -132,7 +132,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
       await writeFile(source, archiveBytes([{ path: 'SKILL.md', contents: skillText }]));
       const paths = getStatePaths(f.roots, scope);
       const report = vi.fn();
-      const installer = new LocalInstaller(f, { scope, report });
+      const installer = new Installer(f, { scope, report });
       await installer.add(source, false, ['claude-code']);
       await installer.add(source, false, ['pi']);
       const copy = join(paths.skillsDirectory, 'demo');
@@ -162,7 +162,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
       await writeFile(source, gzipSync(tar, { level: 1 }));
       const paths = getStatePaths(f.roots, scope);
       const report = vi.fn();
-      const installer = new LocalInstaller(f, { scope, report });
+      const installer = new Installer(f, { scope, report });
       await installer.add(source);
       const before = (await installer.list())[0]!;
       const inode = (await lstat(join(paths.skillsDirectory, 'demo'))).ino;
@@ -184,7 +184,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
       const foreign = join(agentSkillsDirectory(f, scope, 'pi'), 'demo');
       await mkdir(foreign, { recursive: true });
       await writeFile(join(foreign, 'sentinel'), 'keep');
-      const installer = new LocalInstaller(f, { scope });
+      const installer = new Installer(f, { scope });
       expect((await installer.add(source, false, ['codex', 'pi'])).status).toBe('partial');
       expect((await installer.list())[0]!.agents).toEqual(['codex']);
       const paths = getStatePaths(f.roots, scope);
@@ -193,7 +193,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
         lock: await readFile(paths.lockPath),
       };
       await writeFile(source, archiveBytes([{ path: 'SKILL.md', contents: `${skillText}v2\n` }]));
-      const failed = new LocalInstaller(f, {
+      const failed = new Installer(f, {
         scope,
         fileSystem: {
           ...installerFileSystem,
@@ -219,7 +219,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
       const directory = join(f.roots.cwd, 'folder.tgz');
       await mkdir(directory);
       await writeFile(join(directory, 'SKILL.md'), skillText);
-      const installer = new LocalInstaller(f, { scope });
+      const installer = new Installer(f, { scope });
       await installer.add(source);
       await expect(installer.add(directory, true)).rejects.toMatchObject({
         code: 'SOURCE_CONFLICT',

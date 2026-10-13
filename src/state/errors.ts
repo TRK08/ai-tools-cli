@@ -10,6 +10,7 @@ export const PROJECT_IN_HOME_MESSAGE =
   'Локальная область недоступна в домашнем каталоге. Выберите другую рабочую папку или используйте --global.';
 
 export class StateError extends Error {
+  /** Сохраняет код ошибки состояния/пути и её исходную причину для диагностики. */
   constructor(
     readonly code: StateErrorCode,
     message: string,
@@ -20,6 +21,7 @@ export class StateError extends Error {
   }
 }
 
+/** Проверяет поле code у экземпляра Error, не принимая произвольные объекты за системные ошибки. */
 export function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }

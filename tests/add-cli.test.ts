@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths } from '../src/state/paths.ts';
 import { catalogItem, skillDetail } from './helpers/discovery.ts';
@@ -124,7 +124,7 @@ describe('scope, agents and installation card', () => {
           expect(t.input.isRaw).toBe(false);
           await expect(lstat(paths.operationLockPath)).rejects.toMatchObject({ code: 'ENOENT' });
           expect(await hashDirectory(f.temporaryRoot)).toBe(before);
-          expect((await new LocalInstaller(f, { scope }).add(path, false, ['codex'])).status).toBe(
+          expect((await new Installer(f, { scope }).add(path, false, ['codex'])).status).toBe(
             'success',
           );
         } finally {
@@ -198,7 +198,7 @@ describe('scope, agents and installation card', () => {
           expect(t.rendered()).not.toContain('│ Pi ');
           await key(t, '\u001b[C\r');
           await pending;
-          expect((await new LocalInstaller(f, { scope }).list())[0]!.agents).toEqual([
+          expect((await new Installer(f, { scope }).list())[0]!.agents).toEqual([
             'claude-code',
             'codex',
             'opencode',
@@ -256,7 +256,7 @@ describe('scope, agents and installation card', () => {
         backend.current.demo = '3.0.0';
         await key(t, '\u001b[C\r');
         await pending;
-        const record = (await new LocalInstaller(context, { scope: 'global' }).list())[0]!;
+        const record = (await new Installer(context, { scope: 'global' }).list())[0]!;
         expect(record).toMatchObject({ version: '1.0.0', policy: 'latest', agents: ['pi'] });
         expect(backend.requests).toContain(`${backend.url}/download/demo/1.0.0`);
       } finally {

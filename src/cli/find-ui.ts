@@ -17,7 +17,8 @@ import { MIN_FIND_PREFIX_LENGTH, RegistryFindSearch } from './find-search.ts';
 import { truncateTerminalText } from './table.ts';
 import { plural } from './labels.ts';
 
-// Adapted from ../skills/src/find.ts; see ThirdPartyNoticeText.txt.
+// Адаптировано из ../skills/src/find.ts; см. ThirdPartyNoticeText.txt.
+/** Форматирует счётчик установок с русским склонением и сокращениями тыс./млн. */
 function installs(count: number): string {
   const value =
     count >= 1_000_000
@@ -28,6 +29,7 @@ function installs(count: number): string {
   return `${value} ${count >= 1_000 ? 'установок' : plural(count, 'установка', 'установки', 'установок')}`;
 }
 
+/** Показывает участок запроса вокруг курсора, сохраняя целые графемы и исходный HTTP-префикс. */
 function queryViewport(before: string, after: string, width: number): string {
   const segments = [
     ...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(before),
@@ -40,7 +42,12 @@ function queryViewport(before: string, after: string, width: number): string {
   return prefix + truncateTerminalText(after, width - stringWidth(prefix));
 }
 
-/** Clack-styled async picker: native autocomplete supports synchronous options only. */
+/**
+ * Ведёт асинхронный выбор registry-скилла с редактированием префикса и прокруткой.
+ *
+ * @returns Полный объект выбранного результата либо null при отмене/закрытии stdin.
+ * @remarks По завершении отменяет поиск, снимает обработчики и восстанавливает raw mode и курсор.
+ */
 export async function selectRegistrySkill(
   client: RegistryClient,
   initialPrefix: string,
@@ -60,10 +67,12 @@ export async function selectRegistrySkill(
       render();
     });
 
+    /** Стирает только строки предыдущего кадра, чтобы повторная отрисовка не оставляла старые варианты. */
     const clear = () => {
       if (previousLines.length) streams.output.write(`\u001b[${previousLines.length}A\r\u001b[J`);
       previousLines = [];
     };
+    /** Завершает выбор один раз и освобождает поиск и терминал перед resolve/reject. */
     const finish = (skill: CatalogSkill | null, error?: unknown) => {
       if (closed) return;
       closed = true;
@@ -83,6 +92,7 @@ export async function selectRegistrySkill(
       else resolve(skill);
     };
 
+    /** Рисует текущий кадр с видимым выбранным пунктом; в маленьком окне запрещает подтверждение. */
     function render() {
       if (closed) return;
       try {
@@ -154,6 +164,7 @@ export async function selectRegistrySkill(
       }
     }
 
+    /** Обрабатывает редактирование, выбор, retry и отмену; Enter принимает только доступный результат. */
     function onKey(character: string | undefined, key: Key) {
       if (closed) return;
       if (key.name === 'escape' || (key.ctrl && key.name === 'c')) {
@@ -209,9 +220,11 @@ export async function selectRegistrySkill(
       }
       if (query.join('') !== before) search.setPrefix(query.join(''));
     }
+    /** Завершает выбор отменой при закрытии входного потока. */
     function onEnd() {
       finish(null);
     }
+    /** Учитывает физический перенос старого кадра после resize, затем перерисовывает меню. */
     function onResize() {
       const width = Math.max(1, streams.output.columns ?? 80);
       previousLines = previousLines.flatMap((line) =>

@@ -3,7 +3,8 @@ import { writeFileSync } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { LocalInstaller, type LocalInstallerOptions } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
+import type { InstallerOptions } from '../src/installer/types.ts';
 import { installerFileSystem } from '../src/installer/filesystem.ts';
 import { prepareDirectory } from '../src/sources/directory.ts';
 import { directorySourceFileSystem } from '../src/sources/filesystem.ts';
@@ -22,7 +23,7 @@ async function setup(context: TestEnvironment) {
     paths,
     source,
     copy: join(paths.skillsDirectory, 'demo'),
-    installer: new LocalInstaller(context),
+    installer: new Installer(context),
     store: new StateStore(paths),
   };
 }
@@ -98,7 +99,7 @@ describe('direct project Codex lifecycle', () => {
         ).not.toThrow(),
       );
       // The report's probe is an external edit, so the final hash check protects it.
-      await expect(new LocalInstaller(context, { report }).add('./demo')).rejects.toThrow(
+      await expect(new Installer(context, { report }).add('./demo')).rejects.toThrow(
         /изменён локально/,
       );
       expect(report).toHaveBeenCalledWith('Замена demo; затрагиваемые агенты: codex.');
@@ -123,9 +124,7 @@ describe('direct project Codex lifecycle', () => {
         if (change === 'executable') await chmod(skill, 0o755);
         const before = await snapshot(fixture);
         const prepare = vi.fn(prepareDirectory);
-        await expect(new LocalInstaller(context, { prepare }).add('./demo')).rejects.toThrow(
-          /--force/,
-        );
+        await expect(new Installer(context, { prepare }).add('./demo')).rejects.toThrow(/--force/);
         expect(prepare).not.toHaveBeenCalled();
         expect(await snapshot(fixture)).toEqual(before);
         await fixture.installer.add('./demo', true);
@@ -145,7 +144,7 @@ describe('direct project Codex lifecycle', () => {
         await writeFile(join(fixture.copy, 'SKILL.md'), 'late user edit');
         return prepared;
       };
-      const operation = new LocalInstaller(context, { prepare }).add('./demo', force);
+      const operation = new Installer(context, { prepare }).add('./demo', force);
       if (force) {
         await operation;
         expect(await hashDirectory(fixture.copy)).toBe(await hashDirectory(fixture.source));
@@ -284,7 +283,7 @@ describe('direct project Codex lifecycle', () => {
         await writeFile(join(fixture.copy, 'keep'), 'foreign');
         return prepared;
       };
-      await expect(new LocalInstaller(context, { prepare }).add('./demo', true)).rejects.toThrow(
+      await expect(new Installer(context, { prepare }).add('./demo', true)).rejects.toThrow(
         /чужим объектом/,
       );
       expect(await readFile(join(fixture.copy, 'keep'), 'utf8')).toBe('foreign');
@@ -348,7 +347,7 @@ describe('direct project Codex lifecycle', () => {
       await expect(fixture.installer.remove('../demo')).rejects.toThrow(/Небезопасное/);
       expect(
         () =>
-          new LocalInstaller({
+          new Installer({
             ...context,
             roots: { cwd: context.roots.home, home: context.roots.home },
           }),
@@ -384,7 +383,7 @@ describe('handled failures and rollback', () => {
         if (phase === 'invalid metadata')
           await writeFile(join(fixture.source, 'SKILL.md'), 'invalid');
         await expect(
-          new LocalInstaller(context, phase === 'read failure' ? { prepare } : {}).add('./demo'),
+          new Installer(context, phase === 'read failure' ? { prepare } : {}).add('./demo'),
         ).rejects.toThrow();
         expect(await snapshot(fixture)).toEqual(before);
         await cleanWork(fixture.paths);
@@ -407,9 +406,7 @@ describe('handled failures and rollback', () => {
         });
         rename.mockRejectedValueOnce(failure);
         await expect(
-          new LocalInstaller(context, { fileSystem: { ...installerFileSystem, rename } }).add(
-            './demo',
-          ),
+          new Installer(context, { fileSystem: { ...installerFileSystem, rename } }).add('./demo'),
         ).rejects.toBe(failure);
         expect(await snapshot(fixture)).toEqual(before);
         await cleanWork(fixture.paths);
@@ -422,7 +419,7 @@ describe('handled failures and rollback', () => {
       await withTestEnvironment(async (context) => {
         const fixture = await setup(context);
         await expect(
-          new LocalInstaller(context, { store: failingStore(context, phase) }).add('./demo'),
+          new Installer(context, { store: failingStore(context, phase) }).add('./demo'),
         ).rejects.toThrow(/lock/);
         await absent(fixture.copy);
         expect(await fixture.store.read()).toBeNull();
@@ -439,7 +436,7 @@ describe('handled failures and rollback', () => {
         await writeFile(join(fixture.copy, 'SKILL.md'), 'manual edits');
         const before = await snapshot(fixture);
         await expect(
-          new LocalInstaller(context, { store: failingStore(context, phase) }).add('./demo', true),
+          new Installer(context, { store: failingStore(context, phase) }).add('./demo', true),
         ).rejects.toThrow(/lock/);
         expect(await snapshot(fixture)).toEqual(before);
         await cleanWork(fixture.paths);
@@ -454,7 +451,7 @@ describe('handled failures and rollback', () => {
         await fixture.installer.add('./demo');
         await writeFile(join(fixture.copy, 'SKILL.md'), 'manual edits');
         const before = await snapshot(fixture);
-        const options: LocalInstallerOptions = phase.startsWith('lock')
+        const options: InstallerOptions = phase.startsWith('lock')
           ? { store: failingStore(context, phase === 'lock write' ? 'write' : 'commit') }
           : {
               fileSystem: {
@@ -462,7 +459,7 @@ describe('handled failures and rollback', () => {
                 rename: vi.fn().mockRejectedValueOnce(new Error('rename failure')),
               },
             };
-        await expect(new LocalInstaller(context, options).remove('demo')).rejects.toThrow();
+        await expect(new Installer(context, options).remove('demo')).rejects.toThrow();
         expect(await snapshot(fixture)).toEqual(before);
         await cleanWork(fixture.paths);
       });
@@ -476,14 +473,14 @@ describe('handled failures and rollback', () => {
         await fixture.installer.add('./demo');
         const before = await snapshot(fixture);
         await writeFile(join(fixture.source, 'new'), 'new');
-        const options: LocalInstallerOptions = {
+        const options: InstallerOptions = {
           fileSystem: {
             ...installerFileSystem,
             rm: vi.fn().mockRejectedValue(new Error('cleanup failure')),
           },
           ...(phase === 'rollback' ? { store: failingStore(context, 'commit') } : {}),
         };
-        await expect(new LocalInstaller(context, options).add('./demo')).rejects.toThrow(
+        await expect(new Installer(context, options).add('./demo')).rejects.toThrow(
           /удалить временный каталог не удалось/,
         );
         if (phase === 'success')
@@ -511,9 +508,7 @@ describe('handled failures and rollback', () => {
         .mockRejectedValueOnce(new Error('replacement failure'))
         .mockRejectedValueOnce(new Error('rollback failure'));
       await expect(
-        new LocalInstaller(context, { fileSystem: { ...installerFileSystem, rename } }).add(
-          './demo',
-        ),
+        new Installer(context, { fileSystem: { ...installerFileSystem, rename } }).add('./demo'),
       ).rejects.toThrow(/откат завершились ошибкой.*файлы для восстановления/);
       const directories = (await readdir(fixture.paths.agentsDirectory)).filter((name) =>
         name.startsWith(WORKSPACE_PREFIX),
@@ -557,7 +552,7 @@ describe('handled failures and rollback', () => {
         expect(blocked.stderr).toContain('Область занята другой операцией');
         return prepareDirectory(...args);
       };
-      await new LocalInstaller(context, { prepare }).add('./demo');
+      await new Installer(context, { prepare }).add('./demo');
       const retry = child();
       expect(retry.status).toBe(0);
       expect(retry.stdout).toContain('Без изменений');

@@ -7,10 +7,15 @@ export interface SkillMetadata {
   readonly description: string;
 }
 
-/** Read YAML data only; the caller keeps the original SKILL.md bytes. */
+/**
+ * Читает name/description из начального YAML-frontmatter SKILL.md и проверяет безопасное имя.
+ * Обрабатывает только YAML-данные; исходные байты документа вызывающий код сохраняет без переписывания.
+ *
+ * @throws SourceError — frontmatter, обязательные поля или имя некорректны.
+ */
 export function readSkillMetadata(raw: string): SkillMetadata {
   const match = raw.match(/^\uFEFF?---[\t ]*\r?\n([\s\S]*?)^---[\t ]*(?:\r?\n|$)/m);
-  // The multiline closing delimiter must not allow frontmatter later in the body.
+  // Многострочный закрывающий разделитель не должен разрешать frontmatter внутри тела.
   if (!match || match.index !== 0) {
     throw new SourceError(
       'INVALID_METADATA',

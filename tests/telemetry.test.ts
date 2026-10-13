@@ -4,7 +4,8 @@ import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
 import { AGENTS } from '../src/installer/agents.ts';
-import { LocalInstaller, type LocalInstallerOptions } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
+import type { InstallerOptions } from '../src/installer/types.ts';
 import type { InstallationScope } from '../src/installer/types.ts';
 import type { RuntimeContext } from '../src/runtime.ts';
 import { getStatePaths } from '../src/state/paths.ts';
@@ -28,7 +29,7 @@ function enabled(f: TestEnvironment, env: Record<string, string> = {}): RuntimeC
 function tracking(
   f: TestEnvironment,
   scope: InstallationScope = 'project',
-  options: LocalInstallerOptions = {},
+  options: InstallerOptions = {},
 ) {
   const backend = versionRegistry();
   const events: { url: string; payload: TelemetryEnvelope }[] = [];
@@ -46,7 +47,7 @@ function tracking(
     }),
   };
   const telemetry = new Telemetry(context, '0.1.0', { timeoutMs: 30 });
-  const installer = new LocalInstaller(context, {
+  const installer = new Installer(context, {
     scope,
     registry: backend.url,
     telemetry,
@@ -192,7 +193,7 @@ describe.each(['project', 'global'] as const)('%s registry statistics', (scope) 
       await flush(installer.add('demo', false, agents));
       events.length = 0;
       backend.current.demo = '2.0.0';
-      const updater = new LocalInstaller(context, {
+      const updater = new Installer(context, {
         scope,
         telemetry,
         reviewUpdate: async () => decision,
@@ -353,7 +354,7 @@ describe('best-effort telemetry transport', () => {
       const http = vi.fn<typeof fetch>();
       const context = { ...enabled(f), http };
       const telemetry = new Telemetry(context, '0.1.0');
-      const installer = new LocalInstaller(context, { telemetry });
+      const installer = new Installer(context, { telemetry });
       const source = join(f.roots.cwd, 'source');
       await mkdir(source);
       await writeFile(join(source, 'SKILL.md'), skillText);

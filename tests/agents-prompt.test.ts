@@ -4,7 +4,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { selectAgents } from '../src/cli/agents-prompt.ts';
 import { createProgram } from '../src/cli/program.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { withTestEnvironment } from './helpers/test-environment.js';
 
@@ -132,7 +132,7 @@ describe('real Clack selection with controlled TTY streams', () => {
           t.close();
         }
       }
-      const records = await new LocalInstaller(context).list();
+      const records = await new Installer(context).list();
       expect(records[0]!.agents).toEqual(['claude-code', 'codex', 'opencode', 'pi']);
       expect(records[0]!.connections).toHaveLength(4);
       expect(await readFile(join(context.roots.cwd, '.pi/skills/demo/SKILL.md'), 'utf8')).toContain(

@@ -3,6 +3,7 @@ import { sortCatalog, type CatalogSkill } from '../registry/catalog.ts';
 
 export const MIN_FIND_PREFIX_LENGTH = 2;
 
+/** Проверяет минимальную длину префикса в кодовых точках Unicode без его изменения. */
 export function canSearchPrefix(prefix: string): boolean {
   return [...prefix].length >= MIN_FIND_PREFIX_LENGTH;
 }
@@ -15,7 +16,7 @@ export type FindSearchState = {
   | { readonly status: 'error'; readonly message: string }
 );
 
-/** UI request lifecycle; backend alone interprets the literal, case-sensitive prefix. */
+/** Управляет запросами UI; буквальный префикс с учётом регистра интерпретирует только backend. */
 export class RegistryFindSearch {
   state: FindSearchState = { prefix: '', items: [], status: 'idle' };
   private revision = 0;
@@ -23,12 +24,18 @@ export class RegistryFindSearch {
   private timer?: ReturnType<typeof setTimeout>;
   private controller?: AbortController;
 
+  /** Связывает registry-клиент, уведомление renderer и задержку debounce; сам запрос не запускает. */
   constructor(
     private readonly client: RegistryClient,
     private readonly changed: () => void,
     private readonly delayMs = 200,
   ) {}
 
+  /**
+   * Очищает результаты, отменяет предыдущий запрос и планирует поиск для достаточного префикса.
+   *
+   * @param immediate - Запустить HTTP сразу, пропустив debounce.
+   */
   setPrefix(prefix: string, immediate = false): void {
     if (this.closed) return;
     const revision = ++this.revision;
@@ -47,6 +54,10 @@ export class RegistryFindSearch {
       }, this.delayMs);
   }
 
+  /**
+   * Получает и сортирует серверные результаты; публикует только ответ текущей ревизии. Ошибка становится
+   * отдельным состоянием error, а не пустым результатом.
+   */
   private async request(
     prefix: string,
     controller: AbortController,
@@ -71,10 +82,12 @@ export class RegistryFindSearch {
     this.changed();
   }
 
+  /** Повторяет поиск текущего префикса сразу, без задержки debounce. */
   retry(): void {
     this.setPrefix(this.state.prefix, true);
   }
 
+  /** Отменяет таймер и HTTP, запрещает новые запросы и публикацию запоздалых ответов. */
   close(): void {
     this.closed = true;
     this.revision++;

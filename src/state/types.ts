@@ -5,11 +5,11 @@ export const LOCK_VERSION = 1;
 
 export interface ManagedConnection {
   readonly agent: AgentId;
-  /** Direct shared directory or agent symlink; project paths are relative to cwd. */
+  /** Общая копия напрямую или ссылка агента; проектный путь относителен к cwd. */
   readonly path: string;
 }
 
-/** Paths are portable in a project lock and absolute in a global lock. */
+/** Пути переносимы в проектном lock и абсолютны в глобальном. */
 export interface InstallationRecord {
   readonly name: string;
   readonly source: SourceIdentity;
@@ -26,6 +26,7 @@ export interface LockFile {
   readonly skills: Readonly<Record<string, InstallationRecord>>;
 }
 
+/** Возвращает пустой lock текущей версии схемы; файлы и каталоги не создаёт. */
 export function createEmptyLock(): LockFile {
   return { version: LOCK_VERSION, skills: {} };
 }

@@ -5,7 +5,12 @@ import { StateError, hasErrorCode } from './errors.ts';
 import { assertScopeLocation, ensureOwnedDirectory } from './filesystem.ts';
 import type { StatePaths } from './paths.ts';
 
-/** Fail fast on another writer, including a leftover lock after a crash. */
+/**
+ * Захватывает файловую блокировку области и удерживает её до завершения callback.
+ *
+ * @throws StateError — SCOPE_BUSY при существующей блокировке, включая оставшуюся после аварии.
+ * @remarks В finally удаляет только собственный inode блокировки и закрывает дескриптор.
+ */
 export async function withScopeLock<T>(paths: StatePaths, run: () => Promise<T>): Promise<T> {
   await assertScopeLocation(paths);
   await ensureOwnedDirectory(paths.root);

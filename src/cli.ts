@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/** Получает реальные cwd/home/env/HTTP, запускает Commander и переводит ошибку команды в код 1. */
 import { errorMessage } from './errors.ts';
 import packageJson from '../package.json' with { type: 'json' };
 import { homedir } from 'node:os';

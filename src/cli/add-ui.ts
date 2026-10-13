@@ -2,7 +2,7 @@ import { confirm, isCancel, log, note, select } from '@clack/prompts';
 import { emitKeypressEvents, type Key } from 'node:readline';
 import type { RuntimeContext } from '../runtime.ts';
 import { AGENTS } from '../installer/agents.ts';
-import type { AddDecision, AddPreview } from '../installer/local.ts';
+import type { AddDecision, AddPreview } from '../installer/types.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import { RegistryClient } from '../registry/client.ts';
 import type { SkillDetail } from '../registry/catalog.ts';
@@ -11,6 +11,11 @@ import { terminalText } from './discovery-ui.ts';
 import { renderTable, wrapTerminalText } from './table.ts';
 import { policyLabel } from './labels.ts';
 
+/**
+ * Выбирает область add/find; -g и запуск без TTY обходят меню.
+ *
+ * @returns project/global либо null при отмене; без TTY по умолчанию project.
+ */
 export async function selectScope(
   global: boolean | undefined,
   context: RuntimeContext,
@@ -32,6 +37,10 @@ export async function selectScope(
   return isCancel(selected) ? null : selected;
 }
 
+/**
+ * Показывает полную карточку выбранной версии и фактические назначения агентов. Очищает управляющие
+ * символы данных и переносит строки по ширине терминала.
+ */
 function card(preview: AddPreview, details: SkillDetail | undefined, streams: PromptStreams) {
   const width = Math.max(16, (streams.output.columns ?? 80) - 8);
   const clean = (value: string) => value.split(/\r?\n/).map(terminalText).join('\n');
@@ -68,7 +77,11 @@ function card(preview: AddPreview, details: SkillDetail | undefined, streams: Pr
   );
 }
 
-/** Own cancellation only while preparing; Clack owns input during confirmation. */
+/**
+ * Создаёт callbacks карточки и подтверждения add/find вместе с сигналом отмены подготовки.
+ *
+ * @remarks run владеет клавиатурой до диалога, затем обработку ввода принимает Clack.
+ */
 export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes = false) {
   const controller = new AbortController();
   let listening = false;
@@ -77,6 +90,7 @@ export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes
   const onKey = (_value: string, key: Key) => {
     if (key.name === 'escape' || (key.ctrl && key.name === 'c')) cancelLoading();
   };
+  /** Снимает обработчики отмены подготовки и восстанавливает прежний raw mode терминала. */
   const stopLoading = () => {
     if (!listening) return;
     listening = false;
@@ -85,6 +99,7 @@ export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes
     streams.input.setRawMode?.(previousRaw);
     streams.input.pause();
   };
+  /** Запускает подготовку с обработкой Esc/Ctrl+C; в finally освобождает терминальные обработчики. */
   const run = async <T>(operation: () => Promise<T>): Promise<T> => {
     if (streams.input.isTTY && streams.output.isTTY) {
       log.info('Подготовка карточки… Esc / Ctrl+C — отмена', { output: streams.output });
@@ -101,6 +116,11 @@ export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes
       stopLoading();
     }
   };
+  /**
+   * Получает registry-карточку именно выбранной версии, показывает её и запрашивает согласие.
+   *
+   * @returns approve/decline/cancel; --yes пропускает только финальный вопрос.
+   */
   const review = async (preview: AddPreview): Promise<AddDecision> => {
     let details: SkillDetail | undefined;
     try {

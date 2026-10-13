@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
 import { installerFileSystem } from '../src/installer/filesystem.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths, WORKSPACE_PREFIX } from '../src/state/paths.ts';
 import { defaultStateFileIO, StateStore } from '../src/state/store.ts';
@@ -21,14 +21,14 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
       async (f) => {
         const paths = getStatePaths(f.roots, scope);
         const copy = join(paths.skillsDirectory, 'demo');
-        const original = new LocalInstaller(f, { scope, registry: backend.url });
+        const original = new Installer(f, { scope, registry: backend.url });
         await original.add('demo', false, ids);
         const before = (await original.list())[0]!;
         backend.current.demo = '2.0.0';
         const report = vi.fn(() =>
           expect(readFileSync(join(copy, 'SKILL.md'), 'utf8')).toContain('1.0.0'),
         );
-        const installer = new LocalInstaller(
+        const installer = new Installer(
           {
             ...f,
             env: {
@@ -84,7 +84,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     await withTestEnvironment(
       async (f) => {
         const paths = getStatePaths(f.roots, scope);
-        const installer = new LocalInstaller(f, { scope, registry: backend.url });
+        const installer = new Installer(f, { scope, registry: backend.url });
         await installer.add('demo', false, ids);
         const copy = join(paths.skillsDirectory, 'demo');
         const before = {
@@ -95,7 +95,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         };
         const mkdtemp = vi.fn((prefix: string) => installerFileSystem.mkdtemp(prefix));
         const downloads = vi.fn();
-        const repeated = new LocalInstaller(f, {
+        const repeated = new Installer(f, {
           scope,
           registry: backend.url,
           fileSystem: { ...installerFileSystem, mkdtemp },
@@ -127,7 +127,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
       await withTestEnvironment(
         async (f) => {
           const paths = getStatePaths(f.roots, scope);
-          const installer = new LocalInstaller(f, { scope, registry: backend.url });
+          const installer = new Installer(f, { scope, registry: backend.url });
           await installer.add('demo@1.0.0', false, ids);
           const copy = join(paths.skillsDirectory, 'demo');
           await writeFile(join(copy, 'manual'), 'keep');
@@ -153,7 +153,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     backend.current.demo = '2.0.0';
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { scope, registry: backend.url });
+        const installer = new Installer(f, { scope, registry: backend.url });
         const paths = getStatePaths(f.roots, scope);
         await installer.add('demo', false, ids);
         expect((await installer.add('demo@1.0.0', false, ['codex'])).changes?.content).toBe(true);
@@ -185,7 +185,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { scope, registry: backend.url });
+        const installer = new Installer(f, { scope, registry: backend.url });
         await installer.add('demo', false, ['codex']);
         backend.requests.length = 0;
         expect(await installer.add('demo', false, ['pi'])).toMatchObject({
@@ -213,7 +213,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
       const backend = versionRegistry();
       await withTestEnvironment(
         async (f) => {
-          const installer = new LocalInstaller(f, { scope, registry: backend.url });
+          const installer = new Installer(f, { scope, registry: backend.url });
           const paths = getStatePaths(f.roots, scope);
           const copy = join(paths.skillsDirectory, 'demo');
           await installer.add('demo', false, ids);
@@ -242,7 +242,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
       const backend = versionRegistry();
       await withTestEnvironment(
         async (f) => {
-          const installer = new LocalInstaller(f, { scope, registry: backend.url });
+          const installer = new Installer(f, { scope, registry: backend.url });
           await installer.add('demo');
           const paths = getStatePaths(f.roots, scope);
           const copy = join(paths.skillsDirectory, 'demo');
@@ -278,7 +278,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
           }
         };
         await set(skillText);
-        const installer = new LocalInstaller(f, { scope });
+        const installer = new Installer(f, { scope });
         await installer.add(source, false, ids);
         expect((await installer.update()).results[0]!.status).toBe('unchanged');
         await set(`${skillText}Next\n`);
@@ -303,7 +303,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { scope, registry: backend.url });
+        const installer = new Installer(f, { scope, registry: backend.url });
         await installer.add('demo', false, ['codex', 'pi']);
         await installer.add('other', false, ['pi']);
         backend.current.demo = backend.current.other = '2.0.0';
@@ -336,7 +336,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { scope, registry: backend.url });
+        const installer = new Installer(f, { scope, registry: backend.url });
         await installer.add('demo', false, ['codex', 'pi']);
         const link = join(agentSkillsDirectory(f, scope, 'pi'), 'demo');
         await rm(link);
@@ -372,7 +372,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
       await withTestEnvironment(
         async (f) => {
           const paths = getStatePaths(f.roots, scope);
-          const installer = new LocalInstaller(f, { scope, registry: backend.url });
+          const installer = new Installer(f, { scope, registry: backend.url });
           await installer.add('demo', false, ids);
           await installer.add('other', false, ['codex']);
           const copy = join(paths.skillsDirectory, 'demo');
@@ -401,7 +401,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
           };
           if (phase === 'write') io.writeTemporaryFile.mockImplementationOnce(fail);
           if (phase === 'commit') io.rename.mockImplementationOnce(fail);
-          const failed = new LocalInstaller(f, {
+          const failed = new Installer(f, {
             scope,
             registry: backend.url,
             fileSystem: fs,
@@ -432,7 +432,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { scope, registry: backend.url });
+        const installer = new Installer(f, { scope, registry: backend.url });
         await installer.add('demo', false, ['pi']);
         const paths = getStatePaths(f.roots, scope);
         const before = await readFile(paths.lockPath);
@@ -440,7 +440,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         const hash = await hashDirectory(copy);
         await rm(join(agentSkillsDirectory(f, scope, 'pi'), 'demo'));
         backend.current.demo = '2.0.0';
-        const failed = new LocalInstaller(f, {
+        const failed = new Installer(f, {
           scope,
           fileSystem: {
             ...installerFileSystem,
@@ -460,7 +460,7 @@ it('protects a copy edited while registry metadata is being resolved, even with 
   const backend = versionRegistry();
   await withTestEnvironment(
     async (f) => {
-      const installer = new LocalInstaller(f, { registry: backend.url });
+      const installer = new Installer(f, { registry: backend.url });
       await installer.add('demo');
       const paths = getStatePaths(f.roots, 'project');
       const original = backend.http.getMockImplementation()!;
@@ -485,7 +485,7 @@ it('protects a copy edited while registry metadata is being resolved, even with 
 
 it('rejects corrupt state, unknown names and agents, and accepts an empty update', async () => {
   await withTestEnvironment(async (f) => {
-    const installer = new LocalInstaller(f);
+    const installer = new Installer(f);
     expect(await installer.update()).toEqual({ status: 'success', results: [] });
     await expect(installer.update('missing')).rejects.toThrow(/не установлен/);
     await expect(installer.update(undefined, false, ['unknown' as never])).rejects.toThrow(

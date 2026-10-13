@@ -7,6 +7,14 @@ import { prepareArchive, type PrepareArchiveOptions } from './archive.ts';
 import { SourceError } from './errors.ts';
 import type { PreparedSource } from './types.ts';
 
+/**
+ * Готовит registry-снимок через проверенное скачивание и адаптер локального архива, сверяя имя со slug.
+ *
+ * @param resolvedArtifact - Уже выбранный артефакт; при его наличии latest заново не разрешается.
+ * @param onDownload - Вызывается после проверки скачанных байтов, до распаковки и проверки SKILL.md.
+ * @remarks Временные ресурсы находятся внутри temporaryDirectory. Прямой потребитель вызывает cleanup;
+ * при ошибке workspace очищается, ошибки очистки сохраняются.
+ */
 export async function prepareRegistrySource(
   reference: RegistryReference,
   client: RegistryClient,

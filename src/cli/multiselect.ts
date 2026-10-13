@@ -13,7 +13,10 @@ import { styleText } from 'node:util';
 import type { PromptStreams } from './agents-prompt.ts';
 import { wrapTerminalText } from './table.ts';
 
-/** Clack's multiselect renderer hardcodes English validation; keep its input engine. */
+/**
+ * Открывает множественный выбор Clack с русской отрисовкой и запретом пустого выбора. Навигацию и отмену
+ * выполняет штатное ядро MultiSelectPrompt.
+ */
 export function multiselect<Value>(
   options: PromptStreams & {
     readonly message: string;

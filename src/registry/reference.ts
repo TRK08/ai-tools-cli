@@ -2,7 +2,7 @@ import type { Environment } from '../runtime.ts';
 import { RegistryError } from './errors.ts';
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-// Adapted from ../skills/src/registry-source.ts; full SemVer, including build/prerelease.
+// Адаптировано из ../skills/src/registry-source.ts; полная SemVer с build/prerelease.
 const numeric = '(?:0|[1-9][0-9]*)';
 const pre = `(?:${numeric}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)`;
 const versionPattern = new RegExp(
@@ -14,9 +14,17 @@ export interface RegistryReference {
   readonly version?: string;
 }
 
+/** Проверяет slug из строчных латинских букв, цифр и одиночных дефисов без управляющих символов. */
 export const isRegistrySlug = (value: string) => !/\p{Cc}/u.test(value) && slugPattern.test(value);
+/** Проверяет полную SemVer без префикса v, включая prerelease/build и правила ведущих нулей. */
 export const isFullSemVer = (value: string) => !/\p{Cc}/u.test(value) && versionPattern.test(value);
 
+/**
+ * Разбирает slug или slug@version, не принимая синтаксис пути/URL.
+ *
+ * @returns null, если строка не является registry-ссылкой.
+ * @throws RegistryError — распознан slug с некорректной явной версией.
+ */
 export function parseRegistryReference(input: string): RegistryReference | null {
   if (/[/:#\\]/.test(input)) return null;
   const [slug, version, extra] = input.split('@');
@@ -29,6 +37,12 @@ export function parseRegistryReference(input: string): RegistryReference | null 
   return { slug, ...(version === undefined ? {} : { version }) };
 }
 
+/**
+ * Выбирает URL: явный параметр → SKILLS_API_URL → localhost:8000, затем нормализует его.
+ *
+ * @throws RegistryError — URL не является базовым HTTP(S) адресом или содержит учётные данные, query либо
+ * fragment.
+ */
 export function getRegistryUrl(explicit: string | undefined, env: Environment): string {
   const input = explicit?.trim() || env.SKILLS_API_URL?.trim() || 'http://localhost:8000';
   try {

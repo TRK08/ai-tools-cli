@@ -8,7 +8,7 @@ interface TableColumn {
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-/** Keep one display row, preserving whole graphemes and reserving space for the ellipsis. */
+/** Сокращает подпись до экранной ширины с многоточием, сохраняя целые графемы. */
 export function truncateTerminalText(value: string, width: number): string {
   if (width <= 0) return '';
   if (stringWidth(value) <= width) return value;
@@ -20,6 +20,10 @@ export function truncateTerminalText(value: string, width: number): string {
   return result + '…';
 }
 
+/**
+ * Переносит текст по экранной ширине, сохраняя графемы и исходные разрывы строк. Предпочитает границы
+ * пробела или пути; остаток переносит целиком.
+ */
 export function wrapTerminalText(value: string, width: number): string[] {
   return value.split('\n').flatMap((line) => {
     const lines: string[] = [];
@@ -39,7 +43,10 @@ export function wrapTerminalText(value: string, width: number): string[] {
   });
 }
 
-/** Wrap values without losing them and align using their displayed Unicode width. */
+/**
+ * Пишет таблицу в переданный output, подбирая ширину колонок и перенося длинные значения. Выравнивание
+ * учитывает экранную ширину Unicode, а не число кодовых единиц строки.
+ */
 export function renderTable(
   columns: readonly TableColumn[],
   rows: readonly (readonly string[])[],

@@ -16,6 +16,10 @@ export interface StateFileIO {
 }
 
 export const defaultStateFileIO: StateFileIO = {
+  /**
+   * Создаёт новый временный lock эксклюзивно, записывает JSON и выполняет fsync. Дескриптор закрывается в
+   * finally; существующий файл не перезаписывается.
+   */
   async writeTemporaryFile(path, content) {
     const handle = await open(path, 'wx', 0o600);
     try {
@@ -28,18 +32,26 @@ export const defaultStateFileIO: StateFileIO = {
   rename,
 };
 
+/** Read/write доступны только до завершения callback; каждый write — отдельный атомарный commit. */
 export interface StateTransaction {
+  /** Читает проверенный lock либо null, пока сеанс активен. */
   readonly read: () => Promise<LockFile | null>;
+  /** Сохраняет lock внутри уже захваченной блокировки области. */
   readonly write: (lock: LockFile) => Promise<void>;
 }
 
 export class StateStore {
+  /** Связывает пути состояния и подменяемые операции атомарной записи; I/O не выполняет. */
   constructor(
     readonly paths: StatePaths,
     private readonly io: StateFileIO = defaultStateFileIO,
   ) {}
 
-  /** null means missing, while malformed/unsupported data and I/O errors reject. */
+  /**
+   * Читает собственный lock с проверкой корня, типа файла и схемы, не создавая каталогов.
+   *
+   * @returns null при отсутствии корня/lock; повреждённые данные и ошибки I/O пробрасываются.
+   */
   async read(): Promise<LockFile | null> {
     await assertScopeLocation(this.paths);
     const root = await lstat(this.paths.root).catch((cause: unknown) => {
@@ -83,6 +95,12 @@ export class StateStore {
     }
   }
 
+  /**
+   * Открывает read/write-сеанс под одной блокировкой области до завершения callback.
+   *
+   * @remarks После выхода методы сеанса недоступны. Успешные write не откатываются автоматически при
+   * поздней ошибке callback; файловым откатом управляет Installer.
+   */
   async transaction<T>(run: (state: StateTransaction) => Promise<T>): Promise<T> {
     return withScopeLock(this.paths, async () => {
       let active = true;
@@ -107,7 +125,11 @@ export class StateStore {
     });
   }
 
-  /** Serialize the whole read-modify-write operation under the scope lock. */
+  /**
+   * Читает, изменяет и нормализует состояние под одной блокировкой, затем атомарно сохраняет результат.
+   *
+   * @returns Нормализованный lock с переносимыми путями.
+   */
   async update(
     change: (previous: LockFile | null) => Promise<LockFile> | LockFile,
   ): Promise<LockFile> {
@@ -119,10 +141,21 @@ export class StateStore {
     });
   }
 
+  /**
+   * Самостоятельно сохраняет lock под блокировкой области.
+   *
+   * @remarks В уже открытой транзакции используется state.write, чтобы не захватывать блокировку
+   * повторно.
+   */
   async write(lock: LockFile): Promise<void> {
     return this.transaction((state) => state.write(lock));
   }
 
+  /**
+   * Проверяет схему и неизменность источников, затем сохраняет lock через временный файл и rename.
+   *
+   * @remarks Вызывается под блокировкой; при неудачном commit удаляет временный файл.
+   */
   private async writeAtomic(lock: LockFile): Promise<void> {
     const content = serializeLockFile(lock, this.paths);
     const next = parseLockFile(JSON.parse(content), this.paths);

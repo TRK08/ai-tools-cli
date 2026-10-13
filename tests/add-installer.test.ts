@@ -2,7 +2,8 @@ import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS } from '../src/installer/agents.ts';
-import { LocalInstaller, type AddPreview } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
+import type { AddPreview } from '../src/installer/types.ts';
 import { prepareLocalSource } from '../src/sources/local.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths } from '../src/state/paths.ts';
@@ -47,7 +48,7 @@ describe('installation review lifecycle', () => {
             } else await writeFile(source, 'archive changed after review');
             return 'approve' as const;
           });
-          const installer = new LocalInstaller(
+          const installer = new Installer(
             { ...f, http: backend.http },
             {
               scope,
@@ -86,7 +87,7 @@ describe('installation review lifecycle', () => {
             const source = kind === 'registry' ? 'demo' : await localSource(f, kind === 'archive');
             const before = await hashDirectory(f.temporaryRoot);
             const telemetry = new Telemetry(context, '0.1.0');
-            const installer = new LocalInstaller(context, {
+            const installer = new Installer(context, {
               scope,
               registry: backend.url,
               telemetry,
@@ -110,13 +111,13 @@ describe('installation review lifecycle', () => {
     withTestEnvironment(async (f) => {
       const backend = versionRegistry();
       const context = { ...f, http: backend.http };
-      const installer = new LocalInstaller(context, { registry: backend.url });
+      const installer = new Installer(context, { registry: backend.url });
       await installer.add('demo');
       const paths = getStatePaths(f.roots, 'project');
       const before = await readFile(paths.lockPath);
       backend.requests.length = 0;
       const reviewAdd = vi.fn(async () => 'decline' as const);
-      const reviewed = new LocalInstaller(context, { registry: backend.url, reviewAdd });
+      const reviewed = new Installer(context, { registry: backend.url, reviewAdd });
       expect((await reviewed.addRegistry({ slug: 'demo', version: '1.0.0' })).status).toBe(
         'skipped',
       );
@@ -131,7 +132,7 @@ describe('installation review lifecycle', () => {
     withTestEnvironment(async (f) => {
       const source = await localSource(f, false);
       const requested = ['claude-code', 'opencode'] as const;
-      const installer = new LocalInstaller(f, { scope: 'global' });
+      const installer = new Installer(f, { scope: 'global' });
       await installer.add(source, false, requested);
       const saved = (await installer.list())[0]!.connections;
       const changed = {
@@ -143,7 +144,7 @@ describe('installation review lifecycle', () => {
         },
       };
       const reviewAdd = vi.fn(async () => 'approve' as const);
-      const result = await new LocalInstaller(changed, { scope: 'global', reviewAdd }).add(
+      const result = await new Installer(changed, { scope: 'global', reviewAdd }).add(
         source,
         false,
         requested,
@@ -156,11 +157,11 @@ describe('installation review lifecycle', () => {
     withTestEnvironment(async (f) => {
       const backend = versionRegistry();
       const context = { ...f, http: backend.http };
-      const installer = new LocalInstaller(context, { registry: backend.url });
+      const installer = new Installer(context, { registry: backend.url });
       await installer.add('demo@1.0.0');
       backend.requests.length = 0;
       const reviewAdd = vi.fn(async () => 'approve' as const);
-      const reviewed = new LocalInstaller(context, { registry: backend.url, reviewAdd });
+      const reviewed = new Installer(context, { registry: backend.url, reviewAdd });
       expect(
         await reviewed.addRegistry({ slug: 'demo', version: '1.0.0', policy: 'latest' }),
       ).toMatchObject({

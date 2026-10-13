@@ -17,7 +17,10 @@ const filesystemMessages: Record<string, string> = {
   ENAMETOOLONG: 'Имя файла слишком длинное',
 };
 
-/** Preserve diagnostic codes, operations and paths while localizing native filesystem errors. */
+/**
+ * Возвращает русское сообщение для системной ошибки файловой системы, сохраняя код, операцию и пути. Для
+ * остальных ошибок сохраняет исходное сообщение, для иных значений использует String.
+ */
 export function errorMessage(cause: unknown): string {
   if (!(cause instanceof Error)) return String(cause);
   const error = cause as NodeJS.ErrnoException & { dest?: string };

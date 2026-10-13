@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'node:path';
+import { isAgentId, isDirectAgent } from '../agents/catalog.ts';
 import type { AgentId } from '../installer/types.ts';
 import type { SourceIdentity } from '../sources/types.ts';
 import { isFullSemVer, isRegistrySlug } from '../registry/reference.ts';
@@ -19,8 +20,6 @@ import {
   type ManagedConnection,
 } from './types.ts';
 
-const agents: readonly AgentId[] = ['claude-code', 'codex', 'opencode', 'pi', 'cursor'];
-
 function invalid(message: string): never {
   throw new StateError('INVALID_LOCK', message);
 }
@@ -31,6 +30,7 @@ function object(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** Проверяет наличие обязательных и отсутствие неизвестных полей объекта lock. */
 function keys(
   value: Record<string, unknown>,
   required: readonly string[],
@@ -50,6 +50,7 @@ function text(value: unknown, label: string): string {
   return value;
 }
 
+/** Проверяет SHA-256 в шестнадцатеричной форме и нормализует регистр для сохранения. */
 function digest(value: unknown, label: string): string {
   const hash = text(value, label);
   if (!/^[a-f\d]{64}$/i.test(hash))
@@ -57,11 +58,17 @@ function digest(value: unknown, label: string): string {
   return hash.toLowerCase();
 }
 
+/** Проверяет идентификатор агента по общему каталогу; неизвестное значение даёт INVALID_LOCK. */
 function agent(value: unknown): AgentId {
-  if (!agents.includes(value as AgentId)) invalid(`Неизвестный агент: ${JSON.stringify(value)}.`);
-  return value as AgentId;
+  if (!isAgentId(value)) invalid(`Неизвестный агент: ${JSON.stringify(value)}.`);
+  return value;
 }
 
+/**
+ * Проверяет и нормализует постоянный источник, не принимая временные URL.
+ *
+ * @param storageInput - true допускает runtime-пути при сериализации; false проверяет сохранённый формат.
+ */
 function source(value: unknown, paths: StatePaths, storageInput: boolean): SourceIdentity {
   const entry = object(value, 'source');
   if (entry.kind === 'registry') {
@@ -88,6 +95,7 @@ function source(value: unknown, paths: StatePaths, storageInput: boolean): Sourc
   return { kind: entry.kind, path: portableSourcePath(path, paths) };
 }
 
+/** Проверяет агент/путь управляемого подключения и кодирует путь по правилам области. */
 function connection(value: unknown, paths: StatePaths, storageInput: boolean): ManagedConnection {
   const entry = object(value, 'connection');
   keys(entry, ['agent', 'path']);
@@ -99,6 +107,7 @@ function connection(value: unknown, paths: StatePaths, storageInput: boolean): M
   return { agent: agent(entry.agent), path: portableConnectionPath(path, paths) };
 }
 
+/** Проверяет одну запись lock: имя, источник/политику, версии, хеши и согласованность подключений. */
 function record(
   value: unknown,
   name: string,
@@ -143,11 +152,7 @@ function record(
           resolve(paths.cwd, item.path) === getSkillDirectory(paths, name) &&
           connections
             .filter((other) => other.path === item.path)
-            .every((other) =>
-              (paths.scope === 'project' ? ['codex', 'opencode', 'cursor'] : ['codex']).includes(
-                other.agent,
-              ),
-            )
+            .every((other) => isDirectAgent(other.agent, paths.scope))
         ),
     )
   )
@@ -173,6 +178,12 @@ function record(
   };
 }
 
+/**
+ * Проверяет версию и весь lock, упорядочивает записи и запрещает общий управляемый путь у разных скиллов.
+ *
+ * @param storageInput - true для сериализации runtime-путей, false для строгого чтения сохранённых
+ * данных.
+ */
 function normalize(value: unknown, paths: StatePaths, storageInput: boolean): LockFile {
   try {
     const lock = object(value, 'lock');
@@ -211,12 +222,18 @@ function normalize(value: unknown, paths: StatePaths, storageInput: boolean): Lo
   }
 }
 
-/** Parse persisted data strictly; a machine's absolute paths cannot enter a project lock. */
+/**
+ * Строго проверяет сохранённый lock и возвращает нормализованное состояние. Абсолютные пути текущей
+ * машины не допускаются в проектном lock; неверная/неизвестная схема — ошибка.
+ */
 export function parseLockFile(value: unknown, paths: StatePaths): LockFile {
   return normalize(value, paths, false);
 }
 
-/** Accept runtime absolute paths, encode portable paths, validate, and write deterministic JSON. */
+/**
+ * Проверяет runtime-состояние, кодирует переносимые пути и возвращает детерминированный JSON. На диск не
+ * записывает; абсолютные runtime-пути проекта преобразуются в относительные.
+ */
 export function serializeLockFile(lock: LockFile, paths: StatePaths): string {
   return `${JSON.stringify(normalize(lock, paths, true), null, 2)}\n`;
 }

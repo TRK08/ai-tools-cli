@@ -5,7 +5,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths } from '../src/state/paths.ts';
 import { withRegistryServer } from './helpers/registry.ts';
@@ -162,7 +162,7 @@ describe('registry CLI', () => {
                 input.write('\r');
               }
               await run;
-              expect((await new LocalInstaller(f, { scope }).list())[0]!.agents).toEqual([
+              expect((await new Installer(f, { scope }).list())[0]!.agents).toEqual([
                 'claude-code',
                 'codex',
                 'opencode',

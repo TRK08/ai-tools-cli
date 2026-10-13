@@ -36,15 +36,20 @@ export interface TelemetryOptions {
   readonly timeoutMs?: number;
 }
 
-/** In-memory, bounded best-effort delivery; never writes state or changes an operation result. */
+/** Ограниченная по времени отправка в памяти; не пишет состояние и не меняет результат установки. */
 export class Telemetry {
   private readonly pending: Promise<void>[] = [];
+  /** Создаёт список отправок в памяти с заданными окружением и тайм-аутом. */
   constructor(
     private readonly runtime: RuntimeContext,
     private readonly cliVersion: string,
     private readonly options: TelemetryOptions = {},
   ) {}
 
+  /**
+   * Формирует registry-событие и запускает фоновую отправку, учитывая отключение статистики. Неверный
+   * endpoint и сбои отправки не меняют результат операции; данные на диск не записываются.
+   */
   emit(
     event: 'download' | 'install',
     input: RegistryEventContext,
@@ -85,10 +90,14 @@ export class Telemetry {
       };
       this.pending.push(this.post(endpoint, payload));
     } catch {
-      /* Optional statistics cannot fail an installation. */
+      /* Необязательная статистика не должна завершать установку ошибкой. */
     }
   }
 
+  /**
+   * Отправляет JSON с ограниченным ожиданием, по тайм-ауту вызывает abort. Закрывает тело ответа и
+   * подавляет транспортные ошибки, включая отмену.
+   */
   private async post(endpoint: URL, payload: TelemetryEnvelope): Promise<void> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -116,12 +125,16 @@ export class Telemetry {
         timeout,
       ]);
     } catch {
-      /* Transport failures, including abort, are intentionally ignored. */
+      /* Транспортные ошибки, включая отмену, намеренно игнорируются. */
     } finally {
       clearTimeout(timer);
     }
   }
 
+  /**
+   * Ожидает текущие накопленные отправки и удаляет их из списка pending. События, добавленные после
+   * начала ожидания, остаются для следующего flush.
+   */
   async flush(): Promise<void> {
     await Promise.all(this.pending.splice(0));
   }

@@ -17,7 +17,7 @@ export const ARCHIVE_LIMITS = Object.freeze({
   extractedBytes: 25 * 1024 * 1024,
   entries: 1000,
 });
-// Bound headers, PAX metadata and padding too, including data ignored by the parser.
+// Ограничиваем также заголовки, PAX и padding, включая данные, пропущенные parser.
 const MAX_TAR_BYTES = ARCHIVE_LIMITS.extractedBytes + 4 * 1024 * 1024;
 
 export interface PrepareArchiveOptions {
@@ -38,6 +38,7 @@ function invalid(message: string): never {
   throw new SourceError('INVALID_ARCHIVE', message);
 }
 
+/** Нормализует путь записи tar и отклоняет выход за корень, абсолютные пути и управляющие символы. */
 function safePath(raw: string, directory: boolean): string {
   const path = raw.replace(/\\/g, '/');
   if (
@@ -57,6 +58,10 @@ function safePath(raw: string, directory: boolean): string {
   return normalized;
 }
 
+/**
+ * Читает ограниченный локальный архив, проверяя тип, inode и размер открытого файла. Между чтениями
+ * проверяет отмену; дескриптор закрывается в finally.
+ */
 async function readArchive(
   path: string,
   fs: ArchiveSourceFileSystem,
@@ -102,7 +107,10 @@ async function readArchive(
   }
 }
 
-/** Parse bounded gzip/tar data with tar; filesystem writes happen only after validation. */
+/**
+ * Разбирает ограниченный gzip/tar в памяти, проверяя типы записей, пути, дубликаты и полноту потока.
+ * Записи на диск ещё нет; при завершении снимает обработчик abort и закрывает gzip.
+ */
 async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly ArchiveEntry[]> {
   signal?.throwIfAborted();
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) invalid('Ожидался tar-архив, сжатый gzip.');
@@ -120,11 +128,12 @@ async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly Arc
     complete = resolve;
     fail = reject;
   });
-  // Parser errors can happen before its final end is awaited.
+  // Ошибка parser возможна до ожидания окончательного события end.
   void ended.catch(() => {});
   const parser = new Parser({
     strict: true,
     maxMetaEntrySize: 1024 * 1024,
+    /** Проверяет тип, эффективный путь и заявленный размер tar-записи до приёма её содержимого. */
     filter(_path, entry) {
       signal?.throwIfAborted();
       if (!(entry instanceof ReadEntry)) invalid('Ожидалась запись tar-архива.');
@@ -150,6 +159,7 @@ async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly Arc
       bodyBytes = entry.startBlockSize;
       return true;
     },
+    /** Накапливает байты проверенной записи, контролируя фактические размеры и полноту содержимого. */
     onReadEntry(entry: ReadEntry) {
       const target = entries.get(safePath(entry.path, entry.type === 'Directory'))!;
       let entryBytes = 0;
@@ -170,7 +180,7 @@ async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly Arc
       entry.resume();
     },
   });
-  // Unknown types and oversized metadata must fail instead of being silently skipped.
+  // Неизвестный тип и избыточные метаданные должны дать ошибку, а не быть пропущены.
   parser.on('ignoredEntry', () =>
     invalid('Архив содержит неподдерживаемую запись или слишком большие метаданные.'),
   );
@@ -183,6 +193,7 @@ async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly Arc
   });
   parser.once('end', complete);
   const gzip = createGunzip();
+  /** Прерывает gzip и tar при abort и сохраняет исходную причину отмены. */
   const cancel = () => {
     const reason: unknown = signal!.reason;
     fail(reason);
@@ -214,8 +225,8 @@ async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly Arc
           offset = buffer.length;
           break;
         }
-        // Feed headers individually so EOF cannot hide data in the same gzip chunk.
-        // File bodies stay in large chunks; PAX/GNU metadata is parsed in blocks.
+        // Передаём заголовки отдельно, чтобы EOF не скрыл хвост в том же gzip-блоке.
+        // Тела файлов остаются крупными фрагментами; PAX/GNU разбираются блоками.
         const body = bodyBytes > 0;
         const length = body
           ? Math.min(bodyBytes, Math.floor((buffer.length - offset) / 512) * 512)
@@ -258,7 +269,13 @@ async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly Arc
   }
 }
 
-/** Prepare one local archive without agent, state, registry or HTTP dependencies. */
+/**
+ * Готовит один локальный tar.gz/tgz: проверяет архив, выбирает корень SKILL.md и создаёт снимок.
+ *
+ * @returns PreparedSource с хешами архива/дерева и cleanup для самостоятельного потребителя.
+ * @remarks Все ресурсы создаёт внутри temporaryDirectory; при ошибке/отмене закрывает I/O и очищает
+ * workspace, сохраняя ошибки очистки.
+ */
 export async function prepareArchive(
   source: string,
   options: PrepareArchiveOptions,

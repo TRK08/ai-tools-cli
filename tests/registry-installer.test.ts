@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
 import { installerFileSystem } from '../src/installer/filesystem.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths, WORKSPACE_PREFIX } from '../src/state/paths.ts';
 import { StateStore } from '../src/state/store.ts';
@@ -23,7 +23,7 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
           async (f) => {
             const paths = getStatePaths(f.roots, scope);
             const downloads = vi.fn();
-            const installer = new LocalInstaller(f, { scope, onDownload: downloads });
+            const installer = new Installer(f, { scope, onDownload: downloads });
             const result = await installer.add(source, false, ids);
             expect(result.status).toBe('success');
             expect(result.download).toEqual(downloads.mock.calls[0]![0]);
@@ -86,7 +86,7 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
             const paths = getStatePaths(f.roots, scope);
             const copy = join(paths.skillsDirectory, 'demo');
             const downloads = vi.fn();
-            const installer = new LocalInstaller(f, {
+            const installer = new Installer(f, {
               scope,
               registry: url,
               onDownload: downloads,
@@ -180,12 +180,12 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
       withTestEnvironment(
         async (f) => {
           const paths = getStatePaths(f.roots, scope);
-          const installer = new LocalInstaller(f, { scope, registry: url });
+          const installer = new Installer(f, { scope, registry: url });
           await installer.add('demo', false, ids);
           const oldLock = await readFile(paths.lockPath);
           const oldHash = await hashDirectory(join(paths.skillsDirectory, 'demo'));
           const transport = vi.fn().mockRejectedValue(new Error('network down'));
-          const failed = new LocalInstaller({ ...f, http: transport }, { scope, registry: url });
+          const failed = new Installer({ ...f, http: transport }, { scope, registry: url });
           await expect(failed.add('demo', true, ids)).rejects.toThrow(/Запрос к реестру/);
           expect(await readFile(paths.lockPath)).toEqual(oldLock);
           expect(await hashDirectory(join(paths.skillsDirectory, 'demo'))).toBe(oldHash);
@@ -209,13 +209,13 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
           const foreign = join(agentSkillsDirectory(f, scope, 'pi'), 'demo');
           await mkdir(foreign, { recursive: true });
           await writeFile(join(foreign, 'sentinel'), 'keep');
-          const installer = new LocalInstaller(f, { scope, registry: url });
+          const installer = new Installer(f, { scope, registry: url });
           expect((await installer.add('demo', false, ['pi', 'codex'])).status).toBe('partial');
           const before = {
             copy: await hashDirectory(join(paths.skillsDirectory, 'demo')),
             lock: await readFile(paths.lockPath),
           };
-          const failed = new LocalInstaller(f, {
+          const failed = new Installer(f, {
             scope,
             registry: url,
             fileSystem: {
@@ -240,10 +240,10 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
     await withRegistryServer(async ({ url, requests }) =>
       withTestEnvironment(
         async (f) => {
-          const installer = new LocalInstaller(f, { scope, registry: url });
+          const installer = new Installer(f, { scope, registry: url });
           await installer.add('demo');
           const before = requests.length;
-          const different = new LocalInstaller(f, { scope, registry: `${url}/other` });
+          const different = new Installer(f, { scope, registry: `${url}/other` });
           await expect(different.add('demo', true)).rejects.toMatchObject({
             code: 'SOURCE_CONFLICT',
           });
@@ -273,7 +273,7 @@ it('never sends a bare existing directory or a broken local symlink to the regis
     await mkdir(folder);
     await writeFile(join(folder, 'SKILL.md'), skillText);
     const http = vi.fn().mockRejectedValue(new Error('unexpected HTTP'));
-    const installer = new LocalInstaller({ ...f, http }, { registry: 'not a URL' });
+    const installer = new Installer({ ...f, http }, { registry: 'not a URL' });
     await installer.add('demo');
     await symlink('missing-folder', join(f.roots.cwd, 'broken'));
     await expect(installer.add('broken')).rejects.toBeInstanceOf(Error);

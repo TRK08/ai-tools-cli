@@ -1,5 +1,5 @@
 import { cancel, confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
-import type { LocalChange } from '../installer/local.ts';
+import type { InstallationChange } from '../installer/types.ts';
 import type { AgentId, InstallationScope } from '../installer/types.ts';
 import type { InstallationRecord } from '../state/types.ts';
 import type { PromptStreams } from './agents-prompt.ts';
@@ -7,6 +7,10 @@ import { renderTable } from './table.ts';
 import { multiselect } from './multiselect.ts';
 import { failureLabel, plural, scopeLabel } from './labels.ts';
 
+/**
+ * Печатает заголовок удаления и создаёт callbacks выбора, общего подтверждения и результатов. Все диалоги
+ * работают с переданными записями; файлы и lock здесь не изменяются.
+ */
 export function createRemoveUi(
   streams: PromptStreams,
   scope: InstallationScope,
@@ -31,6 +35,11 @@ export function createRemoveUi(
     options,
   );
 
+  /**
+   * Выбирает несколько записей без предвыбора и возвращает их в порядке исходного списка.
+   *
+   * @returns Выбранные записи либо null при отмене.
+   */
   const select = async (records: readonly InstallationRecord[]) => {
     const selected = await multiselect<string>({
       message:
@@ -52,6 +61,11 @@ export function createRemoveUi(
     return records.filter((record) => selected.includes(record.name));
   };
 
+  /**
+   * Показывает весь выбранный список и запрашивает одно подтверждение по умолчанию «Нет».
+   *
+   * @returns true при согласии/--yes, false при отказе/отмене; без TTY требуется --yes.
+   */
   const review = async (records: readonly InstallationRecord[]) => {
     renderTable(columns, records.map(row), streams.output);
     if (yes) return true;
@@ -74,7 +88,11 @@ export function createRemoveUi(
     return true;
   };
 
-  const finish = (records: readonly InstallationRecord[], results: readonly LocalChange[]) => {
+  /** Показывает результаты в порядке подтверждённых записей и диагностику partial/failed. */
+  const finish = (
+    records: readonly InstallationRecord[],
+    results: readonly InstallationChange[],
+  ) => {
     renderTable(
       [...columns.slice(0, 2), { title: 'Результат', maximum: 16 }, columns[2]!],
       results.map((result, index) => {
@@ -95,7 +113,7 @@ export function createRemoveUi(
           `${result.name}: ${failureLabel(result.status)}: ${result.errors.join('; ')}`,
           options,
         );
-    const count = (status: LocalChange['status']) =>
+    const count = (status: InstallationChange['status']) =>
       results.filter((result) => result.status === status).length;
     outro(
       `Удалено: ${count('success')} · Нет совпадений: ${count('unchanged')} · Ошибок: ${count('partial') + count('failed')}`,
@@ -108,6 +126,7 @@ export function createRemoveUi(
     review,
     finish,
     missing: (name: string) => log.info(`${name} не имеет подходящей установки.`, options),
+    /** Показывает отсутствие подходящих установок и завершает вывод без диалога. */
     empty: () => {
       note('Нет подходящих установленных скиллов для удаления.', 'Нет скиллов', options);
       outro('Нечего удалять.', options);

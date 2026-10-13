@@ -9,6 +9,7 @@ export type RegistryErrorCode =
   | 'URL_EXPIRED';
 
 export class RegistryError extends Error {
+  /** Сохраняет код registry-ошибки, её причину и HTTP-статус для диагностики и обновления URL. */
   constructor(
     readonly code: RegistryErrorCode,
     message: string,

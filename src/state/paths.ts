@@ -16,6 +16,11 @@ export interface StatePaths extends FileSystemRoots {
   readonly agentsDirectory: string;
 }
 
+/**
+ * Вычисляет нормализованные пути состояния и общей копии для выбранной области без I/O.
+ *
+ * @throws StateError — корни не абсолютны либо проектная область лексически совпадает с home.
+ */
 export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope): StatePaths {
   if (!isAbsolute(roots.cwd) || !isAbsolute(roots.home)) {
     throw new StateError(
@@ -43,6 +48,10 @@ export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope):
   });
 }
 
+/**
+ * Проверяет непустое имя каталога: запрещает разделители, управляющие символы и «.»/«..», ограничивает
+ * длину 255 байтами UTF-8.
+ */
 export function assertSkillName(name: string): void {
   if (
     !name.trim() ||
@@ -55,11 +64,13 @@ export function assertSkillName(name: string): void {
   }
 }
 
+/** Проверяет имя и вычисляет каталог общей копии скилла, не создавая его. */
 export function getSkillDirectory(paths: StatePaths, name: string): string {
   assertSkillName(name);
   return join(paths.skillsDirectory, name);
 }
 
+/** Отклоняет пустые POSIX-пути, обратные слеши и управляющие символы. */
 export function validatePathText(path: string): void {
   if (!path || /[\\\p{Cc}]/u.test(path)) {
     throw new StateError(
@@ -69,19 +80,26 @@ export function validatePathText(path: string): void {
   }
 }
 
-/** Local sources may be outside cwd; their identity remains lexical and does not follow symlinks. */
+/**
+ * Кодирует источник относительным путём в проекте и абсолютным — глобально. Локальный источник может
+ * находиться вне cwd; symlink не разыменовывается.
+ */
 export function portableSourcePath(path: string, paths: StatePaths): string {
   validatePathText(path);
   const absolute = resolve(paths.cwd, path);
   return paths.scope === 'global' ? absolute : relative(paths.cwd, absolute) || '.';
 }
 
+/** Разрешает сохранённый путь источника относительно cwd, сохраняя лексическую идентичность. */
 export function resolveSourcePath(path: string, paths: StatePaths): string {
   validatePathText(path);
   return resolve(paths.cwd, path);
 }
 
-/** Managed project connections must stay inside the selected cwd. */
+/**
+ * Кодирует управляемое назначение, запрещая выход проектного пути за cwd. Глобальное назначение должно
+ * быть абсолютным.
+ */
 export function portableConnectionPath(path: string, paths: StatePaths): string {
   validatePathText(path);
   if (paths.scope === 'global') {
@@ -100,6 +118,7 @@ export function portableConnectionPath(path: string, paths: StatePaths): string 
   return portable;
 }
 
+/** Получает абсолютный путь подключения после проверки правил переносимости области. */
 export function resolveConnectionPath(path: string, paths: StatePaths): string {
   return paths.scope === 'project'
     ? join(paths.cwd, portableConnectionPath(path, paths))

@@ -19,6 +19,12 @@ export interface PromptStreams {
   };
 }
 
+/**
+ * Проверяет явный список агентов либо открывает меню с предвыбором из каталога.
+ *
+ * @returns Выбранные агенты без повторов либо null при отмене.
+ * @throws Error — если явного списка нет и stdin/stdout не являются TTY.
+ */
 export async function selectAgents(
   explicit: readonly string[],
   context: RuntimeContext,
@@ -39,7 +45,7 @@ export async function selectAgents(
       label: agent.label,
       hint: agentSkillsDirectory(context, scope, agent.id),
     })),
-    initialValues: ['claude-code', 'opencode', 'codex'],
+    initialValues: AGENTS.filter((agent) => agent.defaultSelected).map((agent) => agent.id),
     input: streams.input,
     output: streams.output,
   });

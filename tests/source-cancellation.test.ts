@@ -8,7 +8,7 @@ import { prepareLocalSource } from '../src/sources/local.ts';
 import { archiveSourceFileSystem, directorySourceFileSystem } from '../src/sources/filesystem.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import * as hashing from '../src/state/hash.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { getStatePaths } from '../src/state/paths.ts';
 import { archiveBytes, skillText } from './helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.ts';
@@ -311,7 +311,7 @@ describe('cooperative preparation cancellation', () => {
     async (force) =>
       withTestEnvironment(async (f) => {
         const path = await source(f);
-        const first = new LocalInstaller(f);
+        const first = new Installer(f);
         await first.add(path, false, ['codex']);
         const paths = getStatePaths(f.roots, 'project'),
           lock = await readFile(paths.lockPath);
@@ -344,7 +344,7 @@ describe('cooperative preparation cancellation', () => {
           }),
         );
         expect(
-          await new LocalInstaller(f, { signal: controller.signal }).add(path, force, ['codex']),
+          await new Installer(f, { signal: controller.signal }).add(path, force, ['codex']),
         ).toMatchObject({ status: 'skipped', reason: 'cancelled' });
         expect(reads).toBe(1);
         expect(await readFile(paths.lockPath)).toEqual(lock);
@@ -396,11 +396,11 @@ describe('cooperative preparation cancellation', () => {
         const path = await source(f),
           controller = new AbortController();
         const paths = getStatePaths(f.roots, scope);
-        const first = new LocalInstaller(f, { scope });
+        const first = new Installer(f, { scope });
         await first.add(path, false, ['codex']);
         const lockBefore = await readFile(paths.lockPath),
           hashBefore = await hashDirectory(paths.skillsDirectory);
-        const installer = new LocalInstaller(f, {
+        const installer = new Installer(f, {
           scope,
           signal: controller.signal,
           prepare: (source, options) =>

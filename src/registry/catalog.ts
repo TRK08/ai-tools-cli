@@ -22,6 +22,7 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** Проверяет поля одного результата registry и возвращает неизменяемую копию метаданных. */
 export function validateCatalogSkill(value: unknown): CatalogSkill {
   const data = object(value);
   if (
@@ -48,6 +49,7 @@ export function validateCatalogSkill(value: unknown): CatalogSkill {
   });
 }
 
+/** Проверяет ответ каталога и каждую запись items; неверный ответ не считается пустым поиском. */
 export function validateCatalog(value: unknown): readonly CatalogSkill[] {
   const data = object(value);
   if (!Array.isArray(data.items))
@@ -55,6 +57,7 @@ export function validateCatalog(value: unknown): readonly CatalogSkill[] {
   return Object.freeze(data.items.map(validateCatalogSkill));
 }
 
+/** Проверяет карточку, соответствие slug/выбранной версии и список доступных версий. */
 export function validateSkillDetail(value: unknown, slug: string, version?: string): SkillDetail {
   const data = object(value);
   const skill = validateCatalogSkill(value);
@@ -78,6 +81,7 @@ export function validateSkillDetail(value: unknown, slug: string, version?: stri
   });
 }
 
+/** Возвращает новый список по убыванию installCount, затем по slug; исходный массив сохраняет. */
 export function sortCatalog(items: readonly CatalogSkill[]): readonly CatalogSkill[] {
   return [...items].sort((a, b) => b.installCount - a.installCount || a.slug.localeCompare(b.slug));
 }

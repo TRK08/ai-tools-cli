@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths, WORKSPACE_PREFIX } from '../src/state/paths.ts';
 import { archiveBytes, skillText } from './helpers/archive.ts';
@@ -51,7 +51,7 @@ describe('update tables and confirmation', () => {
       const backend = versionRegistry();
       await withTestEnvironment(
         async (f) => {
-          const installer = new LocalInstaller(f, { scope, registry: backend.url });
+          const installer = new Installer(f, { scope, registry: backend.url });
           await installer.add('demo', false, ['codex', 'pi']);
           backend.current.demo = '2.0.0';
           backend.requests.length = 0;
@@ -99,7 +99,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo');
         backend.current.demo = '2.0.0';
         backend.requests.length = 0;
@@ -134,7 +134,7 @@ describe('update tables and confirmation', () => {
       const backend = versionRegistry();
       await withTestEnvironment(
         async (f) => {
-          const installer = new LocalInstaller(f, { registry: backend.url });
+          const installer = new Installer(f, { registry: backend.url });
           await installer.add('demo');
           await installer.add('other');
           backend.current.demo = backend.current.other = '2.0.0';
@@ -164,7 +164,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo');
         await installer.add('other');
         backend.current.demo = backend.current.other = '2.0.0';
@@ -197,7 +197,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo');
         const paths = getStatePaths(f.roots, 'project');
         const before = await lstat(paths.lockPath);
@@ -231,7 +231,7 @@ describe('update tables and confirmation', () => {
       const backend = versionRegistry();
       await withTestEnvironment(
         async (f) => {
-          const installer = new LocalInstaller(f, { registry: backend.url });
+          const installer = new Installer(f, { registry: backend.url });
           await installer.add('demo');
           backend.current.demo = '2.0.0';
           backend.requests.length = 0;
@@ -257,7 +257,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo@1.0.0');
         backend.http.mockClear();
         const t = terminal();
@@ -288,7 +288,7 @@ describe('update tables and confirmation', () => {
           } else await writeFile(source, archiveBytes([{ path: 'SKILL.md', contents: text }]));
         };
         await set(skillText);
-        const installer = new LocalInstaller(f);
+        const installer = new Installer(f);
         await installer.add(source);
         await set(`${skillText}Updated\n`);
         const paths = getStatePaths(f.roots, 'project');
@@ -315,7 +315,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo');
         const paths = getStatePaths(f.roots, 'project');
         const manual = join(paths.skillsDirectory, 'demo', 'manual');
@@ -343,7 +343,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo', false, ['codex', 'pi']);
         const link = join(f.roots.cwd, '.pi/skills/demo');
         await rm(link);
@@ -370,7 +370,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo');
         await installer.add('other');
         backend.current.demo = backend.current.other = '2.0.0';
@@ -405,7 +405,7 @@ describe('update tables and confirmation', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo');
         backend.current.demo = '2.0.0';
         const paths = getStatePaths(f.roots, 'project');

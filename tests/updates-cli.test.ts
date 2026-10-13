@@ -5,7 +5,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths } from '../src/state/paths.ts';
 import { withRegistryServer, json } from './helpers/registry.ts';
@@ -162,7 +162,7 @@ describe('update CLI', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        await new LocalInstaller(f, { registry: backend.url }).add('demo', false, ['pi']);
+        await new Installer(f, { registry: backend.url }).add('demo', false, ['pi']);
         backend.current.demo = '2.0.0';
         const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode: vi.fn() });
         let rendered = '';
@@ -187,7 +187,7 @@ describe('update CLI', () => {
           expect(rendered).toContain('Текущая');
           expect(rendered).toContain('Доступная');
           expect(rendered).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 2\.0\.0\s+│ Обновлён\s+│/);
-          expect((await new LocalInstaller(f).list())[0]!.agents).toEqual(['pi']);
+          expect((await new Installer(f).list())[0]!.agents).toEqual(['pi']);
         } finally {
           input.destroy();
           output.destroy();

@@ -1,11 +1,11 @@
 import type { BigIntStats } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm } from 'node:fs/promises';
 
-/** Archive I/O seam; parsing uses the real tar/gzip implementation in tests. */
+/** Подменяемый I/O архива; тесты используют настоящий разбор tar/gzip. */
 export const archiveSourceFileSystem = { lstat, mkdir, mkdtemp, open, readFile, realpath, rm };
 export type ArchiveSourceFileSystem = typeof archiveSourceFileSystem;
 
-/** Narrow filesystem seam for deterministic read/copy failure tests. */
+/** Узкий файловый I/O для воспроизводимых ошибок чтения/копирования с байтовыми именами. */
 export interface DirectorySourceFileSystem {
   readonly lstat: (path: Buffer) => Promise<BigIntStats>;
   readonly realpath: (path: Buffer) => Promise<Buffer>;
@@ -20,6 +20,7 @@ export interface DirectorySourceFileSystem {
   readonly rm: typeof rm;
 }
 
+/** Реальный I/O папки: сохраняет байтовые имена и использует BigIntStats для проверки inode. */
 export const directorySourceFileSystem: DirectorySourceFileSystem = {
   lstat: (path) => lstat(path, { bigint: true }),
   realpath: (path) => realpath(path, { encoding: 'buffer' }),

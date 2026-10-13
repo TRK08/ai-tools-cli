@@ -15,10 +15,11 @@ export interface HashDirectoryOptions {
 }
 
 /**
- * Hash the tree itself, including unexpected links without following their targets.
- * Fields use an eight-byte big-endian length followed by their unmodified bytes.
- * The entry type determines its remaining fields: file = executable + contents;
- * symlink = target; directory = recursively sorted entries. The root path is empty.
+ * Вычисляет детерминированный SHA-256 дерева по байтовым путям, типам, содержимому и признаку executable.
+ *
+ * @remarks Поля предваряются восьмибайтовой длиной big-endian. Файл содержит executable и байты; ссылка —
+ * цель без разыменования; каталог — отсортированные по байтам записи. Путь корня пуст; абсолютный корень,
+ * mtime и владелец не учитываются. Отмена проверяется между I/O, дескрипторы закрываются в finally.
  */
 export async function hashDirectory(
   directory: string,
@@ -50,6 +51,10 @@ export async function hashDirectory(
     field(Buffer.from(value));
   }
 
+  /**
+   * Добавляет узел дерева в хеш, не разыменовывая ссылки; для файла проверяет inode/размер и читает
+   * блоками.
+   */
   async function visit(absolutePath: Buffer, relativePath: Buffer): Promise<void> {
     signal?.throwIfAborted();
     const stats = await fs.lstat(absolutePath, { bigint: true });
@@ -81,8 +86,8 @@ export async function hashDirectory(
     }
 
     if (stats.isFile()) {
-      // NOFOLLOW rejects a link replacing this file between lstat and open.
-      // NONBLOCK also prevents a replacement FIFO from blocking open indefinitely.
+      // NOFOLLOW отклоняет ссылку, подменившую файл между lstat и open.
+      // NONBLOCK не позволяет подменённому FIFO заблокировать open навсегда.
       const handle = await fs.open(
         absolutePath,
         constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,

@@ -1,56 +1,25 @@
-import { join, resolve } from 'node:path';
-import type { RuntimeContext } from '../runtime.ts';
-import type { AgentId, InstallationScope } from './types.ts';
+import { AGENTS, isAgentId, type AgentId } from '../agents/catalog.ts';
+import type { InstallationScope, RuntimeContext } from '../runtime.ts';
+export { AGENTS } from '../agents/catalog.ts';
 
-export const AGENTS: readonly { readonly id: AgentId; readonly label: string }[] = [
-  { id: 'claude-code', label: 'Claude Code' },
-  { id: 'opencode', label: 'OpenCode' },
-  { id: 'codex', label: 'Codex' },
-  { id: 'cursor', label: 'Cursor' },
-  { id: 'pi', label: 'Pi' },
-];
-
+/** Проверяет агентов и удаляет повторы, сохраняя порядок первого появления. */
 export function parseAgents(values: readonly string[]): AgentId[] {
+  const result: AgentId[] = [];
   for (const value of values) {
-    if (!AGENTS.some((agent) => agent.id === value)) {
+    if (!isAgentId(value))
       throw new Error(
         `Неизвестный агент: ${value}. Выберите ${AGENTS.map((agent) => agent.id).join(', ')}.`,
       );
-    }
+    if (!result.includes(value)) result.push(value);
   }
-  return [...new Set(values)] as AgentId[];
+  return result;
 }
 
+/** Вычисляет текущий путь с учётом env; ранее сохранённые пути берутся из lock. */
 export function agentSkillsDirectory(
   context: RuntimeContext,
   scope: InstallationScope,
   agent: AgentId,
 ): string {
-  const { cwd, home } = context.roots;
-  if (scope === 'project') {
-    return join(
-      cwd,
-      agent === 'claude-code' ? '.claude' : agent === 'pi' ? '.pi' : '.agents',
-      'skills',
-    );
-  }
-  switch (agent) {
-    case 'claude-code':
-      return join(
-        resolve(cwd, context.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude')),
-        'skills',
-      );
-    case 'opencode':
-      return join(
-        resolve(cwd, context.env.XDG_CONFIG_HOME?.trim() || join(home, '.config')),
-        'opencode',
-        'skills',
-      );
-    case 'codex':
-      return join(home, '.agents', 'skills');
-    case 'cursor':
-      return join(home, '.cursor', 'skills');
-    case 'pi':
-      return join(home, '.pi', 'agent', 'skills');
-  }
+  return AGENTS.find((entry) => entry.id === agent)![scope].directory(context);
 }

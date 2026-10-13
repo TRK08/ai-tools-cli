@@ -17,7 +17,7 @@ import {
 const MAX_ARTIFACT_BYTES = 20 * 1024 * 1024;
 const MAX_METADATA_BYTES = 64 * 1024;
 
-/** Temporary URL lives only in this response, never in installation identity. */
+/** Временный URL существует только в ответе и не входит в постоянную идентичность установки. */
 export interface RegistryArtifact {
   readonly slug: string;
   readonly version: string;
@@ -41,6 +41,10 @@ export interface RegistryClientOptions {
   readonly now?: () => number;
 }
 
+/**
+ * Читает тело HTTP-ответа в память с проверкой фактического числа байтов. В finally отменяет оставшееся
+ * чтение и освобождает reader; превышение лимита даёт INVALID_RESPONSE.
+ */
 async function readBounded(response: Response, maximum: number): Promise<Buffer> {
   if (!response.body)
     throw new RegistryError('INVALID_RESPONSE', 'В HTTP-ответе отсутствует тело.');
@@ -63,6 +67,10 @@ async function readBounded(response: Response, maximum: number): Promise<Buffer>
   }
 }
 
+/**
+ * Проверяет идентичность, версию, digest, размер, формат и временный URL артефакта. Возвращает
+ * неизменяемые метаданные; срок действия отдельно проверяется при скачивании.
+ */
 function validateArtifact(value: unknown, reference: RegistryReference): RegistryArtifact {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
     throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректные метаданные артефакта.');
@@ -118,12 +126,13 @@ function validateArtifact(value: unknown, reference: RegistryReference): Registr
   });
 }
 
-/** UI-free client. Metadata resolution and verified download are separate operations. */
+/** Независимый от UI клиент: разрешение метаданных отделено от проверенного скачивания. */
 export class RegistryClient {
   readonly registryUrl: string;
   private readonly timeoutMs: number;
   private readonly now: () => number;
 
+  /** Проверяет базовый URL и задаёт подменяемый HTTP, часы и тайм-аут; запросов не выполняет. */
   constructor(
     registryUrl: string,
     private readonly http: HttpTransport,
@@ -134,6 +143,12 @@ export class RegistryClient {
     this.now = options.now ?? Date.now;
   }
 
+  /**
+   * Разрешает latest или явно указанную полную версию до подтверждения установки.
+   *
+   * @returns Проверенные метаданные выбранного артефакта с временным URL.
+   * @remarks signal отменяет запрос метаданных; ошибки и отмена пробрасываются как RegistryError.
+   */
   async resolveArtifact(
     reference: RegistryReference,
     signal?: AbortSignal,
@@ -160,12 +175,17 @@ export class RegistryClient {
     );
   }
 
+  /**
+   * Получает каталог с буквальным серверным slugPrefix; локальную фильтрацию не выполняет. Ошибки
+   * API/валидации пробрасываются и не заменяются пустым списком.
+   */
   async listSkills(slugPrefix?: string, signal?: AbortSignal): Promise<readonly CatalogSkill[]> {
     const url = new URL(`${this.registryUrl}/api/v1/skills`);
     if (slugPrefix !== undefined) url.searchParams.set('slugPrefix', slugPrefix);
     return validateCatalog(await this.requestJson(url, 8 * 1024 * 1024, 'Каталог', signal));
   }
 
+  /** Получает и проверяет карточку slug для указанной версии либо текущей версии registry. */
   async getSkill(slug: string, version?: string, signal?: AbortSignal): Promise<SkillDetail> {
     if (!isRegistrySlug(slug) || (version !== undefined && !isFullSemVer(version)))
       throw new RegistryError(
@@ -181,6 +201,10 @@ export class RegistryClient {
     );
   }
 
+  /**
+   * Запрашивает ограниченное JSON-тело с общим тайм-аутом и необязательным сигналом отмены. Проверяет
+   * HTTP-статус и строгий UTF-8; закрывает неиспользуемое тело ответа.
+   */
   private async requestJson(
     url: URL,
     maximum: number,
@@ -224,12 +248,20 @@ export class RegistryClient {
     }
   }
 
+  /**
+   * Скачивает выбранный артефакт и проверяет размер и SHA-256 до передачи адаптеру.
+   *
+   * @remarks Истёкший URL или ответ 401/403 обновляются один раз для той же версии; смена digest/размера
+   * отклоняется.
+   * @returns Байты архива и постоянные данные download без подписанного URL.
+   */
   async downloadArtifact(
     original: RegistryArtifact,
   ): Promise<{ readonly bytes: Buffer; readonly download: RegistryDownload }> {
     const selected = validateArtifact(original, { slug: original.slug, version: original.version });
     let artifact = selected;
     let refreshed = false;
+    /** Обновляет URL той же версии, проверяя неизменность digest/размера и новый срок действия. */
     const refresh = async () => {
       refreshed = true;
       const fresh = await this.resolveArtifact({ slug: selected.slug, version: selected.version });
@@ -267,6 +299,7 @@ export class RegistryClient {
     };
   }
 
+  /** Читает архив с тайм-аутом и лимитом; несоответствие размера/digest даёт ARTIFACT_MISMATCH. */
   private async download(artifact: RegistryArtifact): Promise<Buffer> {
     try {
       const response = await this.http(artifact.url, {

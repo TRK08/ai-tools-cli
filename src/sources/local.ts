@@ -5,7 +5,11 @@ import { parseRegistryReference } from '../registry/reference.ts';
 import { prepareArchive } from './archive.ts';
 import { prepareDirectory, type PrepareDirectoryOptions } from './directory.ts';
 
-/** Existing bare paths win; explicit paths and archive suffixes always stay local. */
+/**
+ * Определяет registry-ссылку с приоритетом существующего локального пути, включая symlink.
+ *
+ * @returns null для локального/явного пути, архивного суффикса либо строки, не являющейся slug.
+ */
 export async function registryReferenceForSource(source: string, cwd: string) {
   if (/\.(?:tar\.gz|tgz)$/.test(source)) return null;
   try {
@@ -17,6 +21,10 @@ export async function registryReferenceForSource(source: string, cwd: string) {
   return parseRegistryReference(source);
 }
 
+/**
+ * Возвращает тип локального источника и его абсолютный лексический путь. Папка с суффиксом .tgz остаётся
+ * папкой; identity не заменяется разыменованным путём.
+ */
 export async function localSourceIdentity(source: string, cwd: string) {
   const path = resolve(cwd, source);
   let archive = /\.(?:tar\.gz|tgz)$/.test(source);
@@ -33,6 +41,10 @@ export async function localSourceIdentity(source: string, cwd: string) {
   };
 }
 
+/**
+ * Выбирает адаптер папки или архива и передаёт ему временную базу и сигнал отмены. Владение возвращённым
+ * снимком определяется контрактом PreparedSource.
+ */
 export async function prepareLocalSource(source: string, options: PrepareDirectoryOptions) {
   options.signal?.throwIfAborted();
   return (await localSourceIdentity(source, options.cwd)).kind === 'archive'

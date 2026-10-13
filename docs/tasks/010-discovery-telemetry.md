@@ -213,7 +213,7 @@ R1 принят пользователем: «R1 я не считаю ошибк
   валидирует поля вывода и фильтрует все слова по slug/name/shortDescription/tags.
   Метаданные ограничены 8 MiB для каталога и 4 MiB для карточки; подписанный
   skillMd URL не запрашивается. Общая защита транспорта и тайм-аут сохраняются.
-- [Installer](../../src/installer/local.ts) передаёт проверенный download и исход
+- [Installer](../../src/installer/installer.ts) передаёт проверенный download и исход
   registry-операции в [Telemetry](../../src/telemetry/client.ts). Install отправляется
   один раз со статусом success/partial/failed, включая обрабатываемое исключение
   после отката. В контексте — операция add/update, область, затрагиваемые агенты и
@@ -323,7 +323,7 @@ failed хранится без увеличения. Пример envelope — �
   изменение latest во время выбора не подменяет результат. `add slug` снимает
   фиксацию в обычном порядке.
 - [Find UI](../../src/cli/find-ui.ts) использует Clack, а [CLI](../../src/cli/program.ts)
-  — общий обработчик add. [Installer](../../src/installer/local.ts) добавляет
+  — общий обработчик add. [Installer](../../src/installer/installer.ts) добавляет
   внутренний `addRegistry(reference, force, agents)`, вызывающий то же ядро с
   явной registry-идентичностью: совпавшая локальная папка не меняет источник.
 - [Registry client](../../src/registry/client.ts) принимает AbortSignal для загрузки
@@ -573,7 +573,7 @@ find остаётся таблицей. В заголовке поиска бо�
 Абзацы и Unicode сохраняются, длинные значения переносятся, управляющие
 последовательности очищаются. Escape/Ctrl+C отменяют меню и загрузку карточки.
 
-[Installer](../../src/installer/local.ts) предоставляет необязательные reviewAdd,
+[Installer](../../src/installer/installer.ts) предоставляет необязательные reviewAdd,
 AddPreview/AddDecision/AddResult. Предпросмотр использует connection и
 resolveConnectionPath с сохранёнными назначениями; skipped различает отказ и отмену.
 Registry review выполняется до скачивания и ветки повтора, локальный — после
@@ -705,7 +705,7 @@ find -> select skill политика exact, если должна быть late
 Причина прежнего поведения: выбор передавался как RegistryReference с version,
 из которой Installer выводил exact. [CLI](../../src/cli/program.ts) теперь передаёт
 RegistrySelection с version выбранного результата и независимой policy=latest.
-[Installer](../../src/installer/local.ts) использует version для артефакта текущей
+[Installer](../../src/installer/installer.ts) использует version для артефакта текущей
 операции, policy — для карточки и lock. Показанная версия не подменяется во время
 выбора/подтверждения; последующий update получает новые версии. Обычный
 add slug@version и addRegistry без переопределения policy сохраняют exact.

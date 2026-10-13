@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
-import { LocalInstaller } from '../src/installer/local.ts';
+import { Installer } from '../src/installer/installer.ts';
 import type { AgentId, InstallationScope } from '../src/installer/types.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths } from '../src/state/paths.ts';
@@ -53,7 +53,7 @@ async function install(
   scope: InstallationScope = 'project',
   agents: AgentId[] = ['codex', 'pi'],
 ) {
-  const installer = new LocalInstaller(f, { scope });
+  const installer = new Installer(f, { scope });
   for (const name of names) {
     const source = join(f.roots.cwd, `source-${name}`);
     await mkdir(source);
@@ -290,7 +290,7 @@ describe('interactive removal with real Clack prompts', () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
-        const installer = new LocalInstaller(f, { registry: backend.url });
+        const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo@1.0.0', false, ['codex']);
         backend.http.mockClear();
         const http = vi.fn(f.http);
@@ -331,7 +331,7 @@ describe('remove in CLI processes without TTY', () => {
       await withTestEnvironment(async (f) => {
         const installer = await install(f, ['alpha', 'demo'], scope);
         const otherScope = scope === 'project' ? 'global' : 'project';
-        const other = new LocalInstaller(f, { scope: otherScope });
+        const other = new Installer(f, { scope: otherScope });
         await other.add(join(f.roots.cwd, 'source-demo'), false, ['codex']);
         const paths = getStatePaths(f.roots, scope);
         await writeFile(join(paths.skillsDirectory, 'alpha', 'SKILL.md'), 'manual edits');

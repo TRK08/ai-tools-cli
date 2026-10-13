@@ -5,6 +5,10 @@ import type { PromptStreams } from './agents-prompt.ts';
 import { renderTable } from './table.ts';
 import { policyLabel, scopeLabel } from './labels.ts';
 
+/**
+ * Показывает записи собственного lock и общий счётчик подключений в выбранной области. Фильтр отражается
+ * в заголовке; таблица сохраняет всех агентов каждой переданной записи.
+ */
 export function renderSkillList(
   records: readonly InstallationRecord[],
   scope: InstallationScope,

@@ -14,7 +14,7 @@ export function parseAgents(values: readonly string[]): AgentId[] {
   for (const value of values) {
     if (!AGENTS.some((agent) => agent.id === value)) {
       throw new Error(
-        `Unknown agent: ${value}. Choose ${AGENTS.map((agent) => agent.id).join(', ')}.`,
+        `Неизвестный агент: ${value}. Выберите ${AGENTS.map((agent) => agent.id).join(', ')}.`,
       );
     }
   }

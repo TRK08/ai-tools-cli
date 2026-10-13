@@ -1,12 +1,22 @@
-import { isCancel, multiselect } from '@clack/prompts';
+import { isCancel } from '@clack/prompts';
 import type { Readable, Writable } from 'node:stream';
 import { AGENTS, agentSkillsDirectory, parseAgents } from '../installer/agents.ts';
 import type { AgentId, InstallationScope } from '../installer/types.ts';
 import type { RuntimeContext } from '../runtime.ts';
+import { multiselect } from './multiselect.ts';
+import { scopeLabel } from './labels.ts';
 
 export interface PromptStreams {
-  readonly input: Readable & { readonly isTTY?: boolean };
-  readonly output: Writable & { readonly isTTY?: boolean };
+  readonly input: Readable & {
+    readonly isTTY?: boolean;
+    readonly isRaw?: boolean;
+    readonly setRawMode?: (value: boolean) => void;
+  };
+  readonly output: Writable & {
+    readonly isTTY?: boolean;
+    readonly columns?: number;
+    readonly rows?: number;
+  };
 }
 
 export async function selectAgents(
@@ -19,20 +29,19 @@ export async function selectAgents(
   if (agents.length) return agents;
   if (!streams.input.isTTY || !streams.output.isTTY) {
     throw new Error(
-      'Agent selection requires TTY stdin and stdout; specify -a <agent> (for example -a codex).',
+      'Для выбора агентов нужны stdin и stdout терминала (TTY); укажите -a <agent> (например, -a codex).',
     );
   }
   const selected = await multiselect<AgentId>({
-    message: `Select agents (${scope}); arrows to move, space to toggle, Enter to confirm`,
+    message: `Выберите агентов (${scopeLabel(scope)}); стрелки — навигация, пробел — выбор, Enter — подтверждение`,
     options: AGENTS.map((agent) => ({
       value: agent.id,
       label: agent.label,
       hint: agentSkillsDirectory(context, scope, agent.id),
     })),
     initialValues: ['claude-code', 'opencode', 'codex'],
-    required: true,
     input: streams.input,
     output: streams.output,
   });
-  return isCancel(selected) ? null : selected;
+  return isCancel(selected) || selected === undefined ? null : selected;
 }

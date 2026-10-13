@@ -139,7 +139,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
       await writeFile(join(copy, 'manual'), 'edits');
       const next = `${skillText}Updated\n`;
       await writeFile(source, archiveBytes([{ path: 'SKILL.md', contents: next }]));
-      await expect(installer.add(source, false, ['codex'])).rejects.toThrow(/local changes/);
+      await expect(installer.add(source, false, ['codex'])).rejects.toThrow(/изменён локально/);
       expect(await readFile(join(copy, 'manual'), 'utf8')).toBe('edits');
       expect((await installer.add(source, true, ['codex'])).status).toBe('success');
       expect(report).toHaveBeenCalledWith(expect.stringContaining('claude-code, codex, pi'));

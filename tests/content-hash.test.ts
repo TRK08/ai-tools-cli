@@ -268,7 +268,7 @@ describe('content hash', () => {
       });
 
       await expect(hashDirectory(fixture.roots.cwd)).rejects.toThrow(
-        'Unsupported filesystem entry',
+        'Неподдерживаемый объект файловой системы',
       );
     });
   });

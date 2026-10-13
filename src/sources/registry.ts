@@ -17,7 +17,7 @@ export async function prepareRegistrySource(
   if (!isAbsolute(options.cwd) || !isAbsolute(options.temporaryDirectory))
     throw new SourceError(
       'INVALID_SOURCE',
-      'Source cwd and temporary base must be absolute paths.',
+      'Пути рабочей папки и временного каталога должны быть абсолютными.',
     );
   const artifact = resolvedArtifact ?? (await client.resolveArtifact(reference));
   if (
@@ -26,7 +26,7 @@ export async function prepareRegistrySource(
   )
     throw new RegistryError(
       'ARTIFACT_MISMATCH',
-      'Resolved artifact does not match the requested skill or version.',
+      'Артефакт не соответствует запрошенному скиллу или версии.',
     );
   const { bytes, download } = await client.downloadArtifact(artifact);
   onDownload?.(download);
@@ -36,11 +36,14 @@ export async function prepareRegistrySource(
     await writeFile(archive, bytes, { flag: 'wx', mode: 0o600 });
     const prepared = await prepareArchive(archive, { ...options, temporaryDirectory: workspace });
     if (prepared.archiveHash !== artifact.sha256)
-      throw new RegistryError('ARTIFACT_MISMATCH', 'Artifact changed during archive preparation.');
+      throw new RegistryError(
+        'ARTIFACT_MISMATCH',
+        'Артефакт изменился во время подготовки архива.',
+      );
     if (prepared.name !== reference.slug)
       throw new RegistryError(
         'ARTIFACT_MISMATCH',
-        'SKILL.md name does not match the requested registry slug.',
+        'Имя в SKILL.md не соответствует запрошенному slug реестра.',
       );
     return Object.freeze({
       ...prepared,
@@ -57,9 +60,12 @@ export async function prepareRegistrySource(
     try {
       await rm(workspace, { recursive: true, force: true });
     } catch (cleanupError) {
-      throw new Error(`Registry preparation and temporary cleanup failed: ${workspace}.`, {
-        cause: new AggregateError([cause, cleanupError]),
-      });
+      throw new Error(
+        `Подготовка из реестра и удаление временных файлов завершились ошибкой: ${workspace}.`,
+        {
+          cause: new AggregateError([cause, cleanupError]),
+        },
+      );
     }
     throw cause;
   }

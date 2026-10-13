@@ -4,6 +4,9 @@ notice is preserved below. No command handlers from that project are copied.
 The slug and full SemVer patterns and registry reference parsing in
 src/registry/reference.ts adapt ../skills/src/registry-source.ts under the same
 license. The HTTP client and installer integration are implemented separately.
+Install-count formatting in src/cli/find-ui.ts adapts ../skills/src/find.ts under
+the same license. The asynchronous dynamic finder uses Clack styling and native keypress input;
+the fork's search and command handlers are not copied.
 
 MIT License
 

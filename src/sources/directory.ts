@@ -44,7 +44,7 @@ async function copyFile(
   try {
     const opened = await input.stat({ bigint: true });
     if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino) {
-      throw new Error(`Source entry changed while copying: ${source.toString()}`);
+      throw new Error(`Объект источника изменился во время копирования: ${source.toString()}`);
     }
     const output = await fs.open(destination, 'wx', 0o600);
     try {
@@ -54,15 +54,18 @@ async function copyFile(
         const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
         if (bytesRead === 0) break;
         total += BigInt(bytesRead);
-        if (total > opened.size) throw new Error('Source file size changed while copying.');
+        if (total > opened.size)
+          throw new Error('Размер исходного файла изменился во время копирования.');
         let offset = 0;
         while (offset < bytesRead) {
           const { bytesWritten } = await output.write(buffer, offset, bytesRead - offset, null);
-          if (bytesWritten === 0) throw new Error('No progress while writing prepared content.');
+          if (bytesWritten === 0)
+            throw new Error('Не удалось продолжить запись подготовленного содержимого.');
           offset += bytesWritten;
         }
       }
-      if (total !== opened.size) throw new Error('Source file size changed while copying.');
+      if (total !== opened.size)
+        throw new Error('Размер исходного файла изменился во время копирования.');
       await output.chmod(Number(opened.mode & 0o777n));
     } finally {
       await output.close();
@@ -86,7 +89,7 @@ export async function prepareDirectory(
   ) {
     throw new SourceError(
       'INVALID_SOURCE',
-      'Source cwd and temporary base must be absolute paths.',
+      'Пути рабочей папки и временного каталога должны быть абсолютными.',
     );
   }
   const identityPath = resolve(options.cwd, source);
@@ -138,10 +141,13 @@ export async function prepareDirectory(
     const sourceRoot = await fs.realpath(Buffer.from(identityPath));
     const rootStats = await fs.lstat(sourceRoot);
     if (!rootStats.isDirectory()) {
-      throw new SourceError('INVALID_SOURCE', 'Local source must be a directory.');
+      throw new SourceError('INVALID_SOURCE', 'Локальный источник должен быть каталогом.');
     }
     if (isExcluded(sourceRoot) || isExcluded(Buffer.from(identityPath))) {
-      throw new SourceError('INVALID_SOURCE', 'CLI state cannot be used as a local source.');
+      throw new SourceError(
+        'INVALID_SOURCE',
+        'Состояние CLI нельзя использовать как локальный источник.',
+      );
     }
     // Check SKILL.md before creating work files; symlinks are validated by the walker.
     await fs.lstat(childPath(sourceRoot, Buffer.from('SKILL.md')));
@@ -149,7 +155,7 @@ export async function prepareDirectory(
     if (within(temporaryRoot, sourceRoot)) {
       throw new SourceError(
         'INVALID_SOURCE',
-        'Local source cannot be inside the CLI temporary base.',
+        'Локальный источник не может находиться внутри временного каталога CLI.',
       );
     }
     workspace = await fs.mkdtemp(join(temporaryRoot.toString(), 'skills-installer-source-'));
@@ -162,7 +168,10 @@ export async function prepareDirectory(
       ancestors: ReadonlySet<string>,
     ): Promise<void> {
       if (!within(destinationRoot, destination)) {
-        throw new SourceError('INVALID_SOURCE', 'Copy destination escaped the prepared directory.');
+        throw new SourceError(
+          'INVALID_SOURCE',
+          'Путь копирования выходит за пределы подготовленного каталога.',
+        );
       }
       if (isExcluded(path) || within(temporaryRoot, path)) return;
       const canonical = await fs.realpath(path);
@@ -171,7 +180,10 @@ export async function prepareDirectory(
       if (stats.isDirectory()) {
         const key = `${stats.dev}:${stats.ino}`;
         if (ancestors.has(key)) {
-          throw new SourceError('SOURCE_CYCLE', `Directory link cycle at ${path.toString()}.`);
+          throw new SourceError(
+            'SOURCE_CYCLE',
+            `Цикл ссылок на каталоги по пути ${path.toString()}.`,
+          );
         }
         await fs.mkdir(destination, { mode: 0o755 });
         const nextAncestors = new Set(ancestors).add(key);
@@ -185,14 +197,17 @@ export async function prepareDirectory(
             name.includes(0) ||
             name.includes(separator)
           ) {
-            throw new SourceError('INVALID_SOURCE', 'Invalid directory entry name.');
+            throw new SourceError('INVALID_SOURCE', 'Некорректное имя объекта в каталоге.');
           }
           await visit(childPath(canonical, name), childPath(destination, name), nextAncestors);
         }
       } else if (stats.isFile()) {
         await copyFile(canonical, destination, stats, fs);
       } else {
-        throw new SourceError('UNSUPPORTED_ENTRY', `Unsupported source entry: ${path.toString()}.`);
+        throw new SourceError(
+          'UNSUPPORTED_ENTRY',
+          `Неподдерживаемый объект источника: ${path.toString()}.`,
+        );
       }
     }
 
@@ -218,7 +233,7 @@ export async function prepareDirectory(
               : hasErrorCode(cause, 'INVALID_PATH')
                 ? 'INVALID_SOURCE'
                 : 'PREPARATION_FAILED',
-            `Cannot prepare local source ${JSON.stringify(identityPath)}.`,
+            `Не удалось подготовить локальный источник ${JSON.stringify(identityPath)}.`,
             { cause },
           );
     if (workspace !== undefined) {
@@ -227,7 +242,7 @@ export async function prepareDirectory(
       } catch (cleanupError) {
         error = new SourceError(
           'PREPARATION_FAILED',
-          `Preparation and temporary cleanup failed: ${workspace}.`,
+          `Подготовка и удаление временных файлов завершились ошибкой: ${workspace}.`,
           {
             cause: new AggregateError([error, cleanupError]),
           },

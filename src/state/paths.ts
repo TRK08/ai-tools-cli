@@ -18,7 +18,10 @@ export interface StatePaths extends FileSystemRoots {
 
 export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope): StatePaths {
   if (!isAbsolute(roots.cwd) || !isAbsolute(roots.home)) {
-    throw new StateError('INVALID_PATH', 'State roots must be absolute cwd and home paths.');
+    throw new StateError(
+      'INVALID_PATH',
+      'Пути рабочей папки и домашнего каталога должны быть абсолютными.',
+    );
   }
   const cwd = resolve(roots.cwd);
   const home = resolve(roots.home);
@@ -48,7 +51,7 @@ export function assertSkillName(name: string): void {
     /[/\\\p{Cc}]/u.test(name) ||
     Buffer.byteLength(name, 'utf8') > 255
   ) {
-    throw new StateError('INVALID_PATH', `Unsafe skill name: ${JSON.stringify(name)}.`);
+    throw new StateError('INVALID_PATH', `Небезопасное имя скилла: ${JSON.stringify(name)}.`);
   }
 }
 
@@ -61,7 +64,7 @@ export function validatePathText(path: string): void {
   if (!path || /[\\\p{Cc}]/u.test(path)) {
     throw new StateError(
       'INVALID_PATH',
-      'Paths must be nonempty POSIX paths without control characters.',
+      'Пути должны быть непустыми путями POSIX без управляющих символов.',
     );
   }
 }
@@ -83,13 +86,16 @@ export function portableConnectionPath(path: string, paths: StatePaths): string 
   validatePathText(path);
   if (paths.scope === 'global') {
     if (!isAbsolute(path)) {
-      throw new StateError('INVALID_PATH', 'Global connection paths must be absolute.');
+      throw new StateError('INVALID_PATH', 'Пути глобальных подключений должны быть абсолютными.');
     }
     return resolve(path);
   }
   const portable = relative(paths.cwd, resolve(paths.cwd, path));
   if (!portable || portable === '..' || portable.startsWith('../') || isAbsolute(portable)) {
-    throw new StateError('INVALID_PATH', 'Project connections must stay inside cwd.');
+    throw new StateError(
+      'INVALID_PATH',
+      'Подключения проекта должны находиться внутри рабочей папки.',
+    );
   }
   return portable;
 }

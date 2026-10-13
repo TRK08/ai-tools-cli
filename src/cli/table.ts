@@ -8,7 +8,7 @@ interface TableColumn {
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-function wrapCell(value: string, width: number): string[] {
+export function wrapTerminalText(value: string, width: number): string[] {
   return value.split('\n').flatMap((line) => {
     const lines: string[] = [];
     let current = '';
@@ -53,7 +53,7 @@ export function renderTable(
   const border = (left: string, middle: string, right: string) =>
     left + widths.map((width) => '─'.repeat(width + 2)).join(middle) + right + '\n';
   const rowLines = (row: readonly string[]) => {
-    const cells = columns.map((_, index) => wrapCell(row[index] ?? '', widths[index]!));
+    const cells = columns.map((_, index) => wrapTerminalText(row[index] ?? '', widths[index]!));
     return Array.from(
       { length: Math.max(...cells.map((cell) => cell.length)) },
       (_, line) =>

@@ -186,12 +186,12 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
           const oldHash = await hashDirectory(join(paths.skillsDirectory, 'demo'));
           const transport = vi.fn().mockRejectedValue(new Error('network down'));
           const failed = new LocalInstaller({ ...f, http: transport }, { scope, registry: url });
-          await expect(failed.add('demo', true, ids)).rejects.toThrow(/Registry request/);
+          await expect(failed.add('demo', true, ids)).rejects.toThrow(/Запрос к реестру/);
           expect(await readFile(paths.lockPath)).toEqual(oldLock);
           expect(await hashDirectory(join(paths.skillsDirectory, 'demo'))).toBe(oldHash);
           await writeFile(join(paths.skillsDirectory, 'demo', 'SKILL.md'), 'edited');
           transport.mockClear();
-          await expect(failed.add('demo', false, ids)).rejects.toThrow(/local changes/);
+          await expect(failed.add('demo', false, ids)).rejects.toThrow(/изменён локально/);
           expect(transport).not.toHaveBeenCalled();
           await installer.add('demo', true, ids);
           expect(await hashDirectory(join(paths.skillsDirectory, 'demo'))).toBe(oldHash);

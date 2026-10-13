@@ -1,3 +1,4 @@
+import { errorMessage } from '../errors.ts';
 import { dirname, join, parse, relative, resolve } from 'node:path';
 import type { RuntimeContext } from '../runtime.ts';
 import {
@@ -10,8 +11,10 @@ import {
   type RegistryClientOptions,
   type RegistryDownload,
 } from '../registry/client.ts';
-import { getRegistryUrl } from '../registry/reference.ts';
+import { getRegistryUrl, type RegistryReference } from '../registry/reference.ts';
 import { prepareRegistrySource } from '../sources/registry.ts';
+import type { SourceIdentity } from '../sources/types.ts';
+import { hasErrorCode } from '../state/errors.ts';
 import { assertScopeLocation } from '../state/filesystem.ts';
 import { hashDirectory } from '../state/hash.ts';
 import { assertSourceCompatible, sourceIdentityKey } from '../state/identity.ts';
@@ -41,6 +44,7 @@ import {
   type InstallerFileSystem,
 } from './filesystem.ts';
 import type { AgentId, InstallationScope } from './types.ts';
+import type { RegistryEventContext, Telemetry } from '../telemetry/client.ts';
 
 export interface LocalInstallerOptions {
   readonly scope?: InstallationScope;
@@ -51,8 +55,40 @@ export interface LocalInstallerOptions {
   readonly registry?: string;
   readonly registryClientOptions?: RegistryClientOptions;
   readonly onDownload?: (download: RegistryDownload) => void;
+  readonly telemetry?: Telemetry;
   readonly reviewUpdate?: (preview: UpdatePreview) => Promise<UpdateDecision>;
+  readonly reviewAdd?: (preview: AddPreview) => Promise<AddDecision>;
+  /** Cancels preparation and metadata before add confirmation; installation is then transactional. */
+  readonly signal?: AbortSignal;
 }
+
+export type AddDecision = 'approve' | 'decline' | 'cancel';
+
+/** Resolve the reviewed version independently from the policy for subsequent updates. */
+export interface RegistrySelection extends RegistryReference {
+  readonly policy?: 'latest' | 'exact';
+}
+
+export interface AddPreview {
+  readonly name: string;
+  readonly version: string | null;
+  readonly description: string | null;
+  readonly source: SourceIdentity;
+  readonly scope: InstallationScope;
+  readonly policy: InstallationRecord['policy'];
+  readonly sharedDirectory: string;
+  readonly destinations: readonly { readonly agent: AgentId; readonly path: string }[];
+}
+
+export interface SkippedAdd {
+  readonly name: string;
+  readonly status: 'skipped';
+  readonly reason: 'declined' | 'cancelled';
+  readonly download?: never;
+  readonly changes?: never;
+}
+
+export type AddResult = LocalChange | SkippedAdd;
 
 export type UpdateDecision = 'approve' | 'decline' | 'cancel';
 
@@ -103,13 +139,19 @@ export interface UpdateBatch {
 
 class NoConnections extends Error {
   constructor(readonly result: LocalChange) {
-    super('No requested connections succeeded.');
+    super('Не удалось создать ни одного запрошенного подключения.');
   }
 }
 
 class UpdateSkipped extends Error {
   constructor(readonly result: SkippedUpdate) {
-    super('Update was not approved.');
+    super('Обновление не подтверждено.');
+  }
+}
+
+class AddSkipped extends Error {
+  constructor(readonly result: SkippedAdd) {
+    super('Установка не подтверждена.');
   }
 }
 
@@ -145,7 +187,7 @@ export class LocalInstaller {
           path !==
             join(agentSkillsDirectory(this.context, 'project', connection.agent), record.name))
       )
-        throw new Error(`Invalid managed connection for ${connection.agent}: ${path}.`);
+        throw new Error(`Некорректное управляемое подключение для ${connection.agent}: ${path}.`);
     }
   }
 
@@ -170,7 +212,7 @@ export class LocalInstaller {
     const stats = await inspectPath(path, this.fs);
     if (!stats) return false;
     if (!record || !stats.isDirectory() || stats.isSymbolicLink()) {
-      throw new Error(`Foreign shared-copy destination: ${path}.`);
+      throw new Error(`Общий каталог занят чужим объектом: ${path}.`);
     }
     return true;
   }
@@ -187,12 +229,17 @@ export class LocalInstaller {
       contentHash = await hashDirectory(path);
     } catch (cause) {
       if (force) return null;
-      throw new Error(`Cannot verify installed ${name}; use --force to replace its contents.`, {
-        cause,
-      });
+      throw new Error(
+        `Не удалось проверить установленный скилл ${name}; используйте --force для замены его содержимого.`,
+        {
+          cause,
+        },
+      );
     }
     if (!force && contentHash !== record!.contentHash) {
-      throw new Error(`Installed ${name} has local changes; use --force to replace its contents.`);
+      throw new Error(
+        `Установленный скилл ${name} изменён локально; используйте --force для замены его содержимого.`,
+      );
     }
     return contentHash;
   }
@@ -216,7 +263,7 @@ export class LocalInstaller {
         : agent === 'codex';
     const withinShared = relative(this.paths.skillsDirectory, path);
     if (!directAgent && !withinShared.startsWith('../') && withinShared !== '..') {
-      throw new Error(`Agent destination overlaps shared skill storage: ${path}.`);
+      throw new Error(`Путь агента пересекается с общим хранилищем скиллов: ${path}.`);
     }
     return connection;
   }
@@ -233,13 +280,13 @@ export class LocalInstaller {
     const shared = getSkillDirectory(this.paths, name);
     if (path === shared) {
       if (!owned || !stats.isDirectory() || stats.isSymbolicLink())
-        throw new Error(`Foreign shared-copy destination: ${path}.`);
+        throw new Error(`Общий каталог занят чужим объектом: ${path}.`);
     } else if (
       !owned ||
       !stats.isSymbolicLink() ||
       resolve(dirname(path), await this.fs.readlink(path)) !== shared
     ) {
-      throw new Error(`Foreign agent destination: ${path}.`);
+      throw new Error(`Путь агента занят чужим объектом: ${path}.`);
     }
     return true;
   }
@@ -284,11 +331,82 @@ export class LocalInstaller {
     source: string,
     force = false,
     agents: readonly AgentId[] = ['codex'],
-  ): Promise<LocalChange> {
+  ): Promise<AddResult> {
+    return this.addSource(source, force, agents);
+  }
+
+  /** An explicit registry selection must never be mistaken for a matching local path. */
+  async addRegistry(
+    reference: RegistrySelection,
+    force = false,
+    agents: readonly AgentId[] = ['codex'],
+  ): Promise<AddResult> {
+    return this.addSource(reference.slug, force, agents, reference);
+  }
+
+  private async addSource(
+    source: string,
+    force: boolean,
+    agents: readonly AgentId[],
+    reference?: RegistrySelection,
+  ): Promise<AddResult> {
     const requested = parseAgents(agents);
-    if (!requested.length) throw new Error('At least one agent is required.');
+    if (!requested.length) throw new Error('Нужно указать хотя бы одного агента.');
     await assertScopeLocation(this.paths);
-    return this.store.transaction((state) => this.install(source, force, requested, state));
+    const hadAgentsDirectory = await inspectPath(this.paths.agentsDirectory, this.fs);
+    try {
+      return await this.store.transaction((state) =>
+        this.install(source, force, requested, state, undefined, reference),
+      );
+    } catch (cause) {
+      if (!(cause instanceof AddSkipped)) throw cause;
+      if (!hadAgentsDirectory) {
+        // Only remove a directory created by this operation if it is still empty.
+        await this.fs.rmdir(this.paths.agentsDirectory).catch((error: unknown) => {
+          if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].some((code) => hasErrorCode(error, code)))
+            throw error;
+        });
+      }
+      return cause.result;
+    }
+  }
+
+  private assertAddActive(name: string): void {
+    if (this.options.signal?.aborted)
+      throw new AddSkipped({ name, status: 'skipped', reason: 'cancelled' });
+  }
+
+  private async reviewAdd(
+    name: string,
+    version: string | null,
+    description: string | null,
+    source: SourceIdentity,
+    policy: InstallationRecord['policy'],
+    requested: readonly AgentId[],
+    previous?: InstallationRecord,
+  ): Promise<void> {
+    this.assertAddActive(name);
+    if (!this.options.reviewAdd) return;
+    const decision = await this.options.reviewAdd({
+      name,
+      version,
+      description,
+      source,
+      policy,
+      scope: this.paths.scope,
+      sharedDirectory: getSkillDirectory(this.paths, name),
+      destinations: requested.map((agent) => ({
+        agent,
+        path: resolveConnectionPath(this.connection(name, agent, previous).path, this.paths),
+      })),
+    });
+    if (decision !== 'approve')
+      throw new AddSkipped({
+        name,
+        status: 'skipped',
+        reason: decision === 'cancel' ? 'cancelled' : 'declined',
+      });
+    this.assertAddActive(name);
   }
 
   private async install(
@@ -297,13 +415,55 @@ export class LocalInstaller {
     requested: readonly AgentId[],
     state: StateTransaction,
     updating?: InstallationRecord,
+    registrySelection?: RegistrySelection,
   ): Promise<LocalChange> {
+    const trace: { event?: RegistryEventContext } = {};
+    try {
+      const result = await this.performInstall(
+        source,
+        force,
+        requested,
+        state,
+        trace,
+        updating,
+        registrySelection,
+      );
+      if (
+        trace.event &&
+        (result.status === 'failed' ||
+          result.status === 'partial' ||
+          result.changes?.content ||
+          result.changes?.connections)
+      )
+        this.options.telemetry?.emit(
+          'install',
+          trace.event,
+          result.status === 'partial' || result.status === 'failed' ? result.status : 'success',
+        );
+      return result;
+    } catch (cause) {
+      if (trace.event && !(cause instanceof UpdateSkipped) && !(cause instanceof AddSkipped))
+        this.options.telemetry?.emit('install', trace.event, 'failed');
+      throw cause;
+    }
+  }
+
+  private async performInstall(
+    source: string,
+    force: boolean,
+    requested: readonly AgentId[],
+    state: StateTransaction,
+    trace: { event?: RegistryEventContext },
+    updating?: InstallationRecord,
+    registrySelection?: RegistrySelection,
+  ): Promise<LocalChange> {
+    if (!updating) this.assertAddActive(source);
     const lock = (await state.read()) ?? createEmptyLock();
     const reference = updating
       ? updating.source.kind === 'registry'
         ? { slug: updating.source.slug }
         : null
-      : await registryReferenceForSource(source, this.paths.cwd);
+      : (registrySelection ?? (await registryReferenceForSource(source, this.paths.cwd)));
     const client =
       reference === null
         ? null
@@ -314,25 +474,60 @@ export class LocalInstaller {
             this.context.http,
             this.options.registryClientOptions,
           );
+    if (reference && client)
+      trace.event = {
+        registryUrl: client.registryUrl,
+        slug: reference.slug,
+        ...(reference.version === undefined ? {} : { version: reference.version }),
+        operation: updating ? 'update' : 'add',
+        scope: this.paths.scope,
+        agents: requested,
+      };
     const identity =
       reference && client
         ? { kind: 'registry' as const, registryUrl: client.registryUrl, slug: reference.slug }
         : await localSourceIdentity(source, this.paths.cwd);
     const policy =
       updating?.policy ??
+      registrySelection?.policy ??
       (reference === null ? 'local' : reference.version === undefined ? 'latest' : 'exact');
     if (reference) assertSourceCompatible(lock, reference.slug, identity, this.paths);
     const previousSource = Object.values(lock.skills).find(
       (record) =>
         sourceIdentityKey(record.source, this.paths) === sourceIdentityKey(identity, this.paths),
     );
+    if (trace.event && previousSource)
+      trace.event = {
+        ...trace.event,
+        agents: [...new Set([...previousSource.agents, ...requested])].sort(),
+      };
     await this.checkParents();
     let installedHash: string | null = null;
     if (previousSource) {
       this.assertSupported(previousSource);
       installedHash = await this.checkCopy(previousSource.name, previousSource, force);
     }
-    const artifact = reference && client ? await client.resolveArtifact(reference) : null;
+    let artifact = null;
+    try {
+      artifact =
+        reference && client
+          ? await client.resolveArtifact(reference, updating ? undefined : this.options.signal)
+          : null;
+    } catch (cause) {
+      if (!updating) this.assertAddActive(reference?.slug ?? source);
+      throw cause;
+    }
+    if (trace.event && artifact) trace.event = { ...trace.event, version: artifact.version };
+    if (!updating && artifact)
+      await this.reviewAdd(
+        artifact.slug,
+        artifact.version,
+        null,
+        identity,
+        policy,
+        requested,
+        previousSource,
+      );
     const reusable =
       artifact &&
       previousSource &&
@@ -369,12 +564,12 @@ export class LocalInstaller {
       }
       if (!intact && preview?.status === 'unchanged')
         throw new Error(
-          `Connections for ${reusable.name} changed during review; retry the operation.`,
+          `Подключения ${reusable.name} изменились во время подтверждения; повторите операцию.`,
         );
       if (intact) {
         if ((await this.checkCopy(reusable.name, reusable, force)) !== reusable.contentHash)
           throw new Error(
-            `Installed ${reusable.name} changed during preparation; retry the operation.`,
+            `Установленный скилл ${reusable.name} изменился во время подготовки; повторите операцию.`,
           );
         const metadata = reusable.policy !== policy;
         if (metadata)
@@ -416,13 +611,21 @@ export class LocalInstaller {
                 identity: reusable.source,
                 directory: getSkillDirectory(this.paths, reusable.name),
                 download: undefined,
+                description: null,
               }
             : reference && client
               ? await prepareRegistrySource(
                   reference,
                   client,
                   preparationOptions,
-                  this.options.onDownload,
+                  (download) => {
+                    if (trace.event)
+                      this.options.telemetry?.emit('download', {
+                        ...trace.event,
+                        version: download.version,
+                      });
+                    this.options.onDownload?.(download);
+                  },
                   artifact!,
                 )
               : await this.prepare(source, preparationOptions);
@@ -433,16 +636,28 @@ export class LocalInstaller {
             (previousSource && previousSource.name !== name) ||
             (updating && updating.name !== name)
           )
-            throw new Error('Source skill name changed; remove its previous installation first.');
+            throw new Error(
+              'Имя скилла в источнике изменилось; сначала удалите прежнюю установку.',
+            );
           if (
             updating &&
             sourceIdentityKey(prepared.identity, this.paths) !==
               sourceIdentityKey(updating.source, this.paths)
           )
-            throw new Error('Source kind changed; remove its previous installation first.');
+            throw new Error('Тип источника изменился; сначала удалите прежнюю установку.');
           assertSourceCompatible(lock, name, prepared.identity, this.paths);
           const previous = Object.hasOwn(lock.skills, name) ? lock.skills[name] : undefined;
           if (previous) this.assertSupported(previous);
+          if (!updating && !artifact)
+            await this.reviewAdd(
+              name,
+              prepared.version,
+              prepared.description,
+              prepared.identity,
+              policy,
+              requested,
+              previous,
+            );
           await this.checkParents();
           const currentHash = await this.checkCopy(name, previous, force);
           const destination = getSkillDirectory(this.paths, name);
@@ -462,7 +677,7 @@ export class LocalInstaller {
               if (!exists) connectionsNeedRepair = true;
               candidates.push(connection);
             } catch (cause) {
-              errors.push(`${agent}: ${cause instanceof Error ? cause.message : String(cause)}`);
+              errors.push(`${agent}: ${errorMessage(cause)}`);
             }
           }
           if (!candidates.length) return { status: 'failed', name, errors, ...download };
@@ -483,7 +698,7 @@ export class LocalInstaller {
           const reportReplacement = () => {
             if (previous && !reported) {
               this.options.report?.(
-                `Replacing ${name}; affected agents: ${[...new Set([...previous.agents, ...candidates.map((item) => item.agent)])].sort().join(', ')}.`,
+                `Замена ${name}; затрагиваемые агенты: ${[...new Set([...previous.agents, ...candidates.map((item) => item.agent)])].sort().join(', ')}.`,
               );
               reported = true;
             }
@@ -492,9 +707,13 @@ export class LocalInstaller {
           await this.checkParents(true);
           const finalHash = await this.checkCopy(name, previous, force);
           if (preview?.status === 'unchanged' && finalHash !== prepared.contentHash)
-            throw new Error(`Installed ${name} changed during review; retry the operation.`);
+            throw new Error(
+              `Установленный скилл ${name} изменился во время подтверждения; повторите операцию.`,
+            );
           if (reusable && finalHash !== reusable.contentHash)
-            throw new Error(`Installed ${name} changed during preparation; retry the operation.`);
+            throw new Error(
+              `Установленный скилл ${name} изменился во время подготовки; повторите операцию.`,
+            );
           const replaced = finalHash !== prepared.contentHash;
           if (replaced) {
             reportReplacement();
@@ -517,10 +736,10 @@ export class LocalInstaller {
               );
               if (!existed && preview?.status === 'unchanged')
                 throw new Error(
-                  `Connections for ${name} changed during review; retry the operation.`,
+                  `Подключения ${name} изменились во время подтверждения; повторите операцию.`,
                 );
               if (!existed) {
-                if (direct) throw new Error(`Shared copy is missing: ${path}.`);
+                if (direct) throw new Error(`Общая копия отсутствует: ${path}.`);
                 await this.connectionParents(path, true);
                 await files.link(
                   this.paths.scope === 'project'
@@ -538,9 +757,7 @@ export class LocalInstaller {
               connections.set(connection.agent, connection);
               successes++;
             } catch (cause) {
-              errors.push(
-                `${connection.agent}: ${cause instanceof Error ? cause.message : String(cause)}`,
-              );
+              errors.push(`${connection.agent}: ${errorMessage(cause)}`);
             }
           }
           if (!successes) throw new NoConnections({ status: 'failed', name, errors, ...download });
@@ -611,7 +828,7 @@ export class LocalInstaller {
     return this.store.transaction(async (state) => {
       const lock = await state.read();
       if (name !== undefined && (!lock || !Object.hasOwn(lock.skills, name)))
-        throw new Error(`Skill ${name} is not installed in this scope.`);
+        throw new Error(`Скилл ${name} не установлен в этой области.`);
       const records = Object.values(lock?.skills ?? {})
         .filter(
           (record) =>
@@ -641,7 +858,7 @@ export class LocalInstaller {
           results.push({
             name: record.name,
             status: 'failed',
-            errors: [cause instanceof Error ? cause.message : String(cause)],
+            errors: [errorMessage(cause)],
           });
         }
       }
@@ -700,7 +917,7 @@ export class LocalInstaller {
               }
               removed.push(agent);
             } catch (cause) {
-              errors.push(`${agent}: ${cause instanceof Error ? cause.message : String(cause)}`);
+              errors.push(`${agent}: ${errorMessage(cause)}`);
             }
           }
           if (!removed.length) return { status: 'failed', name, errors };

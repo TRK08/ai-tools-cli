@@ -7,7 +7,7 @@ export type StateErrorCode =
   | 'PROJECT_IN_HOME';
 
 export const PROJECT_IN_HOME_MESSAGE =
-  'Project scope cannot be used in the home directory. Choose another cwd or use global scope.';
+  'Локальная область недоступна в домашнем каталоге. Выберите другую рабочую папку или используйте --global.';
 
 export class StateError extends Error {
   constructor(

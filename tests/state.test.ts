@@ -48,7 +48,7 @@ describe('state paths and portable schema', () => {
       expect(() => getStatePaths(roots, 'project')).toThrowError(
         expect.objectContaining({
           code: 'PROJECT_IN_HOME',
-          message: expect.stringContaining('global scope'),
+          message: expect.stringContaining('--global'),
         }),
       );
       const global = new StateStore(getStatePaths(roots, 'global'));

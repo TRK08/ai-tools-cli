@@ -8,7 +8,7 @@ export function normalizeRegistryUrl(value: string): string {
   try {
     url = new URL(value);
   } catch (cause) {
-    throw new StateError('INVALID_LOCK', 'Registry identity must contain an HTTP(S) base URL.', {
+    throw new StateError('INVALID_LOCK', 'Источник реестра должен содержать базовый HTTP(S) URL.', {
       cause,
     });
   }
@@ -21,7 +21,7 @@ export function normalizeRegistryUrl(value: string): string {
   ) {
     throw new StateError(
       'INVALID_LOCK',
-      'Registry base URL cannot contain credentials, query or fragment.',
+      'Базовый URL реестра не может содержать учётные данные, параметры или фрагмент.',
     );
   }
   return url.href.replace(/\/+$/, '');
@@ -44,7 +44,7 @@ export function assertSourceCompatible(
   if (existing && sourceIdentityKey(existing.source, paths) !== sourceIdentityKey(source, paths)) {
     throw new StateError(
       'SOURCE_CONFLICT',
-      `Skill ${JSON.stringify(name)} already has a different source; remove it before adding another source.`,
+      `У скилла ${JSON.stringify(name)} уже есть другой источник; удалите его перед установкой из нового источника.`,
     );
   }
 }

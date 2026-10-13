@@ -27,7 +27,7 @@ function invalid(message: string): never {
 
 function object(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
-    invalid(`${label} must be an object.`);
+    invalid(`${label} должен быть объектом.`);
   return value as Record<string, unknown>;
 }
 
@@ -40,24 +40,25 @@ function keys(
     required.some((key) => !Object.hasOwn(value, key)) ||
     Object.keys(value).some((key) => !required.includes(key) && !optional.includes(key))
   ) {
-    invalid(`Invalid fields; expected ${[...required, ...optional].join(', ')}.`);
+    invalid(`Некорректные поля; ожидаются ${[...required, ...optional].join(', ')}.`);
   }
 }
 
 function text(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim() || /\p{Cc}/u.test(value))
-    invalid(`${label} must be a nonempty string without control characters.`);
+    invalid(`${label} должен быть непустой строкой без управляющих символов.`);
   return value;
 }
 
 function digest(value: unknown, label: string): string {
   const hash = text(value, label);
-  if (!/^[a-f\d]{64}$/i.test(hash)) invalid(`${label} must be a SHA-256 hex digest.`);
+  if (!/^[a-f\d]{64}$/i.test(hash))
+    invalid(`${label} должен быть хешем SHA-256 в шестнадцатеричном формате.`);
   return hash.toLowerCase();
 }
 
 function agent(value: unknown): AgentId {
-  if (!agents.includes(value as AgentId)) invalid(`Unknown agent: ${JSON.stringify(value)}.`);
+  if (!agents.includes(value as AgentId)) invalid(`Неизвестный агент: ${JSON.stringify(value)}.`);
   return value as AgentId;
 }
 
@@ -68,20 +69,21 @@ function source(value: unknown, paths: StatePaths, storageInput: boolean): Sourc
     const slug = text(entry.slug, 'slug');
     assertSkillName(slug);
     if (!isRegistrySlug(slug))
-      invalid('Registry slug must use lowercase letters, digits and single hyphens.');
+      invalid('Slug реестра должен содержать строчные латинские буквы, цифры и одиночные дефисы.');
     return {
       kind: 'registry',
       registryUrl: normalizeRegistryUrl(text(entry.registryUrl, 'registryUrl')),
       slug,
     };
   }
-  if (entry.kind !== 'directory' && entry.kind !== 'archive') invalid('Unsupported source kind.');
+  if (entry.kind !== 'directory' && entry.kind !== 'archive')
+    invalid('Неподдерживаемый тип источника.');
   keys(entry, ['kind', 'path']);
   const path = text(entry.path, 'source.path');
   validatePathText(path);
   if (!storageInput && isAbsolute(path) !== (paths.scope === 'global'))
     invalid(
-      'Stored local source path must be relative for project scope and absolute for global scope.',
+      'Сохранённый путь локального источника должен быть относительным в проекте и абсолютным в глобальной области.',
     );
   return { kind: entry.kind, path: portableSourcePath(path, paths) };
 }
@@ -92,7 +94,7 @@ function connection(value: unknown, paths: StatePaths, storageInput: boolean): M
   const path = text(entry.path, 'connection.path');
   if (!storageInput && isAbsolute(path) !== (paths.scope === 'global'))
     invalid(
-      'Stored connection path must be relative for project scope and absolute for global scope.',
+      'Сохранённый путь подключения должен быть относительным в проекте и абсолютным в глобальной области.',
     );
   return { agent: agent(entry.agent), path: portableConnectionPath(path, paths) };
 }
@@ -110,7 +112,8 @@ function record(
     ['name', 'source', 'version', 'policy', 'contentHash', 'agents', 'connections'],
     ['archiveHash'],
   );
-  if (entry.name !== name) invalid('Skill map key and record name must match.');
+  if (entry.name !== name)
+    invalid('Ключ скилла в файле состояния должен совпадать с именем записи.');
   const identity = source(entry.source, paths, storageInput);
   const version = entry.version === null ? null : text(entry.version, 'version');
   const policy = entry.policy;
@@ -120,15 +123,15 @@ function record(
       version === null ||
       !isFullSemVer(version)
     )
-      invalid('Registry records require a version and latest/exact policy.');
-    if (identity.slug !== name) invalid('Registry slug and skill name must match.');
-  } else if (policy !== 'local') invalid('Local records require local policy.');
+      invalid('Запись из реестра должна содержать версию и политику latest/exact.');
+    if (identity.slug !== name) invalid('Slug реестра должен совпадать с именем скилла.');
+  } else if (policy !== 'local') invalid('Для локальных записей требуется политика local.');
   if (!Array.isArray(entry.agents) || entry.agents.length === 0)
-    invalid('At least one desired agent is required.');
+    invalid('В записи требуется хотя бы один агент.');
   const desiredAgents = entry.agents.map(agent);
   if (new Set(desiredAgents).size !== desiredAgents.length)
-    invalid('Duplicate agents are not allowed.');
-  if (!Array.isArray(entry.connections)) invalid('connections must be an array.');
+    invalid('Повторяющиеся агенты недопустимы.');
+  if (!Array.isArray(entry.connections)) invalid('Поле connections должно быть массивом.');
   const connections = entry.connections.map((value) => connection(value, paths, storageInput));
   if (
     connections.some((item) => !desiredAgents.includes(item.agent)) ||
@@ -148,14 +151,16 @@ function record(
         ),
     )
   )
-    invalid('Managed connections must have unique agents/paths and belong to desired agents.');
+    invalid(
+      'Управляемые подключения должны иметь уникальные пары агент/путь и относиться к указанным агентам.',
+    );
   const archiveHash = Object.hasOwn(entry, 'archiveHash')
     ? digest(entry.archiveHash, 'archiveHash')
     : undefined;
   if (identity.kind === 'directory' && archiveHash !== undefined)
-    invalid('Directory sources cannot have an archive hash.');
+    invalid('Источник из папки не может содержать хеш архива.');
   if (identity.kind !== 'directory' && archiveHash === undefined)
-    invalid('Archive and registry records require an archive hash.');
+    invalid('Записи архива и реестра должны содержать хеш архива.');
   return {
     name,
     source: identity,
@@ -175,9 +180,9 @@ function normalize(value: unknown, paths: StatePaths, storageInput: boolean): Lo
       if (typeof lock.version === 'number' && Number.isInteger(lock.version))
         throw new StateError(
           'UNSUPPORTED_LOCK_VERSION',
-          `Unsupported lock version: ${lock.version}.`,
+          `Неподдерживаемая версия файла состояния: ${lock.version}.`,
         );
-      invalid('Lock version must be an integer.');
+      invalid('Версия файла состояния должна быть целым числом.');
     }
     keys(lock, ['version', 'skills']);
     const skills = object(lock.skills, 'skills');
@@ -190,7 +195,7 @@ function normalize(value: unknown, paths: StatePaths, storageInput: boolean): Lo
     for (const entry of Object.values(records)) {
       for (const connection of entry.connections) {
         if (managedPaths.has(connection.path) && managedPaths.get(connection.path) !== entry.name)
-          invalid('Different skills cannot manage the same connection path.');
+          invalid('Разные скиллы не могут управлять одним путём подключения.');
         managedPaths.set(connection.path, entry.name);
       }
     }

@@ -644,7 +644,7 @@ describe('local directory source', () => {
         }),
       ).rejects.toMatchObject({
         code: 'PREPARATION_FAILED',
-        message: expect.stringContaining('temporary cleanup failed'),
+        message: expect.stringContaining('удаление временных файлов завершились ошибкой'),
         cause: expect.objectContaining({
           errors: [expect.objectContaining({ cause: readError }), cleanupError],
         }),

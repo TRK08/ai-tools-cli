@@ -12,7 +12,10 @@ export function readSkillMetadata(raw: string): SkillMetadata {
   const match = raw.match(/^\uFEFF?---[\t ]*\r?\n([\s\S]*?)^---[\t ]*(?:\r?\n|$)/m);
   // The multiline closing delimiter must not allow frontmatter later in the body.
   if (!match || match.index !== 0) {
-    throw new SourceError('INVALID_METADATA', 'SKILL.md must start with YAML frontmatter.');
+    throw new SourceError(
+      'INVALID_METADATA',
+      'SKILL.md должен начинаться с метаданных в формате YAML.',
+    );
   }
 
   try {
@@ -25,19 +28,23 @@ export function readSkillMetadata(raw: string): SkillMetadata {
     });
     const issue = document.errors[0] ?? document.warnings[0];
     if (issue) throw issue;
-    if (!isMap(document.contents)) throw new Error('Frontmatter must be a YAML mapping.');
+    if (!isMap(document.contents)) throw new Error('Метаданные должны быть словарём YAML.');
     const data: unknown = document.toJS({ mapAsMap: true, maxAliasCount: 100 });
-    if (!(data instanceof Map)) throw new Error('Frontmatter must be a YAML mapping.');
+    if (!(data instanceof Map)) throw new Error('Метаданные должны быть словарём YAML.');
     const name: unknown = data.get('name');
     const description: unknown = data.get('description');
     if (typeof name !== 'string' || typeof description !== 'string' || !description.trim()) {
-      throw new Error('Frontmatter requires nonempty string name and description.');
+      throw new Error('Метаданные должны содержать непустые строки name и description.');
     }
     assertSkillName(name);
     return { name, description };
   } catch (cause) {
-    throw new SourceError('INVALID_METADATA', 'Invalid SKILL.md YAML or required metadata.', {
-      cause,
-    });
+    throw new SourceError(
+      'INVALID_METADATA',
+      'Некорректный YAML или обязательные метаданные в SKILL.md.',
+      {
+        cause,
+      },
+    );
   }
 }

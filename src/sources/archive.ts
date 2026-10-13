@@ -44,14 +44,14 @@ function safePath(raw: string, directory: boolean): string {
     /^[a-zA-Z]:/.test(path) ||
     path.split('/').includes('..')
   )
-    invalid(`Archive contains an unsafe path: ${JSON.stringify(raw)}.`);
+    invalid(`Архив содержит небезопасный путь: ${JSON.stringify(raw)}.`);
   const normalized = path
     .split('/')
     .filter((part) => part && part !== '.')
     .join('/');
   if (/^[a-zA-Z]:/.test(normalized))
-    invalid(`Archive contains an unsafe path: ${JSON.stringify(raw)}.`);
-  if (!normalized && !directory) invalid('Archive file path is empty.');
+    invalid(`Архив содержит небезопасный путь: ${JSON.stringify(raw)}.`);
+  if (!normalized && !directory) invalid('Путь файла в архиве пуст.');
   return normalized;
 }
 
@@ -59,7 +59,7 @@ async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<B
   const canonical = await fs.realpath(path);
   const expected = await fs.lstat(canonical);
   if (!expected.isFile()) {
-    throw new SourceError('INVALID_SOURCE', 'Local archive source must be a regular file.');
+    throw new SourceError('INVALID_SOURCE', 'Локальный архив должен быть обычным файлом.');
   }
   const input = await fs.open(
     canonical,
@@ -68,9 +68,9 @@ async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<B
   try {
     const stats = await input.stat();
     if (!stats.isFile() || stats.dev !== expected.dev || stats.ino !== expected.ino)
-      throw new Error('Archive source changed while opening.');
+      throw new Error('Архив изменился во время открытия.');
     if (stats.size > ARCHIVE_LIMITS.inputBytes)
-      throw new SourceError('ARCHIVE_LIMIT', 'Archive exceeds the 20 MiB input limit.');
+      throw new SourceError('ARCHIVE_LIMIT', 'Размер архива превышает ограничение 20 МиБ.');
     const chunks: Buffer[] = [];
     let bytes = 0;
     for (;;) {
@@ -79,10 +79,10 @@ async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<B
       if (!bytesRead) break;
       bytes += bytesRead;
       if (bytes > ARCHIVE_LIMITS.inputBytes)
-        throw new SourceError('ARCHIVE_LIMIT', 'Archive exceeds the 20 MiB input limit.');
+        throw new SourceError('ARCHIVE_LIMIT', 'Размер архива превышает ограничение 20 МиБ.');
       chunks.push(buffer.subarray(0, bytesRead));
     }
-    if (bytes !== stats.size) throw new Error('Archive size changed while reading.');
+    if (bytes !== stats.size) throw new Error('Размер архива изменился во время чтения.');
     return Buffer.concat(chunks, bytes);
   } finally {
     await input.close();
@@ -91,7 +91,7 @@ async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<B
 
 /** Parse bounded gzip/tar data with tar; filesystem writes happen only after validation. */
 async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
-  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) invalid('Expected a gzip-compressed tar archive.');
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) invalid('Ожидался tar-архив, сжатый gzip.');
   const entries = new Map<string, ArchiveEntry>();
   let count = 0;
   let declaredBytes = 0;
@@ -104,19 +104,25 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
     strict: true,
     maxMetaEntrySize: 1024 * 1024,
     filter(_path, entry) {
-      if (!(entry instanceof ReadEntry)) invalid('Expected a tar stream entry.');
+      if (!(entry instanceof ReadEntry)) invalid('Ожидалась запись tar-архива.');
       if (!['File', 'OldFile', 'Directory'].includes(entry.type))
-        invalid(`Archive links and special entries are not supported: ${entry.type}.`);
+        invalid(`Ссылки и специальные записи в архиве не поддерживаются: ${entry.type}.`);
       if (++count > ARCHIVE_LIMITS.entries)
-        throw new SourceError('ARCHIVE_LIMIT', 'Archive exceeds the 1000 entry limit.');
+        throw new SourceError(
+          'ARCHIVE_LIMIT',
+          'Количество записей в архиве превышает ограничение 1000.',
+        );
       const directory = entry.type === 'Directory';
       const path = safePath(entry.path, directory);
-      if (entries.has(path)) invalid(`Duplicate archive path: ${JSON.stringify(path)}.`);
+      if (entries.has(path)) invalid(`Повторяющийся путь в архиве: ${JSON.stringify(path)}.`);
       if (!Number.isSafeInteger(entry.size) || entry.size < 0)
-        invalid('Invalid archive entry size.');
+        invalid('Некорректный размер записи архива.');
       declaredBytes += entry.size;
       if (declaredBytes > ARCHIVE_LIMITS.extractedBytes)
-        throw new SourceError('ARCHIVE_LIMIT', 'Archive exceeds the 25 MiB extracted-file limit.');
+        throw new SourceError(
+          'ARCHIVE_LIMIT',
+          'Размер распакованных файлов превышает ограничение 25 МиБ.',
+        );
       entries.set(path, { path, directory, mode: (entry.mode ?? 0o644) & 0o777, chunks: [] });
       bodyBytes = entry.startBlockSize;
       return true;
@@ -130,19 +136,19 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
         if (actualBytes > ARCHIVE_LIMITS.extractedBytes)
           throw new SourceError(
             'ARCHIVE_LIMIT',
-            'Archive exceeds the 25 MiB extracted-file limit.',
+            'Размер распакованных файлов превышает ограничение 25 МиБ.',
           );
         target.chunks.push(chunk);
       });
       entry.on('end', () => {
-        if (entryBytes !== entry.size) invalid('Truncated archive entry.');
+        if (entryBytes !== entry.size) invalid('Запись архива обрезана.');
       });
       entry.resume();
     },
   });
   // Unknown types and oversized metadata must fail instead of being silently skipped.
   parser.on('ignoredEntry', () =>
-    invalid('Archive contains an unsupported entry or oversized metadata.'),
+    invalid('Архив содержит неподдерживаемую запись или слишком большие метаданные.'),
   );
   parser.on('error', (error: Error) => {
     parseError = error;
@@ -158,13 +164,16 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
     for await (const chunk of gzip) {
       tarBytes += chunk.length;
       if (tarBytes > MAX_TAR_BYTES)
-        throw new SourceError('ARCHIVE_LIMIT', 'Archive exceeds the tar metadata/padding limit.');
+        throw new SourceError(
+          'ARCHIVE_LIMIT',
+          'Превышено ограничение на метаданные и заполнение tar-архива.',
+        );
       const buffer: Buffer = pending.length ? Buffer.concat([pending, chunk]) : chunk;
       let offset = 0;
       while (buffer.length - offset >= 512) {
         if (eof) {
           if (buffer.subarray(offset).some((byte) => byte !== 0))
-            invalid('Unexpected data after tar end blocks.');
+            invalid('Обнаружены неожиданные данные после завершающих блоков tar.');
           offset = buffer.length;
           break;
         }
@@ -181,24 +190,26 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
       }
       pending = buffer.subarray(offset);
     }
-    if (pending.length) invalid('Truncated tar archive: partial block.');
+    if (pending.length) invalid('Tar-архив обрезан: неполный блок.');
     parser.end();
     if (parseError) throw parseError;
     await ended;
     if (!eof || tarBytes % 512 !== 0)
-      invalid('Truncated tar archive: missing complete end blocks.');
+      invalid('Tar-архив обрезан: отсутствуют полные завершающие блоки.');
     for (const entry of entries.values()) {
       let parent = dirname(entry.path);
       while (parent !== '.') {
         if (entries.get(parent)?.directory === false)
-          invalid(`Archive file is also used as a directory: ${JSON.stringify(parent)}.`);
+          invalid(`Файл в архиве также используется как каталог: ${JSON.stringify(parent)}.`);
         parent = dirname(parent);
       }
     }
     return [...entries.values()];
   } catch (cause) {
     if (cause instanceof SourceError) throw cause;
-    throw new SourceError('INVALID_ARCHIVE', 'Invalid or truncated gzip/tar archive.', { cause });
+    throw new SourceError('INVALID_ARCHIVE', 'Некорректный или обрезанный gzip/tar-архив.', {
+      cause,
+    });
   } finally {
     gzip.destroy();
   }
@@ -212,7 +223,7 @@ export async function prepareArchive(
   if (!isAbsolute(options.cwd) || !isAbsolute(options.temporaryDirectory))
     throw new SourceError(
       'INVALID_SOURCE',
-      'Source cwd and temporary base must be absolute paths.',
+      'Пути рабочей папки и временного каталога должны быть абсолютными.',
     );
   const identityPath = resolve(options.cwd, source);
   const fs = options.fileSystem ?? archiveSourceFileSystem;
@@ -222,7 +233,10 @@ export async function prepareArchive(
     validatePathText(options.cwd);
     validatePathText(options.temporaryDirectory);
     if (!/\.(?:tar\.gz|tgz)$/.test(source))
-      throw new SourceError('INVALID_SOURCE', 'Local archive must end in .tar.gz or .tgz.');
+      throw new SourceError(
+        'INVALID_SOURCE',
+        'Имя локального архива должно оканчиваться на .tar.gz или .tgz.',
+      );
     const bytes = await readArchive(identityPath, fs);
     const archiveHash = createHash('sha256').update(bytes).digest('hex');
     const entries = await unpack(bytes);
@@ -235,7 +249,7 @@ export async function prepareArchive(
         topLevel.size !== 1 ||
         !entries.some((entry) => entry.path === `${outer}/SKILL.md` && !entry.directory)
       )
-        invalid('SKILL.md must be at archive root or in its single outer directory.');
+        invalid('SKILL.md должен находиться в корне архива или в единственном внешнем каталоге.');
       prefix = `${outer}/`;
     }
     const temporaryRoot = await fs.realpath(options.temporaryDirectory);
@@ -247,7 +261,7 @@ export async function prepareArchive(
       if (!path) continue;
       const target = resolve(directory, path);
       if (!target.startsWith(`${directory}/`))
-        invalid('Archive destination escaped temporary root.');
+        invalid('Путь распаковки выходит за пределы временного каталога.');
       if (entry.directory) await fs.mkdir(target, { recursive: true, mode: 0o755 });
       else {
         await fs.mkdir(dirname(target), { recursive: true, mode: 0o755 });
@@ -278,7 +292,7 @@ export async function prepareArchive(
         ? cause
         : new SourceError(
             hasErrorCode(cause, 'INVALID_PATH') ? 'INVALID_SOURCE' : 'PREPARATION_FAILED',
-            `Cannot prepare local archive ${JSON.stringify(identityPath)}.`,
+            `Не удалось подготовить локальный архив ${JSON.stringify(identityPath)}.`,
             { cause },
           );
     if (workspace !== undefined) {
@@ -287,7 +301,7 @@ export async function prepareArchive(
       } catch (cleanupError) {
         error = new SourceError(
           'PREPARATION_FAILED',
-          `Preparation and temporary cleanup failed: ${workspace}.`,
+          `Подготовка и удаление временных файлов завершились ошибкой: ${workspace}.`,
           { cause: new AggregateError([error, cleanupError]) },
         );
       }

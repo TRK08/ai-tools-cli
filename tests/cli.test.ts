@@ -40,7 +40,7 @@ describe('CLI in a separate process', () => {
       name: 'help',
       args: ['--help'],
       exitCode: 0,
-      stdout: /Usage: skills-installer/,
+      stdout: /Использование: skills-installer/,
       stderr: /^$/,
     },
     {
@@ -55,22 +55,63 @@ describe('CLI in a separate process', () => {
       args: ['install'],
       exitCode: 1,
       stdout: /^$/,
-      stderr: /error: .*install/,
+      stderr: /Ошибка: .*install/,
     },
     {
       name: 'unknown command',
       args: ['unknown-command'],
       exitCode: 1,
       stdout: /^$/,
-      stderr: /error: .*unknown-command/,
+      stderr: /Ошибка: .*unknown-command/,
     },
     {
       name: 'unknown option',
       args: ['--unknown-option'],
       exitCode: 1,
       stdout: /^$/,
-      stderr: /unknown option '--unknown-option'/,
+      stderr: /неизвестный параметр '--unknown-option'/,
     },
+    {
+      name: 'missing source',
+      args: ['add'],
+      exitCode: 1,
+      stdout: /^$/,
+      stderr: /Ошибка: отсутствует обязательный аргумент 'source'/,
+    },
+    {
+      name: 'missing agent value',
+      args: ['add', '--agent'],
+      exitCode: 1,
+      stdout: /^$/,
+      stderr: /Ошибка: для параметра '-a, --agent <agent>' не указано значение/,
+    },
+    {
+      name: 'excess arguments',
+      args: ['update', 'demo', 'other'],
+      exitCode: 1,
+      stdout: /^$/,
+      stderr:
+        /Ошибка: слишком много аргументов для команды 'update'. Ожидалось: 1, получено: 2: demo, other/,
+    },
+    {
+      name: 'option suggestion',
+      args: ['add', '--forc'],
+      exitCode: 1,
+      stdout: /^$/,
+      stderr: /неизвестный параметр '--forc'\s+\(Возможно, вы имели в виду --force\?\)/,
+    },
+    ...['add', 'list', 'find', 'update', 'remove'].flatMap((command) =>
+      [
+        [command, '--help'],
+        ['help', command],
+      ].map((args) => ({
+        name: `Russian help for ${args.join(' ')}`,
+        args,
+        exitCode: 0,
+        stdout: new RegExp(`Использование: skills-installer ${command} \\[параметры\\]`),
+        stderr: /^$/,
+      })),
+    ),
   ])('$name returns $exitCode without changing fixture files', async (scenario) => {
     await withTestEnvironment(
       async (fixture) => {
@@ -94,6 +135,14 @@ describe('CLI in a separate process', () => {
         expect(result.signal).toBeNull();
         expect(result.status).toBe(scenario.exitCode);
         expect(result.stdout).toMatch(scenario.stdout);
+        if (scenario.args.includes('--help') || scenario.args[0] === 'help') {
+          expect(result.stdout).toContain('Параметры:');
+          expect(result.stdout).toContain('показать справку по команде');
+          expect(result.stdout).not.toMatch(
+            /Usage:|Options:|Arguments:|Commands:|display help|repeatable|\[options\]/,
+          );
+        }
+        if (scenario.name === 'help') expect(result.stdout).not.toMatch(/^\s+info(?:\s|$)/m);
         expect(result.stderr).toMatch(scenario.stderr);
         expect(await snapshotTree(fixture.temporaryRoot)).toEqual(before);
       },

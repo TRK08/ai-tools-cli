@@ -11,8 +11,10 @@ import { getStatePaths } from '../src/state/paths.ts';
 import { withRegistryServer, json } from './helpers/registry.ts';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.ts';
 import { versionArtifact, versionBytes, versionRegistry } from './helpers/versions.ts';
+import { skillDetail } from './helpers/discovery.ts';
 
 function cli(f: TestEnvironment, args: string[]) {
+  if (args[0] === 'add') args = [...args, '--yes'];
   return new Promise<{ status: number | null; stdout: string; stderr: string }>((done, reject) => {
     const child = spawn(
       process.execPath,
@@ -75,7 +77,7 @@ describe('update CLI', () => {
               requests.length = 0;
               expect(await cli(f, ['update', ...flags])).toMatchObject({
                 status: 0,
-                stdout: expect.stringContaining('No updates available.'),
+                stdout: expect.stringContaining('Обновлений нет.'),
                 stderr: '',
               });
               expect(requests).toEqual(['/origin/api/v1/skills/demo/artifact']);
@@ -93,15 +95,15 @@ describe('update CLI', () => {
                 '--yes',
               ]);
               expect(update.status).toBe(0);
-              expect(update.stdout).toContain('affected agents: codex, pi');
-              expect(update.stdout).toMatch(/│ demo\s+│.*│ Updated\s+│/);
+              expect(update.stdout).toContain('затрагиваемые агенты: codex, pi');
+              expect(update.stdout).toMatch(/│ demo\s+│.*│ Обновлён\s+│/);
               expect(requests).toHaveLength(2);
               expect((await lstat(join(paths.skillsDirectory, 'demo'))).ino).not.toBe(inode);
               expect((await add('demo@1.0.0')).status).toBe(0);
               requests.length = 0;
               expect(await cli(f, ['update', 'demo', '--force', ...flags])).toMatchObject({
                 status: 0,
-                stdout: expect.stringContaining('Pinned (exact)'),
+                stdout: expect.stringContaining('Закреплён (exact)'),
                 stderr: '',
               });
               expect(requests).toEqual([]);
@@ -111,17 +113,30 @@ describe('update CLI', () => {
               current = '3.0.0';
               const batch = await cli(f, ['update', '--yes', ...flags]);
               expect(batch.status).toBe(1);
-              expect(batch.stdout).toContain('Error demo (failed)');
-              expect(batch.stdout).toMatch(/│ other\s+│.*│ Updated\s+│/);
-              expect(batch.stderr).toContain('One or more skills');
+              expect(batch.stdout).toContain('Ошибка demo');
+              expect(batch.stdout).toMatch(/│ other\s+│.*│ Обновлён\s+│/);
+              expect(batch.stderr).toContain('Не удалось');
               const listed = await cli(f, ['list', ...flags]);
               expect(listed.stdout).toContain('other');
-              expect(listed.stdout).toMatch(/│ other\s+│ 3\.0\.0\s+│ latest\s+│/);
+              expect(listed.stdout).toMatch(/│ other\s+│ 3\.0\.0\s+│ Актуальная \(latest\)\s+│/);
             },
             { env: { SKILLS_API_URL: 'http://127.0.0.1:1' } },
           ),
         (req, res, url) => {
           const requested = new URL(req.url!, url);
+          const detail = /^\/origin\/api\/v1\/skills\/(demo|other)$/.exec(requested.pathname);
+          if (detail) {
+            const version = requested.searchParams.get('version') ?? current;
+            return json(
+              res,
+              skillDetail({
+                slug: detail[1],
+                currentVersion: current,
+                version,
+                versions: [...new Set([current, version])],
+              }),
+            );
+          }
           const match = /^\/origin\/api\/v1\/skills\/(demo|other)\/artifact$/.exec(
             requested.pathname,
           );
@@ -169,9 +184,9 @@ describe('update CLI', () => {
             '--yes',
           ]);
           expect(input.setRawMode).not.toHaveBeenCalled();
-          expect(rendered).toContain('Current');
-          expect(rendered).toContain('Latest');
-          expect(rendered).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 2\.0\.0\s+│ Updated\s+│/);
+          expect(rendered).toContain('Текущая');
+          expect(rendered).toContain('Доступная');
+          expect(rendered).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 2\.0\.0\s+│ Обновлён\s+│/);
           expect((await new LocalInstaller(f).list())[0]!.agents).toEqual(['pi']);
         } finally {
           input.destroy();
@@ -207,27 +222,32 @@ describe('update CLI', () => {
       await writeFile(join(f.roots.cwd, 'other', 'new'), 'updated');
       const result = await cli(f, ['update', '--yes']);
       expect(result.status).toBe(1);
-      expect(result.stdout).toContain('Error demo (failed)');
-      expect(result.stdout).toMatch(/│ other\s+│.*│ Updated\s+│/);
+      expect(result.stdout).toContain('Ошибка demo');
+      expect(result.stdout).toMatch(/│ other\s+│.*│ Обновлён\s+│/);
     });
   });
 
   it.each([
-    { args: ['update'], status: 0, stdout: /No matching skills/, stderr: /^$/ },
+    { args: ['update'], status: 0, stdout: /Нет подходящих скиллов/, stderr: /^$/ },
     {
       args: ['update', '-a', 'codex', '-a', 'pi'],
       status: 0,
-      stdout: /No matching skills/,
+      stdout: /Нет подходящих скиллов/,
       stderr: /^$/,
     },
-    { args: ['update', 'missing'], status: 1, stdout: /^$/, stderr: /not installed/ },
-    { args: ['update', '-a', 'unknown'], status: 1, stdout: /^$/, stderr: /Unknown agent/ },
-    { args: ['update', 'demo', 'other'], status: 1, stdout: /^$/, stderr: /too many arguments/ },
+    { args: ['update', 'missing'], status: 1, stdout: /^$/, stderr: /не установлен/ },
+    { args: ['update', '-a', 'unknown'], status: 1, stdout: /^$/, stderr: /Неизвестный агент/ },
+    {
+      args: ['update', 'demo', 'other'],
+      status: 1,
+      stdout: /^$/,
+      stderr: /слишком много аргументов/,
+    },
     {
       args: ['update', '--registry', 'https://example.test'],
       status: 1,
       stdout: /^$/,
-      stderr: /unknown option/,
+      stderr: /неизвестный параметр/,
     },
   ])('handles $args with code $status without TTY', async ({ args, status, stdout, stderr }) => {
     await withTestEnvironment(async (f) => {

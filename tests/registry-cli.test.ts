@@ -12,6 +12,7 @@ import { withRegistryServer } from './helpers/registry.ts';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.ts';
 
 function cli(f: TestEnvironment, args: string[]) {
+  if (args[0] === 'add') args = [...args, '--yes'];
   return new Promise<{ status: number | null; stdout: string; stderr: string }>((done, reject) => {
     const child = spawn(
       process.execPath,
@@ -75,7 +76,7 @@ describe('registry CLI', () => {
               expect(result).toMatchObject({
                 status: 0,
                 stderr: '',
-                stdout: expect.stringContaining('Added demo'),
+                stdout: expect.stringContaining('Установлен demo'),
               });
               const listed = await cli(f, ['list', ...flags]);
               expect(listed.status).toBe(0);
@@ -96,9 +97,9 @@ describe('registry CLI', () => {
                 ...flags,
               ]);
               expect(bad.status).toBe(1);
-              expect(bad.stderr).toMatch(/missing@1\.2\.3.*not found/);
+              expect(bad.stderr).toMatch(/missing@1\.2\.3.*не найдены/);
               expect(await readFile(paths.lockPath)).toEqual(oldLock);
-              expect((await cli(f, ['remove', 'demo', ...flags])).status).toBe(0);
+              expect((await cli(f, ['remove', 'demo', '--yes', ...flags])).status).toBe(0);
               await expect(lstat(join(paths.skillsDirectory, 'demo'))).rejects.toMatchObject({
                 code: 'ENOENT',
               });
@@ -116,7 +117,9 @@ describe('registry CLI', () => {
       withTestEnvironment(
         async (f) => {
           expect((await cli(f, ['add', 'demo', '-a', 'codex'])).status).toBe(0);
-          expect((await cli(f, ['list'])).stdout).toMatch(/│ demo\s+│ 1\.2\.3\s+│ latest\s+│/);
+          expect((await cli(f, ['list'])).stdout).toMatch(
+            /│ demo\s+│ 1\.2\.3\s+│ Актуальная \(latest\)\s+│/,
+          );
         },
         { env: { SKILLS_API_URL: url } },
       ),
@@ -150,9 +153,14 @@ describe('registry CLI', () => {
                 'add',
                 'demo',
                 ...(scope === 'global' ? ['-g'] : []),
+                '--yes',
               ]);
               await new Promise<void>((done) => setImmediate(done));
               input.write('\r');
+              if (scope === 'project') {
+                await new Promise<void>((done) => setImmediate(done));
+                input.write('\r');
+              }
               await run;
               expect((await new LocalInstaller(f, { scope }).list())[0]!.agents).toEqual([
                 'claude-code',
@@ -209,7 +217,7 @@ describe('registry CLI', () => {
           await new Promise<void>((done) => setImmediate(done));
           input.write(key);
           await run;
-          expect(write).toHaveBeenCalledWith('Cancelled.');
+          expect(write).toHaveBeenCalledWith('Отменено.');
           expect(http).not.toHaveBeenCalled();
           expect(await hashDirectory(f.temporaryRoot)).toBe(before);
         } finally {
@@ -225,7 +233,7 @@ describe('registry CLI', () => {
       const before = await hashDirectory(f.temporaryRoot);
       const result = await cli(f, ['add', 'demo', '--registry', 'invalid']);
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/TTY.*specify -a/);
+      expect(result.stderr).toMatch(/TTY.*укажите -a/);
       expect(await hashDirectory(f.temporaryRoot)).toBe(before);
     });
   });

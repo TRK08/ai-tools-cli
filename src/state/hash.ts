@@ -12,7 +12,10 @@ import { StateError } from './errors.ts';
  */
 export async function hashDirectory(directory: string): Promise<string> {
   if (!isAbsolute(directory)) {
-    throw new StateError('INVALID_PATH', 'Hash root must be an absolute path.');
+    throw new StateError(
+      'INVALID_PATH',
+      'Корневой путь для вычисления хеша должен быть абсолютным.',
+    );
   }
   const hash = createHash('sha256');
 
@@ -68,7 +71,9 @@ export async function hashDirectory(directory: string): Promise<string> {
       try {
         const opened = await handle.stat({ bigint: true });
         if (!opened.isFile() || opened.dev !== stats.dev || opened.ino !== stats.ino) {
-          throw new Error(`Filesystem entry changed while hashing: ${absolutePath.toString()}`);
+          throw new Error(
+            `Объект файловой системы изменился во время вычисления хеша: ${absolutePath.toString()}`,
+          );
         }
 
         text('file');
@@ -84,7 +89,9 @@ export async function hashDirectory(directory: string): Promise<string> {
           hash.update(buffer.subarray(0, bytesRead));
         }
         if (total !== opened.size) {
-          throw new Error(`File size changed while hashing: ${absolutePath.toString()}`);
+          throw new Error(
+            `Размер файла изменился во время вычисления хеша: ${absolutePath.toString()}`,
+          );
         }
       } finally {
         await handle.close();
@@ -92,7 +99,9 @@ export async function hashDirectory(directory: string): Promise<string> {
       return;
     }
 
-    throw new Error(`Unsupported filesystem entry while hashing: ${absolutePath.toString()}`);
+    throw new Error(
+      `Неподдерживаемый объект файловой системы при вычислении хеша: ${absolutePath.toString()}`,
+    );
   }
 
   text('skills-installer-content-v1');

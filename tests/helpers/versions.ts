@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 import type { HttpTransport } from '../../src/runtime.ts';
 import { archiveBytes, skillText } from './archive.ts';
 import { artifact } from './registry.ts';
+import { skillDetail } from './discovery.ts';
 
 export function versionBytes(name: string, version: string): Buffer {
   return archiveBytes([
@@ -49,6 +50,20 @@ export function versionRegistry() {
       if (!Object.hasOwn(current, name)) return new Response(null, { status: 404 });
       const version = requested.searchParams.get('version') ?? current[name]!;
       return Response.json(versionArtifact(url, name, version, bytesFor(name, version)));
+    }
+    const detail = /^\/origin\/api\/v1\/skills\/([^/]+)$/.exec(requested.pathname);
+    if (detail) {
+      const name = detail[1]!;
+      if (!Object.hasOwn(current, name)) return new Response(null, { status: 404 });
+      const version = requested.searchParams.get('version') ?? current[name]!;
+      return Response.json(
+        skillDetail({
+          slug: name,
+          currentVersion: current[name],
+          version,
+          versions: [...new Set([current[name], version])],
+        }),
+      );
     }
     const download = /^\/origin\/download\/([^/]+)\/([^/]+)$/.exec(requested.pathname);
     if (!download) throw new Error(`Unexpected HTTP request: ${requested.href}`);

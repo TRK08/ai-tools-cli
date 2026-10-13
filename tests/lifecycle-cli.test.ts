@@ -9,6 +9,7 @@ const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const skillText = '---\nname: demo\ndescription: Demo\n---\nOriginal\n';
 
 function cli(context: TestEnvironment, args: string[]) {
+  if (args[0] === 'add') args = [...args, '--yes'];
   const result = spawnSync(
     process.execPath,
     ['--import', import.meta.resolve('tsx'), cliPath, ...args],
@@ -37,7 +38,7 @@ describe('lifecycle CLI', () => {
       const path = await source(context);
       const added = cli(context, ['add', './demo', '-a', 'codex', '--agent', 'codex']);
       expect(added.status).toBe(0);
-      expect(added.stdout).toContain('Added demo (codex).');
+      expect(added.stdout).toContain('Установлен demo (codex).');
       expect(added.stderr).toBe('');
       const link = join(context.roots.cwd, '.agents', 'skills', 'demo');
       const lockPath = join(context.roots.cwd, 'skills-installer-lock.json');
@@ -48,30 +49,30 @@ describe('lifecycle CLI', () => {
       expect(lock.skills.demo.connections).toEqual([
         { agent: 'codex', path: '.agents/skills/demo' },
       ]);
-      expect(cli(context, ['add', './demo', '-a', 'codex']).stdout).toContain('Unchanged demo');
+      expect(cli(context, ['add', './demo', '-a', 'codex']).stdout).toContain('Без изменений demo');
       const listed = cli(context, ['list']);
       expect(listed.status).toBe(0);
-      expect(listed.stdout).toContain('Installed skills · project');
-      expect(listed.stdout).toContain('Version');
-      expect(listed.stdout).toContain('Policy');
-      expect(listed.stdout).not.toContain('Source');
-      expect(listed.stdout).not.toContain('Connections');
-      expect(listed.stdout).toContain('Agents');
-      expect(listed.stdout).toMatch(/│ demo\s+│ local\s+│ local\s+│ codex\s+│/);
+      expect(listed.stdout).toContain('Установленные скиллы · текущий проект');
+      expect(listed.stdout).toContain('Версия');
+      expect(listed.stdout).toContain('Политика');
+      expect(listed.stdout).not.toContain('Источник');
+      expect(listed.stdout).not.toContain('Подключения');
+      expect(listed.stdout).toContain('Агенты');
+      expect(listed.stdout).toMatch(/│ demo\s+│ локальная\s+│ Локальная\s+│ codex\s+│/);
       expect(listed.stdout).not.toContain('.agents/skills/demo');
-      expect(listed.stdout).toContain('1 skill · 1 connection.');
-      expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('filter: codex');
-      const removed = cli(context, ['remove', 'demo', '-a', 'codex']);
+      expect(listed.stdout).toContain('Скиллов: 1 · Подключений: 1.');
+      expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('фильтр: codex');
+      const removed = cli(context, ['remove', 'demo', '-a', 'codex', '--yes']);
       expect(removed.status).toBe(0);
-      expect(removed.stdout).toContain('Removed demo');
+      expect(removed.stdout).toMatch(/│ demo\s+│ локальная\s+│ Удалён\s+│ codex\s+│/);
       await expect(lstat(link)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(
         lstat(join(context.roots.cwd, '.agents', 'skills', 'demo')),
       ).rejects.toMatchObject({ code: 'ENOENT' });
       expect(JSON.parse(await readFile(lockPath, 'utf8')).skills).toEqual({});
       expect(await readFile(join(path, 'SKILL.md'), 'utf8')).toBe(skillText);
-      expect(cli(context, ['list']).stdout).toContain('No skills');
-      expect(cli(context, ['remove', 'demo']).status).toBe(0);
+      expect(cli(context, ['list']).stdout).toContain('Нет скиллов');
+      expect(cli(context, ['remove', 'demo', '--yes']).status).toBe(0);
     });
   });
 
@@ -82,7 +83,7 @@ describe('lifecycle CLI', () => {
       await writeFile(join(path, 'new'), 'updated resource');
       const updated = cli(context, ['add', './demo', '-a', 'codex']);
       expect(updated.status).toBe(0);
-      expect(updated.stdout).toContain('affected agents: codex');
+      expect(updated.stdout).toContain('затрагиваемые агенты: codex');
       const installedSkill = join(context.roots.cwd, '.agents', 'skills', 'demo', 'SKILL.md');
       await writeFile(installedSkill, 'user edits');
       const rejected = cli(context, ['add', './demo', '-a', 'codex']);
@@ -92,22 +93,22 @@ describe('lifecycle CLI', () => {
       expect(cli(context, ['add', './demo', '-a', 'codex', '--force']).status).toBe(0);
       expect(await readFile(installedSkill, 'utf8')).toBe(skillText);
       await writeFile(installedSkill, 'other user edits');
-      expect(cli(context, ['remove', 'demo']).status).toBe(0);
+      expect(cli(context, ['remove', 'demo', '--yes']).status).toBe(0);
       expect(await readFile(join(path, 'SKILL.md'), 'utf8')).toBe(skillText);
     });
   });
 
   it.each([
-    { args: ['add', './demo'], message: /TTY.*specify -a/ },
-    { args: ['add', './demo', '-a', 'unknown'], message: /Unknown agent/ },
-    { args: ['list', '-a', 'unknown'], message: /Unknown agent/ },
-    { args: ['remove', 'demo', '-a', 'unknown'], message: /Unknown agent/ },
-    { args: ['remove'], message: /missing required argument/ },
-    { args: ['add'], message: /missing required argument/ },
-    { args: ['remove', '../demo'], message: /Unsafe skill name/ },
-    { args: ['remove', 'demo', '--force'], message: /unknown option/ },
-    { args: ['add', './demo', '-a', 'codex', 'extra'], message: /too many arguments/ },
-    { args: ['restore'], message: /error: .*restore/ },
+    { args: ['add', './demo'], message: /TTY.*укажите -a/ },
+    { args: ['add', './demo', '-a', 'unknown'], message: /Неизвестный агент/ },
+    { args: ['list', '-a', 'unknown'], message: /Неизвестный агент/ },
+    { args: ['remove', 'demo', '-a', 'unknown'], message: /Неизвестный агент/ },
+    { args: ['remove'], message: /TTY.*remove demo --yes/ },
+    { args: ['add'], message: /отсутствует обязательный аргумент/ },
+    { args: ['remove', '../demo'], message: /Небезопасное имя скилла/ },
+    { args: ['remove', 'demo', '--force'], message: /неизвестный параметр/ },
+    { args: ['add', './demo', '-a', 'codex', 'extra'], message: /слишком много аргументов/ },
+    { args: ['restore'], message: /Ошибка: .*restore/ },
   ])('rejects unsupported arguments $args before changing state', async ({ args, message }) => {
     await withTestEnvironment(async (context) => {
       const path = await source(context);
@@ -133,13 +134,13 @@ describe('lifecycle CLI', () => {
       expect(cli(context, args).status).toBe(0);
       expect(cli(context, [...args, '-g']).status).toBe(0);
       expect(cli(context, ['list', '-g', '-a', 'pi']).stdout).toContain(
-        'Installed skills · global · filter: pi',
+        'Установленные скиллы · глобальная область · фильтр: pi',
       );
-      expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('No skills');
-      expect(cli(context, ['remove', 'demo', '-a', 'pi']).status).toBe(0);
+      expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('Нет скиллов');
+      expect(cli(context, ['remove', 'demo', '-a', 'pi', '--yes']).status).toBe(0);
       expect(cli(context, ['list']).stdout).toContain('cursor');
-      expect(cli(context, ['remove', 'demo', '-g']).status).toBe(0);
-      expect(cli(context, ['list', '-g']).stdout).toContain('No skills');
+      expect(cli(context, ['remove', 'demo', '-g', '--yes']).status).toBe(0);
+      expect(cli(context, ['list', '-g']).stdout).toContain('Нет скиллов');
     });
   });
 
@@ -150,16 +151,16 @@ describe('lifecycle CLI', () => {
       await mkdir(foreign, { recursive: true });
       const added = cli(context, ['add', './demo', '-a', 'codex', '-a', 'claude-code']);
       expect(added.status).toBe(1);
-      expect(added.stderr).toContain('partial');
+      expect(added.stderr).toContain('Частичный результат');
       expect(cli(context, ['list']).stdout).toContain('codex');
       expect((await lstat(foreign)).isDirectory()).toBe(true);
       await rm(foreign, { recursive: true });
       expect(cli(context, ['add', './demo', '-a', 'claude-code']).status).toBe(0);
       await rm(foreign);
       await mkdir(foreign);
-      const removed = cli(context, ['remove', 'demo']);
+      const removed = cli(context, ['remove', 'demo', '--yes']);
       expect(removed.status).toBe(1);
-      expect(removed.stderr).toContain('Foreign agent destination');
+      expect(removed.stderr).toContain('Путь агента занят чужим объектом');
       expect(cli(context, ['list']).stdout).toContain('claude-code');
       expect((await lstat(foreign)).isDirectory()).toBe(true);
     });
@@ -170,13 +171,13 @@ describe('lifecycle CLI', () => {
       const path = await source(context);
       const result = cli(context, ['add', './missing', '-a', 'codex']);
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain('Cannot prepare local source');
+      expect(result.stderr).toContain('Не удалось подготовить локальный источник');
       await mkdir(join(context.roots.cwd, '.agents', 'skills'), { recursive: true });
       const link = join(context.roots.cwd, '.agents', 'skills', 'demo');
       await symlink(path, link);
       const conflict = cli(context, ['add', './demo', '-a', 'codex', '--force']);
       expect(conflict.status).toBe(1);
-      expect(conflict.stderr).toContain('Foreign shared-copy');
+      expect(conflict.stderr).toContain('Общий каталог занят чужим объектом');
       expect(await readlink(link)).toBe(path);
       await rm(link);
     });

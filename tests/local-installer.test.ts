@@ -99,9 +99,9 @@ describe('direct project Codex lifecycle', () => {
       );
       // The report's probe is an external edit, so the final hash check protects it.
       await expect(new LocalInstaller(context, { report }).add('./demo')).rejects.toThrow(
-        /local changes/,
+        /изменён локально/,
       );
-      expect(report).toHaveBeenCalledWith('Replacing demo; affected agents: codex.');
+      expect(report).toHaveBeenCalledWith('Замена demo; затрагиваемые агенты: codex.');
       await rm(join(fixture.copy, 'probe'));
       await fixture.installer.add('./demo');
       expect(await hashDirectory(fixture.copy)).toBe(await hashDirectory(fixture.source));
@@ -150,7 +150,7 @@ describe('direct project Codex lifecycle', () => {
         await operation;
         expect(await hashDirectory(fixture.copy)).toBe(await hashDirectory(fixture.source));
       } else {
-        await expect(operation).rejects.toThrow(/local changes/);
+        await expect(operation).rejects.toThrow(/изменён локально/);
         expect(await readFile(fixture.paths.lockPath, 'utf8')).toBe(before);
         expect(await readFile(join(fixture.copy, 'SKILL.md'), 'utf8')).toBe('late user edit');
       }
@@ -163,7 +163,7 @@ describe('direct project Codex lifecycle', () => {
       await fixture.installer.add('./demo');
       for (const path of [fixture.copy, fixture.source])
         await writeFile(join(path, 'extra'), 'same');
-      await expect(fixture.installer.add('./demo')).rejects.toThrow(/local changes/);
+      await expect(fixture.installer.add('./demo')).rejects.toThrow(/изменён локально/);
       expect(await fixture.installer.add('./demo', true)).toMatchObject({ status: 'success' });
       expect(await fixture.installer.add('./demo')).toMatchObject({ status: 'unchanged' });
       await cleanWork(fixture.paths);
@@ -192,12 +192,14 @@ describe('direct project Codex lifecycle', () => {
       const before = await snapshot(fixture);
       await mkdir(join(context.roots.cwd, 'other'));
       await writeFile(join(context.roots.cwd, 'other', 'SKILL.md'), skillText);
-      await expect(fixture.installer.add('./other', true)).rejects.toThrow(/different source/);
+      await expect(fixture.installer.add('./other', true)).rejects.toThrow(/другой источник/);
       await writeFile(
         join(fixture.source, 'SKILL.md'),
         skillText.replace('name: demo', 'name: renamed'),
       );
-      await expect(fixture.installer.add('./demo')).rejects.toThrow(/name changed/);
+      await expect(fixture.installer.add('./demo')).rejects.toThrow(
+        /Имя скилла в источнике изменилось/,
+      );
       expect(await snapshot(fixture)).toEqual(before);
       await cleanWork(fixture.paths);
     });
@@ -232,7 +234,9 @@ describe('direct project Codex lifecycle', () => {
         } else if (kind === 'file') await writeFile(fixture.copy, 'foreign');
         else await symlink(kind === 'symlink' ? fixture.source : '../missing', fixture.copy);
         const before = await hashDirectory(fixture.copy);
-        await expect(fixture.installer.add('./demo', true)).rejects.toThrow(/Foreign shared-copy/);
+        await expect(fixture.installer.add('./demo', true)).rejects.toThrow(
+          /Общий каталог занят чужим объектом/,
+        );
         expect(await hashDirectory(fixture.copy)).toBe(before);
         expect(await fixture.store.read()).toBeNull();
         expect(await fixture.installer.remove('demo')).toMatchObject({ status: 'unchanged' });
@@ -251,8 +255,8 @@ describe('direct project Codex lifecycle', () => {
         if (kind === 'symlink') await symlink(fixture.source, fixture.copy);
         else await writeFile(fixture.copy, 'foreign');
         const before = await hashDirectory(fixture.copy);
-        await expect(fixture.installer.add('./demo', true)).rejects.toThrow(/Foreign/);
-        await expect(fixture.installer.remove('demo')).rejects.toThrow(/Foreign/);
+        await expect(fixture.installer.add('./demo', true)).rejects.toThrow(/чужим объектом/);
+        await expect(fixture.installer.remove('demo')).rejects.toThrow(/чужим объектом/);
         expect(await hashDirectory(fixture.copy)).toBe(before);
         expect(await readFile(fixture.paths.lockPath, 'utf8')).toBe(lock);
         await cleanWork(fixture.paths);
@@ -265,7 +269,7 @@ describe('direct project Codex lifecycle', () => {
       if (parent.endsWith('/skills')) await mkdir(fixture.paths.agentsDirectory);
       await symlink(context.roots.home, join(context.roots.cwd, parent));
       const before = await hashDirectory(context.roots.home);
-      await expect(fixture.installer.add('./demo', true)).rejects.toThrow(/regular directory/);
+      await expect(fixture.installer.add('./demo', true)).rejects.toThrow(/обычный каталог/);
       expect(await hashDirectory(context.roots.home)).toBe(before);
       await absent(fixture.paths.lockPath);
       await absent(fixture.paths.operationLockPath);
@@ -281,7 +285,7 @@ describe('direct project Codex lifecycle', () => {
         return prepared;
       };
       await expect(new LocalInstaller(context, { prepare }).add('./demo', true)).rejects.toThrow(
-        /Foreign/,
+        /чужим объектом/,
       );
       expect(await readFile(join(fixture.copy, 'keep'), 'utf8')).toBe('foreign');
       expect(await fixture.store.read()).toBeNull();
@@ -341,14 +345,14 @@ describe('direct project Codex lifecycle', () => {
   it('protects corrupt state, unsafe names and home scope before installation changes', async () => {
     await withTestEnvironment(async (context) => {
       const fixture = await setup(context);
-      await expect(fixture.installer.remove('../demo')).rejects.toThrow(/Unsafe/);
+      await expect(fixture.installer.remove('../demo')).rejects.toThrow(/Небезопасное/);
       expect(
         () =>
           new LocalInstaller({
             ...context,
             roots: { cwd: context.roots.home, home: context.roots.home },
           }),
-      ).toThrow(/home/);
+      ).toThrow(/домашнем каталоге/);
       await fixture.installer.add('./demo');
       await writeFile(fixture.paths.lockPath, '{');
       const before = await snapshot(fixture);
@@ -480,7 +484,7 @@ describe('handled failures and rollback', () => {
           ...(phase === 'rollback' ? { store: failingStore(context, 'commit') } : {}),
         };
         await expect(new LocalInstaller(context, options).add('./demo')).rejects.toThrow(
-          /workspace cleanup failed/,
+          /удалить временный каталог не удалось/,
         );
         if (phase === 'success')
           expect((await fixture.store.read())?.skills.demo?.contentHash).toBe(
@@ -510,7 +514,7 @@ describe('handled failures and rollback', () => {
         new LocalInstaller(context, { fileSystem: { ...installerFileSystem, rename } }).add(
           './demo',
         ),
-      ).rejects.toThrow(/rollback failed.*recovery files/);
+      ).rejects.toThrow(/откат завершились ошибкой.*файлы для восстановления/);
       const directories = (await readdir(fixture.paths.agentsDirectory)).filter((name) =>
         name.startsWith(WORKSPACE_PREFIX),
       );
@@ -529,7 +533,16 @@ describe('handled failures and rollback', () => {
       const child = () =>
         spawnSync(
           process.execPath,
-          ['--import', import.meta.resolve('tsx'), cli.pathname, 'add', './demo', '-a', 'codex'],
+          [
+            '--import',
+            import.meta.resolve('tsx'),
+            cli.pathname,
+            'add',
+            './demo',
+            '-a',
+            'codex',
+            '--yes',
+          ],
           {
             cwd: context.roots.cwd,
             env: { ...context.env, TSX_DISABLE_CACHE: '1' },
@@ -541,13 +554,13 @@ describe('handled failures and rollback', () => {
         const blocked = child();
         expect(blocked.error).toBeUndefined();
         expect(blocked.status).toBe(1);
-        expect(blocked.stderr).toContain('Scope is busy');
+        expect(blocked.stderr).toContain('Область занята другой операцией');
         return prepareDirectory(...args);
       };
       await new LocalInstaller(context, { prepare }).add('./demo');
       const retry = child();
       expect(retry.status).toBe(0);
-      expect(retry.stdout).toContain('Unchanged');
+      expect(retry.stdout).toContain('Без изменений');
       await cleanWork(fixture.paths);
     });
   });

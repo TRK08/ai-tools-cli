@@ -73,7 +73,7 @@ describe('real Clack selection with controlled TTY streams', () => {
         });
         await keys(t, [' ', down, ' ', down, ' ', enter]);
         expect(completed).toBe(false);
-        expect(t.rendered()).toContain('Please select at least one option');
+        expect(t.rendered()).toContain('Выберите хотя бы один пункт');
         await keys(t, [down, down, ' ', up, down, enter]);
         expect(await selected).toEqual(['pi']);
       } finally {
@@ -101,7 +101,7 @@ describe('real Clack selection with controlled TTY streams', () => {
           ]);
           await keys(t, [key]);
           await run;
-          expect(output.write).toHaveBeenCalledWith('Cancelled.');
+          expect(output.write).toHaveBeenCalledWith('Отменено.');
           expect(http).not.toHaveBeenCalled();
           expect(await hashDirectory(context.temporaryRoot)).toBe(before);
         } finally {
@@ -124,8 +124,9 @@ describe('real Clack selection with controlled TTY streams', () => {
             'skills-installer',
             'add',
             './demo',
+            '--yes',
           ]);
-          await keys(t, sequence);
+          await keys(t, [enter, ...sequence]);
           await run;
         } finally {
           t.close();
@@ -174,7 +175,7 @@ describe('real Clack selection with controlled TTY streams', () => {
             'add',
             './missing',
           ]),
-        ).rejects.toThrow(/TTY.*specify -a/);
+        ).rejects.toThrow(/TTY.*укажите -a/);
         expect(t.rendered()).toBe('');
         expect(await hashDirectory(context.temporaryRoot)).toBe(before);
       } finally {
@@ -192,7 +193,7 @@ describe('real Clack selection with controlled TTY streams', () => {
           'codex',
         ]);
         await expect(selectAgents(['pi', 'unknown'], context, 'project', t)).rejects.toThrow(
-          'Unknown agent',
+          'Неизвестный агент',
         );
         expect(t.rendered()).toBe('');
       } finally {

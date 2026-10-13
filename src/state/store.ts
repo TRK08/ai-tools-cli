@@ -48,26 +48,33 @@ export class StateStore {
     });
     if (root === null) return null;
     if (!root.isDirectory() || root.isSymbolicLink())
-      throw new StateError('INVALID_PATH', 'State root must be a regular directory.');
+      throw new StateError(
+        'INVALID_PATH',
+        'Корневой каталог состояния должен быть обычным каталогом.',
+      );
     const handle = await open(
       this.paths.lockPath,
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     ).catch((cause: unknown) => {
       if (hasErrorCode(cause, 'ENOENT')) return null;
       if (hasErrorCode(cause, 'ELOOP'))
-        throw new StateError('INVALID_LOCK', 'Lock file cannot be a symlink.', { cause });
+        throw new StateError(
+          'INVALID_LOCK',
+          'Файл состояния не может быть символической ссылкой.',
+          { cause },
+        );
       throw cause;
     });
     if (handle === null) return null;
     try {
       if (!(await handle.stat()).isFile())
-        throw new StateError('INVALID_LOCK', 'Lock must be a regular file.');
+        throw new StateError('INVALID_LOCK', 'Файл состояния должен быть обычным файлом.');
       let parsed: unknown;
       try {
         parsed = JSON.parse(await handle.readFile('utf8'));
       } catch (cause) {
         if (cause instanceof SyntaxError)
-          throw new StateError('INVALID_LOCK', 'Invalid lock JSON.', { cause });
+          throw new StateError('INVALID_LOCK', 'Некорректный JSON в файле состояния.', { cause });
         throw cause;
       }
       return parseLockFile(parsed, this.paths);
@@ -80,7 +87,7 @@ export class StateStore {
     return withScopeLock(this.paths, async () => {
       let active = true;
       const assertActive = () => {
-        if (!active) throw new StateError('SCOPE_BUSY', 'State transaction has already ended.');
+        if (!active) throw new StateError('SCOPE_BUSY', 'Транзакция состояния уже завершена.');
       };
       const transaction: StateTransaction = {
         read: async () => {

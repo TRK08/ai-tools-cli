@@ -20,6 +20,9 @@ export async function ensureOwnedDirectory(path: string): Promise<void> {
   await mkdir(path, { recursive: true });
   const stats = await lstat(path);
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
-    throw new StateError('INVALID_PATH', `State directory must be a regular directory: ${path}.`);
+    throw new StateError(
+      'INVALID_PATH',
+      `Каталог состояния должен быть обычным каталогом: ${path}.`,
+    );
   }
 }

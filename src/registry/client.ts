@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto';
 import type { HttpTransport } from '../runtime.ts';
 import { RegistryError } from './errors.ts';
 import {
+  validateCatalog,
+  validateSkillDetail,
+  type CatalogSkill,
+  type SkillDetail,
+} from './catalog.ts';
+import {
   getRegistryUrl,
   isFullSemVer,
   isRegistrySlug,
@@ -36,7 +42,8 @@ export interface RegistryClientOptions {
 }
 
 async function readBounded(response: Response, maximum: number): Promise<Buffer> {
-  if (!response.body) throw new RegistryError('INVALID_RESPONSE', 'HTTP response has no body.');
+  if (!response.body)
+    throw new RegistryError('INVALID_RESPONSE', 'В HTTP-ответе отсутствует тело.');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -46,7 +53,7 @@ async function readBounded(response: Response, maximum: number): Promise<Buffer>
       if (done) break;
       size += value.byteLength;
       if (size > maximum)
-        throw new RegistryError('INVALID_RESPONSE', 'HTTP response exceeds the size limit.');
+        throw new RegistryError('INVALID_RESPONSE', 'Размер HTTP-ответа превышает ограничение.');
       chunks.push(value);
     }
     return Buffer.concat(chunks, size);
@@ -58,7 +65,7 @@ async function readBounded(response: Response, maximum: number): Promise<Buffer>
 
 function validateArtifact(value: unknown, reference: RegistryReference): RegistryArtifact {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
-    throw new RegistryError('INVALID_RESPONSE', 'Registry returned invalid artifact metadata.');
+    throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректные метаданные артефакта.');
   const data = value as Record<string, unknown>;
   if (
     data.slug !== reference.slug ||
@@ -81,7 +88,7 @@ function validateArtifact(value: unknown, reference: RegistryReference): Registr
   )
     throw new RegistryError(
       'INVALID_RESPONSE',
-      'Registry returned invalid artifact identity (slug, version, SHA-256, size, format or expiry).',
+      'Реестр вернул некорректные данные артефакта (slug, версия, SHA-256, размер, формат или срок действия).',
     );
   try {
     const url = new URL(data.url);
@@ -92,11 +99,11 @@ function validateArtifact(value: unknown, reference: RegistryReference): Registr
       url.password ||
       url.hash
     )
-      throw new Error('Invalid URL.');
+      throw new Error('Некорректный URL.');
   } catch (cause) {
     throw new RegistryError(
       'INVALID_RESPONSE',
-      'Registry returned an invalid artifact download URL.',
+      'Реестр вернул некорректный URL скачивания артефакта.',
       { cause },
     );
   }
@@ -127,50 +134,93 @@ export class RegistryClient {
     this.now = options.now ?? Date.now;
   }
 
-  async resolveArtifact(reference: RegistryReference): Promise<RegistryArtifact> {
+  async resolveArtifact(
+    reference: RegistryReference,
+    signal?: AbortSignal,
+  ): Promise<RegistryArtifact> {
     if (
       !isRegistrySlug(reference.slug) ||
       (reference.version !== undefined && !isFullSemVer(reference.version))
     )
-      throw new RegistryError('INVALID_REFERENCE', 'Invalid registry slug or full SemVer version.');
+      throw new RegistryError(
+        'INVALID_REFERENCE',
+        'Некорректный slug реестра или полная версия SemVer.',
+      );
     const url = new URL(
       `${this.registryUrl}/api/v1/skills/${encodeURIComponent(reference.slug)}/artifact`,
     );
     if (reference.version !== undefined) url.searchParams.set('version', reference.version);
+    const missing =
+      reference.version === undefined
+        ? `Скилл ${reference.slug}`
+        : `Скилл ${reference.slug}@${reference.version}`;
+    return validateArtifact(
+      await this.requestJson(url, MAX_METADATA_BYTES, missing, signal),
+      reference,
+    );
+  }
+
+  async listSkills(slugPrefix?: string, signal?: AbortSignal): Promise<readonly CatalogSkill[]> {
+    const url = new URL(`${this.registryUrl}/api/v1/skills`);
+    if (slugPrefix !== undefined) url.searchParams.set('slugPrefix', slugPrefix);
+    return validateCatalog(await this.requestJson(url, 8 * 1024 * 1024, 'Каталог', signal));
+  }
+
+  async getSkill(slug: string, version?: string, signal?: AbortSignal): Promise<SkillDetail> {
+    if (!isRegistrySlug(slug) || (version !== undefined && !isFullSemVer(version)))
+      throw new RegistryError(
+        'INVALID_REFERENCE',
+        'Для карточки скилла нужен slug реестра; при указании версии требуется полная версия SemVer.',
+      );
+    const url = new URL(`${this.registryUrl}/api/v1/skills/${encodeURIComponent(slug)}`);
+    if (version !== undefined) url.searchParams.set('version', version);
+    return validateSkillDetail(
+      await this.requestJson(url, 4 * 1024 * 1024, `Скилл ${slug}`, signal),
+      slug,
+      version,
+    );
+  }
+
+  private async requestJson(
+    url: URL,
+    maximum: number,
+    missing: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     try {
       const response = await this.http(url, {
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)])
+          : AbortSignal.timeout(this.timeoutMs),
         redirect: 'error',
         credentials: 'omit',
       });
       if (!response.ok) {
         await response.body?.cancel().catch(() => {});
-        const missing =
-          reference.version === undefined
-            ? `Skill ${reference.slug}`
-            : `Skill ${reference.slug}@${reference.version}`;
         throw new RegistryError(
           response.status === 404 ? 'NOT_FOUND' : 'REGISTRY_UNAVAILABLE',
           response.status === 404
-            ? `${missing} not found (HTTP 404: skill or version not found).`
-            : `Registry unavailable (HTTP ${response.status}${response.status === 503 ? ': service temporarily unavailable' : ''}).`,
+            ? `${missing} не найден (HTTP 404: скилл или версия не найдены).`
+            : `Реестр недоступен (HTTP ${response.status}${response.status === 503 ? ': сервис временно недоступен' : ''}).`,
           undefined,
           response.status,
         );
       }
-      const bytes = await readBounded(response, MAX_METADATA_BYTES);
-      let data: unknown;
+      const bytes = await readBounded(response, maximum);
       try {
-        data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
       } catch {
-        throw new RegistryError('INVALID_RESPONSE', 'Registry returned invalid JSON.');
+        throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректный JSON.');
       }
-      return validateArtifact(data, reference);
     } catch (cause) {
       if (cause instanceof RegistryError) throw cause;
-      throw new RegistryError('REGISTRY_UNAVAILABLE', 'Registry request failed or timed out.', {
-        cause,
-      });
+      throw new RegistryError(
+        'REGISTRY_UNAVAILABLE',
+        'Запрос к реестру завершился ошибкой или превысил время ожидания.',
+        {
+          cause,
+        },
+      );
     }
   }
 
@@ -186,12 +236,12 @@ export class RegistryClient {
       if (fresh.sha256 !== selected.sha256 || fresh.size !== selected.size)
         throw new RegistryError(
           'ARTIFACT_MISMATCH',
-          'Registry artifact identity changed while refreshing its download URL.',
+          'Данные артефакта в реестре изменились при обновлении URL скачивания.',
         );
       if (Date.parse(fresh.expiresAt) <= this.now())
         throw new RegistryError(
           'URL_EXPIRED',
-          'Registry returned an expired download URL after refresh.',
+          'После обновления реестр вернул URL скачивания с истёкшим сроком действия.',
         );
       return fresh;
     };
@@ -228,7 +278,7 @@ export class RegistryClient {
         await response.body?.cancel().catch(() => {});
         throw new RegistryError(
           'DOWNLOAD_FAILED',
-          `Artifact download failed (HTTP ${response.status}).`,
+          `Не удалось скачать артефакт (HTTP ${response.status}).`,
           undefined,
           response.status,
         );
@@ -237,19 +287,23 @@ export class RegistryClient {
       if (bytes.length !== artifact.size)
         throw new RegistryError(
           'ARTIFACT_MISMATCH',
-          'Artifact size does not match registry metadata.',
+          'Размер артефакта не соответствует метаданным реестра.',
         );
       if (createHash('sha256').update(bytes).digest('hex') !== artifact.sha256)
         throw new RegistryError(
           'ARTIFACT_MISMATCH',
-          'Artifact SHA-256 does not match registry metadata.',
+          'SHA-256 артефакта не соответствует метаданным реестра.',
         );
       return bytes;
     } catch (cause) {
       if (cause instanceof RegistryError) throw cause;
-      throw new RegistryError('DOWNLOAD_FAILED', 'Artifact download failed or timed out.', {
-        cause,
-      });
+      throw new RegistryError(
+        'DOWNLOAD_FAILED',
+        'Скачивание артефакта завершилось ошибкой или превысило время ожидания.',
+        {
+          cause,
+        },
+      );
     }
   }
 }

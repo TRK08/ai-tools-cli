@@ -126,7 +126,7 @@ describe('connection failures and isolation', () => {
       ]);
       expect(result).toMatchObject({
         status: 'failed',
-        errors: [expect.stringContaining('overlaps shared skill storage')],
+        errors: [expect.stringContaining('пересекается с общим хранилищем скиллов')],
       });
       await absent(f.copy);
       await absent(f.paths.lockPath);
@@ -345,9 +345,9 @@ describe('connection failures and isolation', () => {
       const prepare = vi.fn(prepareDirectory);
       const installer = new LocalInstaller(context, { prepare });
       await expect(installer.add('missing', false, ['unknown' as AgentId])).rejects.toThrow(
-        'Unknown agent',
+        'Неизвестный агент',
       );
-      await expect(installer.add('missing', false, [])).rejects.toThrow('At least one');
+      await expect(installer.add('missing', false, [])).rejects.toThrow('хотя бы одного');
       expect(prepare).not.toHaveBeenCalled();
       await absent(join(context.roots.cwd, '.agents'));
     });

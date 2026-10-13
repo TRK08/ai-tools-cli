@@ -3,6 +3,7 @@ import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../installer/lo
 import type { PromptStreams } from './agents-prompt.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import { renderTable } from './table.ts';
+import { failureLabel, scopeLabel } from './labels.ts';
 
 export function createUpdatesUi(
   streams: PromptStreams,
@@ -12,21 +13,21 @@ export function createUpdatesUi(
   const options = { output: streams.output };
   const previews = new Map<string, UpdatePreview>();
   const columns = [
-    { title: 'Skill', maximum: 32 },
-    { title: 'Current', maximum: 32 },
-    { title: 'Latest', maximum: 32 },
-    { title: 'Result', maximum: 24 },
-    { title: 'Agents', maximum: 52 },
+    { title: 'Скилл', maximum: 32 },
+    { title: 'Текущая', maximum: 32 },
+    { title: 'Доступная', maximum: 32 },
+    { title: 'Результат', maximum: 24 },
+    { title: 'Агенты', maximum: 52 },
   ];
   const row = (name: string, result: string) => {
     const preview = previews.get(name);
     return [
       name,
-      preview ? (preview.currentVersion ?? 'local') : '—',
+      preview ? (preview.currentVersion ?? 'локальная') : '—',
       preview
         ? preview.status === 'pinned'
-          ? 'not checked'
-          : (preview.latestVersion ?? 'local')
+          ? 'не проверялась'
+          : (preview.latestVersion ?? 'локальная')
         : '—',
       result,
       preview?.agents.join(', ') ?? '—',
@@ -35,7 +36,7 @@ export function createUpdatesUi(
   let started = false;
   const start = () => {
     if (!started) {
-      intro(`Skill updates · ${scope}`, options);
+      intro(`Обновление скиллов · ${scopeLabel(scope)}`, options);
       started = true;
     }
   };
@@ -46,37 +47,37 @@ export function createUpdatesUi(
     const local = preview.sourceKind !== 'registry';
     const status =
       preview.status === 'pinned'
-        ? 'Exact version is pinned; update skipped.'
+        ? 'Версия закреплена (exact); обновление пропущено.'
         : preview.status === 'unchanged'
           ? local
-            ? 'No changes in the source.'
-            : 'No updates available.'
+            ? 'В источнике нет изменений.'
+            : 'Обновлений нет.'
           : preview.reason === 'copy'
-            ? 'Installed contents need replacement.'
+            ? 'Установленное содержимое требует замены.'
             : preview.reason === 'connections'
-              ? 'Registered connections need repair.'
+              ? 'Подключения агентов требуют восстановления.'
               : preview.reason === 'artifact'
-                ? 'The archive has changed.'
+                ? 'Архив изменился.'
                 : local
-                  ? 'Updated source contents are available.'
-                  : 'A new version is available.';
+                  ? 'В источнике доступно обновлённое содержимое.'
+                  : 'Доступна новая версия.';
     if (preview.status !== 'available' || yes) return 'approve';
-    renderTable(columns, [row(preview.name, 'Update available')], streams.output);
+    renderTable(columns, [row(preview.name, 'Доступно обновление')], streams.output);
     log.info(status, options);
     if (!streams.input.isTTY || !streams.output.isTTY)
       throw new Error(
-        'Update confirmation requires TTY stdin and stdout; use --yes to approve updates in scripts.',
+        'Для подтверждения обновления нужны stdin и stdout терминала (TTY); в скриптах используйте --yes.',
       );
     const accepted = await confirm({
       message:
         preview.reason === 'connections'
-          ? `Repair connections for ${preview.name}?`
+          ? `Восстановить подключения для ${preview.name}?`
           : preview.reason === 'copy'
-            ? `Replace installed contents of ${preview.name}?`
-            : `Update ${preview.name}${local ? '' : ` (${preview.currentVersion} → ${preview.latestVersion})`}?`,
+            ? `Заменить установленное содержимое ${preview.name}?`
+            : `Обновить ${preview.name}${local ? '' : ` (${preview.currentVersion} → ${preview.latestVersion})`}?`,
       initialValue: false,
-      active: 'Yes, update',
-      inactive: 'No, skip',
+      active: 'Да, обновить',
+      inactive: 'Нет, пропустить',
       input: streams.input,
       output: streams.output,
     });
@@ -86,19 +87,19 @@ export function createUpdatesUi(
   const finish = (batch: UpdateBatch) => {
     start();
     if (!batch.results.length) {
-      note('No matching skills to update.', 'No matching skills', options);
-      outro('Nothing to update.', options);
+      note('Нет подходящих скиллов для обновления.', 'Нет подходящих скиллов', options);
+      outro('Нечего обновлять.', options);
       return;
     }
     const label = (result: UpdateBatch['results'][number]) => {
       if (result.status === 'skipped')
-        return result.reason === 'cancelled' ? 'Cancelled' : 'Skipped';
+        return result.reason === 'cancelled' ? 'Отменено' : 'Пропущен';
       return {
-        success: 'Updated',
-        unchanged: 'Up to date',
-        pinned: 'Pinned (exact)',
-        partial: 'Partial',
-        failed: 'Error',
+        success: 'Обновлён',
+        unchanged: 'Актуален',
+        pinned: 'Закреплён (exact)',
+        partial: 'Частично',
+        failed: 'Ошибка',
       }[result.status];
     };
     renderTable(
@@ -109,27 +110,33 @@ export function createUpdatesUi(
     if (batch.results.every((result) => result.status === 'unchanged'))
       log.info(
         [...previews.values()].every((preview) => preview.sourceKind !== 'registry')
-          ? 'No changes in the source.'
-          : 'No updates available.',
+          ? 'В источнике нет изменений.'
+          : 'Обновлений нет.',
         options,
       );
     if (batch.results.some((result) => result.status === 'pinned'))
-      log.info('Pinned exact versions are skipped. Use add <skill> to select latest.', options);
+      log.info(
+        'Закреплённые версии (exact) пропускаются. Используйте add <skill>, чтобы перейти на актуальную версию (latest).',
+        options,
+      );
     for (const result of batch.results) {
       if (result.status === 'failed' || result.status === 'partial')
-        log.error(`Error ${result.name} (${result.status}): ${result.errors.join('; ')}`, options);
+        log.error(
+          `${failureLabel(result.status)} ${result.name}: ${result.errors.join('; ')}`,
+          options,
+        );
       else if (result.status === 'skipped') {
         if (result.reason === 'cancelled') {
-          cancel(`Cancelled before updating ${result.name}.`, options);
+          cancel(`Отменено перед обновлением ${result.name}.`, options);
           return;
         }
-        log.info(`Skipped ${result.name}; update declined.`, options);
+        log.info(`Пропущен ${result.name}; обновление отклонено.`, options);
       }
     }
     const count = (status: string) =>
       batch.results.filter((result) => result.status === status).length;
     outro(
-      `Updated: ${count('success')} · Unchanged: ${count('unchanged')} · Pinned: ${count('pinned')} · Skipped: ${count('skipped')} · Errors: ${count('failed') + count('partial')}`,
+      `Обновлено: ${count('success')} · Без изменений: ${count('unchanged')} · Закреплено: ${count('pinned')} · Пропущено: ${count('skipped')} · Ошибок: ${count('failed') + count('partial')}`,
       options,
     );
   };

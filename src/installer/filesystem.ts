@@ -1,11 +1,11 @@
-import { lstat, mkdir, mkdtemp, readlink, rename, rm, symlink } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { join } from 'node:path';
 import { hasErrorCode } from '../state/errors.ts';
 import { WORKSPACE_PREFIX } from '../state/paths.ts';
 
 /** Mutation seam for testing handled filesystem failures without touching real agents. */
-export const installerFileSystem = { lstat, mkdir, mkdtemp, readlink, rename, rm, symlink };
+export const installerFileSystem = { lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink };
 export type InstallerFileSystem = Omit<typeof installerFileSystem, 'mkdtemp' | 'lstat'> & {
   readonly mkdtemp: (prefix: string) => Promise<string>;
   readonly lstat: (path: string) => Promise<Stats>;
@@ -36,7 +36,7 @@ export async function directoryChain(
     const stats = await inspectPath(path, fs);
     if (stats && (!stats.isDirectory() || stats.isSymbolicLink())) {
       throw new Error(
-        `Expected a regular directory; refusing redirected or foreign path: ${path}.`,
+        `Ожидался обычный каталог; обнаружена ссылка или чужой объект по пути: ${path}.`,
       );
     }
     if (!stats) return;
@@ -75,7 +75,7 @@ export class FileTransaction {
       }
       if (errors.length) {
         throw new Error(
-          `Operation and rollback failed; recovery files remain at ${files.workspace}.`,
+          `Операция и откат завершились ошибкой; файлы для восстановления сохранены в ${files.workspace}.`,
           {
             cause: new AggregateError([cause, ...errors]),
           },
@@ -85,7 +85,7 @@ export class FileTransaction {
         .rm(files.workspace, { recursive: true, force: true })
         .catch((cleanupError: unknown) => {
           throw new Error(
-            `Operation rolled back, but workspace cleanup failed: ${files.workspace}.`,
+            `Операция отменена откатом, но удалить временный каталог не удалось: ${files.workspace}.`,
             {
               cause: new AggregateError([cause, cleanupError]),
             },
@@ -95,9 +95,12 @@ export class FileTransaction {
     }
     // The state commit succeeded. A cleanup failure must never roll files back against the new lock.
     await fs.rm(files.workspace, { recursive: true, force: true }).catch((cause: unknown) => {
-      throw new Error(`Operation committed, but workspace cleanup failed: ${files.workspace}.`, {
-        cause,
-      });
+      throw new Error(
+        `Операция завершена, но удалить временный каталог не удалось: ${files.workspace}.`,
+        {
+          cause,
+        },
+      );
     });
     return result;
   }

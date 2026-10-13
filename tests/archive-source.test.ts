@@ -136,7 +136,9 @@ describe('local gzip/tar preparation', () => {
     await withTestEnvironment(async (f) => {
       const path = join(f.roots.cwd, 'demo.tgz');
       await writeFile(path, archiveBytes(entries));
-      await expect(prepareArchive(path, options(f))).rejects.toThrow(/SKILL.md|Invalid.*archive/);
+      await expect(prepareArchive(path, options(f))).rejects.toThrow(
+        /SKILL.md|Некорректный.*архив/,
+      );
       expect(await readdir(f.env.TMPDIR!)).toEqual([]);
     });
   });
@@ -153,7 +155,7 @@ describe('local gzip/tar preparation', () => {
     '\\absolute',
     './..//escape',
   ])('rejects path %s before any filesystem writes', async (path) =>
-    rejected([{ path, contents: 'attack' }], /unsafe path/),
+    rejected([{ path, contents: 'attack' }], /небезопасный путь/),
   );
 
   it.each([
@@ -174,7 +176,7 @@ describe('local gzip/tar preparation', () => {
           ...(['SymbolicLink', 'Link'].includes(type) ? { linkpath: '../outside' } : {}),
         },
       ],
-      /special|unsupported/,
+      /специальные|неподдерживаемую/,
     ),
   );
 
@@ -186,7 +188,7 @@ describe('local gzip/tar preparation', () => {
         path,
         gzipSync(Buffer.concat([pax!, rawTar([{ path: 'SKILL.md', contents: skillText }])])),
       );
-      await expect(prepareArchive(path, options(f))).rejects.toThrow(/unsafe path/);
+      await expect(prepareArchive(path, options(f))).rejects.toThrow(/небезопасный путь/);
       expect(await readdir(f.env.TMPDIR!)).toEqual([]);
     });
   });
@@ -230,7 +232,7 @@ describe('local gzip/tar preparation', () => {
           { path: 'metadata', type: 'ExtendedHeader', contents: Buffer.alloc(1024 * 1024 + 1, 65) },
         ]),
       );
-      await expect(prepareArchive(path, options(f))).rejects.toThrow(/oversized metadata/);
+      await expect(prepareArchive(path, options(f))).rejects.toThrow(/слишком большие метаданные/);
       expect(await readdir(f.env.TMPDIR!)).toEqual([]);
     });
   });
@@ -245,7 +247,7 @@ describe('local gzip/tar preparation', () => {
       { path: 'folder/child', contents: 'child' },
     ],
   ])('rejects duplicate paths and file/directory conflicts %#', async (...entries) =>
-    rejected(entries, /Duplicate|also used/),
+    rejected(entries, /Повторяющийся|также используется/),
   );
 
   it.each([
@@ -291,7 +293,7 @@ describe('local gzip/tar preparation', () => {
     await withTestEnvironment(async (f) => {
       const path = join(f.roots.cwd, 'demo.tgz');
       await writeFile(path, randomBytes(ARCHIVE_LIMITS.inputBytes + 1));
-      await expect(prepareArchive(path, options(f))).rejects.toThrow(/20 MiB/);
+      await expect(prepareArchive(path, options(f))).rejects.toThrow(/20 МиБ/);
       expect(await readdir(f.env.TMPDIR!)).toEqual([]);
     });
   });
@@ -314,7 +316,7 @@ describe('local gzip/tar preparation', () => {
             },
           },
         }),
-      ).rejects.toThrow(/20 MiB/);
+      ).rejects.toThrow(/20 МиБ/);
       expect(await readdir(f.env.TMPDIR!)).toEqual([]);
     });
   });
@@ -356,7 +358,9 @@ describe('local gzip/tar preparation', () => {
             ...Array.from({ length: 1000 }, (_, index) => ({ path: `entry-${index}`, type })),
           ]),
         );
-        await expect(prepareArchive(path, options(f))).rejects.toThrow(/1000 entry/);
+        await expect(prepareArchive(path, options(f))).rejects.toThrow(
+          /записей в архиве превышает ограничение 1000/,
+        );
         expect(await readdir(f.env.TMPDIR!)).toEqual([]);
       });
     },

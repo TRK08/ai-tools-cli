@@ -18,7 +18,7 @@ describe('registry reference and configuration', () => {
   it.each(['', 'v1.2.3', '01.2.3', '1.02.3', '1.2', '^1.2.3', '1.2.3-01', '1.2.3+', '1.2.3\n'])(
     'rejects version %j',
     (version) => {
-      expect(() => parseRegistryReference(`demo@${version}`)).toThrow(/full SemVer/);
+      expect(() => parseRegistryReference(`demo@${version}`)).toThrow(/полной версией SemVer/);
     },
   );
   it.each([
@@ -61,7 +61,7 @@ describe('registry reference and configuration', () => {
     'https://registry.test?token=secret',
     'https://registry.test#fragment',
   ])('rejects base %s', (base) => {
-    expect(() => getRegistryUrl(base, {})).toThrow(/HTTP\(S\) base URL/);
+    expect(() => getRegistryUrl(base, {})).toThrow(/базовым HTTP\(S\) URL/);
   });
 });
 
@@ -225,7 +225,7 @@ describe('registry HTTP client', () => {
                 : client.downloadArtifact(artifact(`${url}/download`));
             await expect(run).rejects.toMatchObject({
               code: stage === 'metadata' ? 'REGISTRY_UNAVAILABLE' : 'DOWNLOAD_FAILED',
-              message: expect.stringContaining('timed out'),
+              message: expect.stringContaining('превысил'),
             });
           },
           (_req, res) => {
@@ -352,7 +352,9 @@ describe('registry HTTP client', () => {
       new RegistryClient('http://registry.test', transport).downloadArtifact(
         artifact('https://download.test?signature=secret'),
       ),
-    ).rejects.toMatchObject({ message: 'Artifact download failed or timed out.' });
+    ).rejects.toMatchObject({
+      message: 'Скачивание артефакта завершилось ошибкой или превысило время ожидания.',
+    });
   });
 
   it('cleans prepared downloads and exposes verified download details without a URL', async () => {

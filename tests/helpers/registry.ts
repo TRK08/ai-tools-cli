@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { RegistryArtifact } from '../../src/registry/client.ts';
 import { archiveBytes, skillText } from './archive.ts';
+import { skillDetail } from './discovery.ts';
 
 export const registryBytes = archiveBytes([
   { path: 'SKILL.md', contents: skillText },
@@ -51,6 +52,11 @@ export async function withRegistryServer<T>(
     if (request.url!.startsWith('/download')) {
       response.end(registryBytes);
       return;
+    }
+    const parsed = new URL(request.url!, url);
+    if (parsed.pathname === '/api/v1/skills/demo') {
+      const version = parsed.searchParams.get('version') ?? '1.2.3';
+      return json(response, skillDetail({ version, versions: [...new Set(['1.2.3', version])] }));
     }
     json(
       response,

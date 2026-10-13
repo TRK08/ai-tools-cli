@@ -41,7 +41,7 @@ const run = (f: TestEnvironment, t: ReturnType<typeof terminal>, args: string[] 
     ...args,
   ]);
 const waitForPrompt = (t: ReturnType<typeof terminal>) =>
-  vi.waitFor(() => expect(t.rendered()).toContain('No, skip'), { interval: 10 });
+  vi.waitFor(() => expect(t.rendered()).toContain('Нет, пропустить'), { interval: 10 });
 const approve = (t: ReturnType<typeof terminal>) => t.input.write('\u001b[C\r');
 
 describe('update tables and confirmation', () => {
@@ -66,10 +66,10 @@ describe('update tables and confirmation', () => {
               ...(scope === 'global' ? ['-g'] : []),
             ]);
             await waitForPrompt(t);
-            expect(t.rendered()).toContain('Current');
-            expect(t.rendered()).toContain('Latest');
+            expect(t.rendered()).toContain('Текущая');
+            expect(t.rendered()).toContain('Доступная');
             expect(t.rendered()).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 2\.0\.0\s+│.*│ codex, pi\s+│/);
-            expect(t.rendered()).toContain('Update demo (1.0.0 → 2.0.0)?');
+            expect(t.rendered()).toContain('Обновить demo (1.0.0 → 2.0.0)?');
             expect(backend.requests).toEqual([`${backend.url}/api/v1/skills/demo/artifact`]);
             expect(await readFile(paths.lockPath)).toEqual(before);
             expect((await installer.list())[0]!.version).toBe('1.0.0');
@@ -85,7 +85,7 @@ describe('update tables and confirmation', () => {
               version: '2.0.0',
               agents: ['codex', 'pi'],
             });
-            expect(t.rendered()).toMatch(/│ demo\s+│.*│ Updated\s+│/);
+            expect(t.rendered()).toMatch(/│ demo\s+│.*│ Обновлён\s+│/);
           } finally {
             t.close();
           }
@@ -114,7 +114,7 @@ describe('update tables and confirmation', () => {
           await waitForPrompt(t);
           t.input.write('\r');
           await pending;
-          expect(t.rendered()).toContain('Skipped demo; update declined.');
+          expect(t.rendered()).toContain('Пропущен demo; обновление отклонено.');
           expect(backend.requests).toHaveLength(1);
           expect({
             lock: await readFile(paths.lockPath),
@@ -147,7 +147,7 @@ describe('update tables and confirmation', () => {
             await waitForPrompt(t);
             t.input.write(key);
             await pending;
-            expect(t.rendered()).toContain('Cancelled before updating demo.');
+            expect(t.rendered()).toContain('Отменено перед обновлением demo.');
             expect(backend.requests).toEqual([`${backend.url}/api/v1/skills/demo/artifact`]);
             expect(await readFile(paths.lockPath)).toEqual(before);
             await expect(lstat(paths.operationLockPath)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -173,9 +173,12 @@ describe('update tables and confirmation', () => {
           const pending = run(f, t);
           await waitForPrompt(t);
           t.input.write('\r');
-          await vi.waitFor(() => expect(t.rendered()).toContain('Update other (1.0.0 → 2.0.0)?'), {
-            interval: 10,
-          });
+          await vi.waitFor(
+            () => expect(t.rendered()).toContain('Обновить other (1.0.0 → 2.0.0)?'),
+            {
+              interval: 10,
+            },
+          );
           approve(t);
           await pending;
           expect((await installer.list()).map((record) => record.version)).toEqual([
@@ -202,10 +205,10 @@ describe('update tables and confirmation', () => {
         const t = terminal(tty, tty);
         try {
           await run(f, t);
-          expect(t.rendered()).toContain('Current');
-          expect(t.rendered()).toContain('Latest');
-          expect(t.rendered()).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 1\.0\.0\s+│ Up to date\s+│/);
-          expect(t.rendered()).toContain('No updates available.');
+          expect(t.rendered()).toContain('Текущая');
+          expect(t.rendered()).toContain('Доступная');
+          expect(t.rendered()).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 1\.0\.0\s+│ Актуален\s+│/);
+          expect(t.rendered()).toContain('Обновлений нет.');
           expect(t.rendered()).toMatch(/[┌│╭]/);
           expect(t.input.setRawMode).not.toHaveBeenCalled();
           expect(backend.requests).toHaveLength(1);
@@ -234,8 +237,8 @@ describe('update tables and confirmation', () => {
           backend.requests.length = 0;
           const t = terminal(inputTTY, outputTTY);
           try {
-            await expect(run(f, t)).rejects.toThrow(/One or more skills/);
-            expect(t.rendered()).toContain('use --yes');
+            await expect(run(f, t)).rejects.toThrow(/Не удалось/);
+            expect(t.rendered()).toContain('используйте --yes');
             expect(backend.requests).toHaveLength(1);
             expect((await installer.list())[0]!.version).toBe('1.0.0');
             expect(t.input.setRawMode).not.toHaveBeenCalled();
@@ -261,7 +264,7 @@ describe('update tables and confirmation', () => {
         try {
           await run(f, t, ['--force', '--yes']);
           expect(t.rendered()).toMatch(
-            /│ demo\s+│ 1\.0\.0\s+│ not checked\s+│ Pinned \(exact\)\s+│/,
+            /│ demo\s+│ 1\.0\.0\s+│ не проверялась\s+│ Закреплён \(exact\)\s+│/,
           );
           expect(t.input.setRawMode).not.toHaveBeenCalled();
           expect(backend.http).not.toHaveBeenCalled();
@@ -294,7 +297,7 @@ describe('update tables and confirmation', () => {
         try {
           const pending = run(f, t);
           await waitForPrompt(t);
-          expect(t.rendered()).toMatch(/│ demo\s+│ local\s+│ local\s+│/);
+          expect(t.rendered()).toMatch(/│ demo\s+│ локальная\s+│ локальная\s+│/);
           t.input.write('\r');
           await pending;
           expect(await readFile(paths.lockPath)).toEqual(before);
@@ -322,7 +325,7 @@ describe('update tables and confirmation', () => {
         try {
           const pending = run(f, t, ['--force']);
           await waitForPrompt(t);
-          expect(t.rendered()).toContain('Installed contents need replacement.');
+          expect(t.rendered()).toContain('Установленное содержимое требует замены.');
           expect(backend.requests).toHaveLength(1);
           t.input.write('\r');
           await pending;
@@ -349,7 +352,7 @@ describe('update tables and confirmation', () => {
         try {
           const pending = run(f, t);
           await waitForPrompt(t);
-          expect(t.rendered()).toContain('Registered connections need repair.');
+          expect(t.rendered()).toContain('Подключения агентов требуют восстановления.');
           await expect(lstat(link)).rejects.toMatchObject({ code: 'ENOENT' });
           approve(t);
           await pending;
@@ -376,17 +379,20 @@ describe('update tables and confirmation', () => {
           const pending = run(f, t);
           await waitForPrompt(t);
           approve(t);
-          await vi.waitFor(() => expect(t.rendered()).toContain('Update other (1.0.0 → 2.0.0)?'), {
-            interval: 10,
-          });
+          await vi.waitFor(
+            () => expect(t.rendered()).toContain('Обновить other (1.0.0 → 2.0.0)?'),
+            {
+              interval: 10,
+            },
+          );
           t.input.write('\u0003');
           await pending;
           expect((await installer.list()).map((record) => record.version)).toEqual([
             '2.0.0',
             '1.0.0',
           ]);
-          expect(t.rendered()).toMatch(/│ demo\s+│.*│ Updated\s+│/);
-          expect(t.rendered()).toContain('Cancelled before updating other.');
+          expect(t.rendered()).toMatch(/│ demo\s+│.*│ Обновлён\s+│/);
+          expect(t.rendered()).toContain('Отменено перед обновлением other.');
         } finally {
           t.close();
         }
@@ -409,12 +415,12 @@ describe('update tables and confirmation', () => {
         try {
           const pending = run(f, t);
           // Handle the expected rejection immediately while the prompt is still pending.
-          const rejected = expect(pending).rejects.toThrow(/One or more skills/);
+          const rejected = expect(pending).rejects.toThrow(/Не удалось/);
           await waitForPrompt(t);
           await writeFile(manual, 'concurrent edit');
           approve(t);
           await rejected;
-          expect(t.rendered()).toContain('local changes');
+          expect(t.rendered()).toContain('изменён локально');
           expect(await readFile(manual, 'utf8')).toBe('concurrent edit');
           expect(await readFile(paths.lockPath)).toEqual(before);
         } finally {

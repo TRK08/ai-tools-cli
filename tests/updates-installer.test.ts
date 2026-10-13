@@ -54,7 +54,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         });
         expect(backend.requests).toHaveLength(2);
         expect(report).toHaveBeenCalledExactlyOnceWith(
-          'Replacing demo; affected agents: claude-code, codex, cursor, opencode, pi.',
+          'Замена demo; затрагиваемые агенты: claude-code, codex, cursor, opencode, pi.',
         );
         const after = (await installer.list())[0]!;
         expect(after.source).toEqual(before.source);
@@ -344,7 +344,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         backend.current.demo = '2.0.0';
         expect((await installer.update('demo', true, ['codex'])).results[0]).toMatchObject({
           status: 'partial',
-          errors: [expect.stringContaining('Foreign agent')],
+          errors: [expect.stringContaining('Путь агента занят чужим объектом')],
         });
         expect((await installer.list())[0]).toMatchObject({
           version: '2.0.0',
@@ -357,7 +357,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         backend.requests.length = 0;
         expect((await installer.update('demo', true)).results[0]).toMatchObject({
           status: 'failed',
-          errors: [expect.stringContaining('Foreign shared-copy')],
+          errors: [expect.stringContaining('Общий каталог занят чужим объектом')],
         });
         expect(backend.requests).toHaveLength(0);
       },
@@ -472,7 +472,7 @@ it('protects a copy edited while registry metadata is being resolved, even with 
       const before = await readFile(paths.lockPath);
       expect((await installer.update('demo', true)).results[0]).toMatchObject({
         status: 'failed',
-        errors: [expect.stringContaining('changed during preparation')],
+        errors: [expect.stringContaining('изменился во время подготовки')],
       });
       expect(await readFile(paths.lockPath)).toEqual(before);
       expect(await readFile(join(paths.skillsDirectory, 'demo', 'manual'), 'utf8')).toBe(
@@ -487,12 +487,12 @@ it('rejects corrupt state, unknown names and agents, and accepts an empty update
   await withTestEnvironment(async (f) => {
     const installer = new LocalInstaller(f);
     expect(await installer.update()).toEqual({ status: 'success', results: [] });
-    await expect(installer.update('missing')).rejects.toThrow(/not installed/);
+    await expect(installer.update('missing')).rejects.toThrow(/не установлен/);
     await expect(installer.update(undefined, false, ['unknown' as never])).rejects.toThrow(
-      /Unknown agent/,
+      /Неизвестный агент/,
     );
     const paths = getStatePaths(f.roots, 'project');
     await writeFile(paths.lockPath, '{broken');
-    await expect(installer.update()).rejects.toThrow(/Invalid lock JSON/);
+    await expect(installer.update()).rejects.toThrow(/Некорректный JSON/);
   });
 });

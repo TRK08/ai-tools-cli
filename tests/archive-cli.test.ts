@@ -12,6 +12,7 @@ import { archiveBytes, skillText } from './helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.ts';
 
 function cli(f: TestEnvironment, args: string[]) {
+  if (args[0] === 'add') args = [...args, '--yes'];
   const result = spawnSync(
     process.execPath,
     [
@@ -46,13 +47,15 @@ describe('archive CLI', () => {
           const paths = getStatePaths(f.roots, scope);
           const added = cli(f, ['add', `./demo.${extension}`, '-a', 'codex', '-a', 'pi', ...flags]);
           expect(added.status).toBe(0);
-          expect(added.stdout).toContain('Added demo');
+          expect(added.stdout).toContain('Установлен demo');
           expect(added.stderr).toBe('');
           const listed = cli(f, ['list', ...flags]);
           expect(listed.status).toBe(0);
-          expect(listed.stdout).toMatch(/│ demo\s+│ local\s+│ local\s+│/);
+          expect(listed.stdout).toMatch(/│ demo\s+│ локальная\s+│ Локальная\s+│/);
           expect(listed.stdout).toContain('codex, pi');
-          expect(cli(f, ['add', path, '-a', 'pi', ...flags]).stdout).toContain('Unchanged demo');
+          expect(cli(f, ['add', path, '-a', 'pi', ...flags]).stdout).toContain(
+            'Без изменений demo',
+          );
           const before = {
             hash: await hashDirectory(join(paths.skillsDirectory, 'demo')),
             lock: await readFile(paths.lockPath),
@@ -61,12 +64,12 @@ describe('archive CLI', () => {
           await writeFile(corrupt, 'corrupt');
           const failed = cli(f, ['add', corrupt, '-a', 'codex', ...flags]);
           expect(failed.status).toBe(1);
-          expect(failed.stderr).toContain('gzip-compressed tar');
+          expect(failed.stderr).toContain('tar-архив, сжатый gzip');
           expect({
             hash: await hashDirectory(join(paths.skillsDirectory, 'demo')),
             lock: await readFile(paths.lockPath),
           }).toEqual(before);
-          expect(cli(f, ['remove', 'demo', ...flags]).status).toBe(0);
+          expect(cli(f, ['remove', 'demo', '--yes', ...flags]).status).toBe(0);
           await expect(lstat(join(paths.skillsDirectory, 'demo'))).rejects.toMatchObject({
             code: 'ENOENT',
           });
@@ -81,7 +84,7 @@ describe('archive CLI', () => {
       const before = await hashDirectory(f.temporaryRoot);
       const result = cli(f, ['add', './missing.tgz']);
       expect(result.status).toBe(1);
-      expect(result.stderr).toMatch(/TTY.*specify -a/);
+      expect(result.stderr).toMatch(/TTY.*укажите -a/);
       expect(await hashDirectory(f.temporaryRoot)).toBe(before);
     });
   });
@@ -108,9 +111,14 @@ describe('archive CLI', () => {
             'add',
             './demo.tgz',
             ...(scope === 'global' ? ['-g'] : []),
+            '--yes',
           ]);
           await new Promise<void>((done) => setImmediate(done));
           input.write('\r');
+          if (scope === 'project') {
+            await new Promise<void>((done) => setImmediate(done));
+            input.write('\r');
+          }
           await run;
           expect((await new LocalInstaller(f, { scope }).list())[0]!.agents).toEqual([
             'claude-code',
@@ -154,7 +162,7 @@ describe('archive CLI', () => {
         await new Promise<void>((done) => setImmediate(done));
         input.write(key);
         await run;
-        expect(write).toHaveBeenCalledWith('Cancelled.');
+        expect(write).toHaveBeenCalledWith('Отменено.');
         expect(await hashDirectory(f.temporaryRoot)).toBe(before);
       } finally {
         input.destroy();

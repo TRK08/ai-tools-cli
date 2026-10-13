@@ -11,7 +11,11 @@ export async function withScopeLock<T>(paths: StatePaths, run: () => Promise<T>)
   await ensureOwnedDirectory(paths.root);
   const handle = await open(paths.operationLockPath, 'wx', 0o600).catch((cause: unknown) => {
     if (hasErrorCode(cause, 'EEXIST')) {
-      throw new StateError('SCOPE_BUSY', `Scope is busy: ${paths.operationLockPath}.`, { cause });
+      throw new StateError(
+        'SCOPE_BUSY',
+        `Область занята другой операцией: ${paths.operationLockPath}.`,
+        { cause },
+      );
     }
     throw cause;
   });

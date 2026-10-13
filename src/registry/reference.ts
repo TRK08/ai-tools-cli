@@ -24,7 +24,7 @@ export function parseRegistryReference(input: string): RegistryReference | null 
   if (version !== undefined && !isFullSemVer(version))
     throw new RegistryError(
       'INVALID_REFERENCE',
-      'Registry version must be full SemVer without a v prefix.',
+      'Версия в реестре должна быть полной версией SemVer без префикса v.',
     );
   return { slug, ...(version === undefined ? {} : { version }) };
 }
@@ -40,12 +40,12 @@ export function getRegistryUrl(explicit: string | undefined, env: Environment): 
       url.search ||
       url.hash
     )
-      throw new Error('Invalid base URL.');
+      throw new Error('Некорректный базовый URL.');
     return url.href.replace(/\/+$/, '');
   } catch (cause) {
     throw new RegistryError(
       'INVALID_REGISTRY',
-      'Registry URL must be an HTTP(S) base URL without credentials, query or fragment.',
+      'URL реестра должен быть базовым HTTP(S) URL без учётных данных, параметров и фрагмента.',
       { cause },
     );
   }

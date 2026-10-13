@@ -11,6 +11,7 @@ import { runCli } from './helpers/cli.ts';
 import { archiveBytes, skillText } from './helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.ts';
 import { versionRegistry } from './helpers/versions.ts';
+import { directorySourceFileSystem } from '../src/sources/filesystem.ts';
 
 function terminal(tty = true, columns = 160) {
   let rendered = '';
@@ -64,6 +65,75 @@ async function source(f: TestEnvironment, archive = false) {
 }
 
 describe('scope, agents and installation card', () => {
+  it.each([
+    ['project', '\u001b'],
+    ['global', '\u0003'],
+  ] as const)(
+    'cancels %s local preparation with %j after closing the in-flight operation',
+    async (scope, cancelKey) =>
+      withTestEnvironment(async (f) => {
+        const path = await source(f);
+        await writeFile(join(path, 'large'), Buffer.alloc(200_000, 0x61));
+        const before = await hashDirectory(f.temporaryRoot);
+        const t = terminal();
+        let start!: () => void, resume!: () => void;
+        const started = new Promise<void>((done) => {
+            start = done;
+          }),
+          release = new Promise<void>((done) => {
+            resume = done;
+          });
+        const open = directorySourceFileSystem.open;
+        vi.spyOn(directorySourceFileSystem, 'open').mockImplementation(async (...args) => {
+          const handle = await open(...args);
+          if (String(args[0]).endsWith('/large') && args[1] !== 'wx') {
+            start();
+            await release;
+          }
+          return handle;
+        });
+        const paths = getStatePaths(f.roots, scope);
+        let settled = false;
+        const pending = run(f, t, [
+          'add',
+          path,
+          '-a',
+          'codex',
+          ...(scope === 'global' ? ['-g'] : []),
+        ]);
+        pending
+          .finally(() => {
+            settled = true;
+          })
+          .catch(() => {});
+        try {
+          if (scope === 'project') {
+            await wait(t, 'Область установки');
+            await key(t, enter);
+          }
+          await started;
+          const cancelled = new Promise<void>((done) => t.input.once('keypress', () => done()));
+          await key(t, cancelKey);
+          await cancelled;
+          expect(settled).toBe(false);
+          expect((await lstat(paths.operationLockPath)).isFile()).toBe(true);
+          resume();
+          await pending;
+          expect(t.rendered()).toContain('Отменено.');
+          expect(t.rendered()).not.toContain('Установить demo?');
+          expect(t.input.isRaw).toBe(false);
+          await expect(lstat(paths.operationLockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+          expect(await hashDirectory(f.temporaryRoot)).toBe(before);
+          expect((await new LocalInstaller(f, { scope }).add(path, false, ['codex'])).status).toBe(
+            'success',
+          );
+        } finally {
+          resume();
+          await pending.catch(() => {});
+          t.close();
+        }
+      }),
+  );
   it('takes a find selection through scope and latest-policy card, then declines without events', async () =>
     withTestEnvironment(async (f) => {
       const backend = versionRegistry();

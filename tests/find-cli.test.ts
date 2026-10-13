@@ -1,6 +1,9 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
+import { stripVTControlCharacters } from 'node:util';
+import stringWidth from 'fast-string-width';
+import { S_RADIO_ACTIVE } from '@clack/prompts';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
 import { selectRegistrySkill } from '../src/cli/find-ui.ts';
@@ -304,6 +307,119 @@ describe('backend live registry finder', () => {
         t.close();
       }
     }));
+
+  it('keeps the active long result visible in a bounded frame and returns its full identity', async () => {
+    const t = terminal(true, true, 48);
+    t.output.rows = 16;
+    const items = Array.from({ length: 13 }, (_, i) =>
+      catalogItem({
+        slug: `demo-${String(i).padStart(2, '0')}-` + 'a'.repeat(100),
+        currentVersion: '1.2.3-' + 'long'.repeat(20),
+        installCount: 100 - i,
+      }),
+    );
+    const chosen = selectRegistrySkill(
+      new RegistryClient('https://registry.example.test', async () => Response.json({ items })),
+      'demo',
+      t,
+    );
+    try {
+      await vi.waitFor(() => expect(t.current()).toContain('Совпадений: 13'));
+      await keys(t, down, down);
+      const frame = stripVTControlCharacters(t.current()).trimEnd().split('\n');
+      expect(frame.some((line) => line.includes(`${S_RADIO_ACTIVE} demo-02-`))).toBe(true);
+      expect(frame.length).toBeLessThanOrEqual(15);
+      expect(frame.every((line) => stringWidth(line) <= 47)).toBe(true);
+      expect(frame.some((line) => line.endsWith('…'))).toBe(true);
+      await keys(t, ...Array.from({ length: 10 }, () => down));
+      expect(stripVTControlCharacters(t.current())).toContain(`${S_RADIO_ACTIVE} demo-12-`);
+      await keys(t, enter);
+      expect((await chosen)?.slug).toBe(items[12]!.slug);
+      expect((await chosen)?.currentVersion).toBe(items[12]!.currentVersion);
+    } finally {
+      t.input.write('\u001b');
+      await chosen;
+      t.close();
+    }
+  });
+
+  it.each([18, 2])(
+    'blocks submission at %i columns and preserves selection after recovery',
+    async (columns) => {
+      const t = terminal();
+      const items = [catalogItem(), catalogItem({ slug: 'other' })];
+      let resolved = false;
+      const chosen = selectRegistrySkill(
+        new RegistryClient('https://registry.example.test', async () => Response.json({ items })),
+        'de',
+        t,
+      ).then((value) => {
+        resolved = true;
+        return value;
+      });
+      try {
+        await resultsReady(t, 'demo@1.2.3');
+        await keys(t, down);
+        t.output.rows = 4;
+        t.output.columns = columns;
+        t.output.emit('resize');
+        await keys(t, enter);
+        expect(resolved).toBe(false);
+        const frame = stripVTControlCharacters(t.current());
+        if (columns === 18) expect(frame).toContain('Увеличьте окно');
+        expect(
+          frame
+            .trimEnd()
+            .split('\n')
+            .every((line) => stringWidth(line) <= columns - 1),
+        ).toBe(true);
+        t.output.rows = 8;
+        t.output.columns = 28;
+        t.output.emit('resize');
+        expect(stripVTControlCharacters(t.current())).toContain(`${S_RADIO_ACTIVE} other@`);
+        await keys(t, enter);
+        expect((await chosen)?.slug).toBe('other');
+      } finally {
+        t.input.write('\u001b');
+        await chosen;
+        t.close();
+      }
+    },
+  );
+
+  it('scrolls the query around its cursor without changing the server prefix', async () => {
+    const t = terminal(true, true, 48);
+    t.output.rows = 8;
+    const query = 'demo-' + 'x'.repeat(90) + 'tail';
+    const prefixes: string[] = [];
+    const chosen = selectRegistrySkill(
+      new RegistryClient('https://registry.example.test', async (input) => {
+        prefixes.push(new URL(String(input)).searchParams.get('slugPrefix')!);
+        return Response.json({ items: [catalogItem()] });
+      }),
+      query,
+      t,
+    );
+    try {
+      await resultsReady(t, 'demo@1.2.3');
+      expect(prefixes).toEqual([query]);
+      expect(stripVTControlCharacters(t.current())).toContain('tail█');
+      await keys(t, '\u0001');
+      expect(stripVTControlCharacters(t.current())).toContain('█demo-');
+      expect(
+        stripVTControlCharacters(t.current())
+          .trimEnd()
+          .split('\n')
+          .every((line) => stringWidth(line) <= 47),
+      ).toBe(true);
+      await keys(t, '\u0005');
+      expect(stripVTControlCharacters(t.current())).toContain('tail█');
+    } finally {
+      t.input.write('\u001b');
+      await chosen;
+      t.close();
+    }
+  });
 
   it('does not submit with no matches and allows clearing/retyping without rendering extra metadata', async () =>
     withTestEnvironment(async (f) => {

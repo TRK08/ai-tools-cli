@@ -34,7 +34,12 @@ export async function localSourceIdentity(source: string, cwd: string) {
 }
 
 export async function prepareLocalSource(source: string, options: PrepareDirectoryOptions) {
+  options.signal?.throwIfAborted();
   return (await localSourceIdentity(source, options.cwd)).kind === 'archive'
-    ? prepareArchive(source, { cwd: options.cwd, temporaryDirectory: options.temporaryDirectory })
+    ? prepareArchive(source, {
+        cwd: options.cwd,
+        temporaryDirectory: options.temporaryDirectory,
+        signal: options.signal,
+      })
     : prepareDirectory(source, options);
 }

@@ -10,6 +10,7 @@ import { SourceError } from './errors.ts';
 import { archiveSourceFileSystem, type ArchiveSourceFileSystem } from './filesystem.ts';
 import { readSkillMetadata } from './frontmatter.ts';
 import type { PreparedSource } from './types.ts';
+import { isCancellation } from '../cancellation.ts';
 
 export const ARCHIVE_LIMITS = Object.freeze({
   inputBytes: 20 * 1024 * 1024,
@@ -23,6 +24,7 @@ export interface PrepareArchiveOptions {
   readonly cwd: string;
   readonly temporaryDirectory: string;
   readonly fileSystem?: ArchiveSourceFileSystem;
+  readonly signal?: AbortSignal | undefined;
 }
 
 interface ArchiveEntry {
@@ -55,9 +57,16 @@ function safePath(raw: string, directory: boolean): string {
   return normalized;
 }
 
-async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<Buffer> {
+async function readArchive(
+  path: string,
+  fs: ArchiveSourceFileSystem,
+  signal?: AbortSignal,
+): Promise<Buffer> {
+  signal?.throwIfAborted();
   const canonical = await fs.realpath(path);
+  signal?.throwIfAborted();
   const expected = await fs.lstat(canonical);
+  signal?.throwIfAborted();
   if (!expected.isFile()) {
     throw new SourceError('INVALID_SOURCE', 'Локальный архив должен быть обычным файлом.');
   }
@@ -66,7 +75,9 @@ async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<B
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
+    signal?.throwIfAborted();
     const stats = await input.stat();
+    signal?.throwIfAborted();
     if (!stats.isFile() || stats.dev !== expected.dev || stats.ino !== expected.ino)
       throw new Error('Архив изменился во время открытия.');
     if (stats.size > ARCHIVE_LIMITS.inputBytes)
@@ -74,8 +85,10 @@ async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<B
     const chunks: Buffer[] = [];
     let bytes = 0;
     for (;;) {
+      signal?.throwIfAborted();
       const buffer = Buffer.alloc(64 * 1024);
       const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
+      signal?.throwIfAborted();
       if (!bytesRead) break;
       bytes += bytesRead;
       if (bytes > ARCHIVE_LIMITS.inputBytes)
@@ -90,7 +103,8 @@ async function readArchive(path: string, fs: ArchiveSourceFileSystem): Promise<B
 }
 
 /** Parse bounded gzip/tar data with tar; filesystem writes happen only after validation. */
-async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
+async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly ArchiveEntry[]> {
+  signal?.throwIfAborted();
   if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) invalid('Ожидался tar-архив, сжатый gzip.');
   const entries = new Map<string, ArchiveEntry>();
   let count = 0;
@@ -100,10 +114,19 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
   let eof = false;
   let bodyBytes = 0;
   let parseError: Error | undefined;
+  let complete!: () => void;
+  let fail!: (cause: unknown) => void;
+  const ended = new Promise<void>((resolve, reject) => {
+    complete = resolve;
+    fail = reject;
+  });
+  // Parser errors can happen before its final end is awaited.
+  void ended.catch(() => {});
   const parser = new Parser({
     strict: true,
     maxMetaEntrySize: 1024 * 1024,
     filter(_path, entry) {
+      signal?.throwIfAborted();
       if (!(entry instanceof ReadEntry)) invalid('Ожидалась запись tar-архива.');
       if (!['File', 'OldFile', 'Directory'].includes(entry.type))
         invalid(`Ссылки и специальные записи в архиве не поддерживаются: ${entry.type}.`);
@@ -131,6 +154,7 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
       const target = entries.get(safePath(entry.path, entry.type === 'Directory'))!;
       let entryBytes = 0;
       entry.on('data', (chunk: Buffer) => {
+        signal?.throwIfAborted();
         entryBytes += chunk.length;
         actualBytes += chunk.length;
         if (actualBytes > ARCHIVE_LIMITS.extractedBytes)
@@ -152,16 +176,28 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
   );
   parser.on('error', (error: Error) => {
     parseError = error;
+    fail(error);
   });
   parser.on('eof', () => {
     eof = true;
   });
-  const ended = new Promise<void>((complete) => parser.once('end', complete));
+  parser.once('end', complete);
   const gzip = createGunzip();
-  gzip.end(bytes);
+  const cancel = () => {
+    const reason: unknown = signal!.reason;
+    fail(reason);
+    gzip.destroy();
+    parser.abort(
+      reason instanceof Error ? reason : new Error('Распаковка отменена.', { cause: reason }),
+    );
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
   let pending: Buffer = Buffer.alloc(0);
   try {
+    signal?.throwIfAborted();
+    gzip.end(bytes);
     for await (const chunk of gzip) {
+      signal?.throwIfAborted();
       tarBytes += chunk.length;
       if (tarBytes > MAX_TAR_BYTES)
         throw new SourceError(
@@ -171,6 +207,7 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
       const buffer: Buffer = pending.length ? Buffer.concat([pending, chunk]) : chunk;
       let offset = 0;
       while (buffer.length - offset >= 512) {
+        signal?.throwIfAborted();
         if (eof) {
           if (buffer.subarray(offset).some((byte) => byte !== 0))
             invalid('Обнаружены неожиданные данные после завершающих блоков tar.');
@@ -184,6 +221,7 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
           ? Math.min(bodyBytes, Math.floor((buffer.length - offset) / 512) * 512)
           : 512;
         parser.write(buffer.subarray(offset, offset + length));
+        signal?.throwIfAborted();
         if (body) bodyBytes -= length;
         offset += length;
         if (parseError) throw parseError;
@@ -192,11 +230,14 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
     }
     if (pending.length) invalid('Tar-архив обрезан: неполный блок.');
     parser.end();
+    signal?.throwIfAborted();
     if (parseError) throw parseError;
     await ended;
+    signal?.throwIfAborted();
     if (!eof || tarBytes % 512 !== 0)
       invalid('Tar-архив обрезан: отсутствуют полные завершающие блоки.');
     for (const entry of entries.values()) {
+      signal?.throwIfAborted();
       let parent = dirname(entry.path);
       while (parent !== '.') {
         if (entries.get(parent)?.directory === false)
@@ -206,11 +247,13 @@ async function unpack(bytes: Buffer): Promise<readonly ArchiveEntry[]> {
     }
     return [...entries.values()];
   } catch (cause) {
+    if (signal?.aborted) throw signal.reason;
     if (cause instanceof SourceError) throw cause;
     throw new SourceError('INVALID_ARCHIVE', 'Некорректный или обрезанный gzip/tar-архив.', {
       cause,
     });
   } finally {
+    signal?.removeEventListener('abort', cancel);
     gzip.destroy();
   }
 }
@@ -220,6 +263,8 @@ export async function prepareArchive(
   source: string,
   options: PrepareArchiveOptions,
 ): Promise<PreparedSource> {
+  const { signal } = options;
+  signal?.throwIfAborted();
   if (!isAbsolute(options.cwd) || !isAbsolute(options.temporaryDirectory))
     throw new SourceError(
       'INVALID_SOURCE',
@@ -237,9 +282,10 @@ export async function prepareArchive(
         'INVALID_SOURCE',
         'Имя локального архива должно оканчиваться на .tar.gz или .tgz.',
       );
-    const bytes = await readArchive(identityPath, fs);
+    const bytes = await readArchive(identityPath, fs, signal);
     const archiveHash = createHash('sha256').update(bytes).digest('hex');
-    const entries = await unpack(bytes);
+    signal?.throwIfAborted();
+    const entries = await unpack(bytes, signal);
     const rootSkill = entries.find((entry) => entry.path === 'SKILL.md' && !entry.directory);
     let prefix = '';
     if (!rootSkill) {
@@ -253,10 +299,13 @@ export async function prepareArchive(
       prefix = `${outer}/`;
     }
     const temporaryRoot = await fs.realpath(options.temporaryDirectory);
+    signal?.throwIfAborted();
     workspace = await fs.mkdtemp(join(temporaryRoot, 'skills-installer-archive-'));
+    signal?.throwIfAborted();
     const directory = join(workspace, 'skill');
     await fs.mkdir(directory, { mode: 0o755 });
     for (const entry of entries) {
+      signal?.throwIfAborted();
       const path = prefix ? entry.path.slice(prefix.length) : entry.path;
       if (!path) continue;
       const target = resolve(directory, path);
@@ -265,17 +314,29 @@ export async function prepareArchive(
       if (entry.directory) await fs.mkdir(target, { recursive: true, mode: 0o755 });
       else {
         await fs.mkdir(dirname(target), { recursive: true, mode: 0o755 });
+        signal?.throwIfAborted();
         const output = await fs.open(target, 'wx', 0o600);
         try {
-          for (const chunk of entry.chunks) await output.writeFile(chunk);
+          signal?.throwIfAborted();
+          for (const chunk of entry.chunks) {
+            signal?.throwIfAborted();
+            await output.writeFile(chunk);
+            signal?.throwIfAborted();
+          }
           await output.chmod(entry.mode);
+          signal?.throwIfAborted();
         } finally {
           await output.close();
         }
       }
     }
-    const metadata = readSkillMetadata(await fs.readFile(join(directory, 'SKILL.md'), 'utf8'));
-    const contentHash = await hashDirectory(directory);
+    signal?.throwIfAborted();
+    const text = await fs.readFile(join(directory, 'SKILL.md'), { encoding: 'utf8', signal });
+    signal?.throwIfAborted();
+    const metadata = readSkillMetadata(text);
+    signal?.throwIfAborted();
+    const contentHash = await hashDirectory(directory, { signal });
+    signal?.throwIfAborted();
     const ownedWorkspace = workspace;
     return Object.freeze({
       directory,
@@ -287,8 +348,9 @@ export async function prepareArchive(
       cleanup: () => fs.rm(ownedWorkspace, { recursive: true, force: true }),
     });
   } catch (cause) {
-    let error =
-      cause instanceof SourceError
+    let error: unknown = isCancellation(cause, signal)
+      ? signal!.reason
+      : cause instanceof SourceError
         ? cause
         : new SourceError(
             hasErrorCode(cause, 'INVALID_PATH') ? 'INVALID_SOURCE' : 'PREPARATION_FAILED',

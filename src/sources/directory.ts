@@ -8,6 +8,7 @@ import { SourceError } from './errors.ts';
 import { directorySourceFileSystem, type DirectorySourceFileSystem } from './filesystem.ts';
 import { readSkillMetadata } from './frontmatter.ts';
 import type { PreparedSource } from './types.ts';
+import { isCancellation } from '../cancellation.ts';
 
 export interface PrepareDirectoryOptions {
   readonly cwd: string;
@@ -18,6 +19,7 @@ export interface PrepareDirectoryOptions {
   /** Absolute pathname prefixes reserved for unique operation directories and lock temp files. */
   readonly excludedPrefixes?: readonly string[];
   readonly fileSystem?: DirectorySourceFileSystem;
+  readonly signal?: AbortSignal | undefined;
 }
 
 const separator = Buffer.from('/');
@@ -36,29 +38,38 @@ async function copyFile(
   destination: Buffer,
   expected: BigIntStats,
   fs: DirectorySourceFileSystem,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const input = await fs.open(
     source,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
+    signal?.throwIfAborted();
     const opened = await input.stat({ bigint: true });
+    signal?.throwIfAborted();
     if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino) {
       throw new Error(`Объект источника изменился во время копирования: ${source.toString()}`);
     }
     const output = await fs.open(destination, 'wx', 0o600);
     try {
+      signal?.throwIfAborted();
       const buffer = Buffer.alloc(64 * 1024);
       let total = 0n;
       for (;;) {
+        signal?.throwIfAborted();
         const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
+        signal?.throwIfAborted();
         if (bytesRead === 0) break;
         total += BigInt(bytesRead);
         if (total > opened.size)
           throw new Error('Размер исходного файла изменился во время копирования.');
         let offset = 0;
         while (offset < bytesRead) {
+          signal?.throwIfAborted();
           const { bytesWritten } = await output.write(buffer, offset, bytesRead - offset, null);
+          signal?.throwIfAborted();
           if (bytesWritten === 0)
             throw new Error('Не удалось продолжить запись подготовленного содержимого.');
           offset += bytesWritten;
@@ -67,6 +78,7 @@ async function copyFile(
       if (total !== opened.size)
         throw new Error('Размер исходного файла изменился во время копирования.');
       await output.chmod(Number(opened.mode & 0o777n));
+      signal?.throwIfAborted();
     } finally {
       await output.close();
     }
@@ -80,6 +92,8 @@ export async function prepareDirectory(
   source: string,
   options: PrepareDirectoryOptions,
 ): Promise<PreparedSource> {
+  const { signal } = options;
+  signal?.throwIfAborted();
   if (
     !isAbsolute(options.cwd) ||
     !isAbsolute(options.temporaryDirectory) ||
@@ -107,6 +121,7 @@ export async function prepareDirectory(
       join(options.cwd, '.skills-installer-operation.lock'),
       ...(options.excludedPaths ?? []),
     ]) {
+      signal?.throwIfAborted();
       validatePathText(path);
       const lexical = Buffer.from(resolve(path));
       excluded.push(lexical);
@@ -123,6 +138,7 @@ export async function prepareDirectory(
       join(options.cwd, LOCK_TEMP_PREFIX),
       ...(options.excludedPrefixes ?? []),
     ]) {
+      signal?.throwIfAborted();
       validatePathText(prefix);
       prefixes.push(Buffer.from(prefix));
       try {
@@ -139,7 +155,9 @@ export async function prepareDirectory(
       excluded.some((root) => within(root, path)) ||
       prefixes.some((prefix) => path.subarray(0, prefix.length).equals(prefix));
     const sourceRoot = await fs.realpath(Buffer.from(identityPath));
+    signal?.throwIfAborted();
     const rootStats = await fs.lstat(sourceRoot);
+    signal?.throwIfAborted();
     if (!rootStats.isDirectory()) {
       throw new SourceError('INVALID_SOURCE', 'Локальный источник должен быть каталогом.');
     }
@@ -151,7 +169,9 @@ export async function prepareDirectory(
     }
     // Check SKILL.md before creating work files; symlinks are validated by the walker.
     await fs.lstat(childPath(sourceRoot, Buffer.from('SKILL.md')));
+    signal?.throwIfAborted();
     const temporaryRoot = await fs.realpath(Buffer.from(resolve(options.temporaryDirectory)));
+    signal?.throwIfAborted();
     if (within(temporaryRoot, sourceRoot)) {
       throw new SourceError(
         'INVALID_SOURCE',
@@ -159,6 +179,7 @@ export async function prepareDirectory(
       );
     }
     workspace = await fs.mkdtemp(join(temporaryRoot.toString(), 'skills-installer-source-'));
+    signal?.throwIfAborted();
     const directory = join(workspace, 'skill');
     const destinationRoot = Buffer.from(directory);
 
@@ -167,6 +188,7 @@ export async function prepareDirectory(
       destination: Buffer,
       ancestors: ReadonlySet<string>,
     ): Promise<void> {
+      signal?.throwIfAborted();
       if (!within(destinationRoot, destination)) {
         throw new SourceError(
           'INVALID_SOURCE',
@@ -175,8 +197,10 @@ export async function prepareDirectory(
       }
       if (isExcluded(path) || within(temporaryRoot, path)) return;
       const canonical = await fs.realpath(path);
+      signal?.throwIfAborted();
       if (isExcluded(canonical) || within(temporaryRoot, canonical)) return;
       const stats = await fs.lstat(canonical);
+      signal?.throwIfAborted();
       if (stats.isDirectory()) {
         const key = `${stats.dev}:${stats.ino}`;
         if (ancestors.has(key)) {
@@ -186,8 +210,10 @@ export async function prepareDirectory(
           );
         }
         await fs.mkdir(destination, { mode: 0o755 });
+        signal?.throwIfAborted();
         const nextAncestors = new Set(ancestors).add(key);
         const names = await fs.readdir(canonical);
+        signal?.throwIfAborted();
         names.sort(Buffer.compare);
         for (const name of names) {
           if (
@@ -202,7 +228,7 @@ export async function prepareDirectory(
           await visit(childPath(canonical, name), childPath(destination, name), nextAncestors);
         }
       } else if (stats.isFile()) {
-        await copyFile(canonical, destination, stats, fs);
+        await copyFile(canonical, destination, stats, fs, signal);
       } else {
         throw new SourceError(
           'UNSUPPORTED_ENTRY',
@@ -212,8 +238,13 @@ export async function prepareDirectory(
     }
 
     await visit(sourceRoot, destinationRoot, new Set());
-    const metadata = readSkillMetadata(await fs.readFile(join(directory, 'SKILL.md'), 'utf8'));
-    const contentHash = await hashDirectory(directory);
+    signal?.throwIfAborted();
+    const text = await fs.readFile(join(directory, 'SKILL.md'), { encoding: 'utf8', signal });
+    signal?.throwIfAborted();
+    const metadata = readSkillMetadata(text);
+    signal?.throwIfAborted();
+    const contentHash = await hashDirectory(directory, { signal });
+    signal?.throwIfAborted();
     const ownedWorkspace = workspace;
     return Object.freeze({
       directory,
@@ -224,8 +255,9 @@ export async function prepareDirectory(
       cleanup: () => fs.rm(ownedWorkspace, { recursive: true, force: true }),
     });
   } catch (cause) {
-    let error =
-      cause instanceof SourceError
+    let error: unknown = isCancellation(cause, signal)
+      ? signal!.reason
+      : cause instanceof SourceError
         ? cause
         : new SourceError(
             hasErrorCode(cause, 'ELOOP')

@@ -4,13 +4,29 @@ import { lstat, open, readdir, readlink } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { StateError } from './errors.ts';
 
+export interface HashDirectoryOptions {
+  readonly signal?: AbortSignal | undefined;
+  readonly fileSystem?: {
+    readonly lstat: typeof lstat;
+    readonly open: typeof open;
+    readonly readdir: typeof readdir;
+    readonly readlink: typeof readlink;
+  };
+}
+
 /**
  * Hash the tree itself, including unexpected links without following their targets.
  * Fields use an eight-byte big-endian length followed by their unmodified bytes.
  * The entry type determines its remaining fields: file = executable + contents;
  * symlink = target; directory = recursively sorted entries. The root path is empty.
  */
-export async function hashDirectory(directory: string): Promise<string> {
+export async function hashDirectory(
+  directory: string,
+  options: HashDirectoryOptions = {},
+): Promise<string> {
+  const { signal } = options;
+  const fs = options.fileSystem ?? { lstat, open, readdir, readlink };
+  signal?.throwIfAborted();
   if (!isAbsolute(directory)) {
     throw new StateError(
       'INVALID_PATH',
@@ -35,18 +51,22 @@ export async function hashDirectory(directory: string): Promise<string> {
   }
 
   async function visit(absolutePath: Buffer, relativePath: Buffer): Promise<void> {
-    const stats = await lstat(absolutePath, { bigint: true });
+    signal?.throwIfAborted();
+    const stats = await fs.lstat(absolutePath, { bigint: true });
+    signal?.throwIfAborted();
     field(relativePath);
 
     if (stats.isSymbolicLink()) {
       text('symlink');
-      field(await readlink(absolutePath, { encoding: 'buffer' }));
+      field(await fs.readlink(absolutePath, { encoding: 'buffer' }));
+      signal?.throwIfAborted();
       return;
     }
 
     if (stats.isDirectory()) {
       text('directory');
-      const names = await readdir(absolutePath, { encoding: 'buffer' });
+      const names = await fs.readdir(absolutePath, { encoding: 'buffer' });
+      signal?.throwIfAborted();
       names.sort(Buffer.compare);
 
       for (const name of names) {
@@ -63,13 +83,15 @@ export async function hashDirectory(directory: string): Promise<string> {
     if (stats.isFile()) {
       // NOFOLLOW rejects a link replacing this file between lstat and open.
       // NONBLOCK also prevents a replacement FIFO from blocking open indefinitely.
-      const handle = await open(
+      const handle = await fs.open(
         absolutePath,
         constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       );
 
       try {
+        signal?.throwIfAborted();
         const opened = await handle.stat({ bigint: true });
+        signal?.throwIfAborted();
         if (!opened.isFile() || opened.dev !== stats.dev || opened.ino !== stats.ino) {
           throw new Error(
             `Объект файловой системы изменился во время вычисления хеша: ${absolutePath.toString()}`,
@@ -82,7 +104,9 @@ export async function hashDirectory(directory: string): Promise<string> {
         const buffer = Buffer.alloc(64 * 1024);
         let total = 0n;
         for (;;) {
+          signal?.throwIfAborted();
           const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+          signal?.throwIfAborted();
           if (bytesRead === 0) break;
           total += BigInt(bytesRead);
           if (total > opened.size) break;
@@ -106,5 +130,6 @@ export async function hashDirectory(directory: string): Promise<string> {
 
   text('skills-installer-content-v1');
   await visit(Buffer.from(resolve(directory)), Buffer.alloc(0));
+  signal?.throwIfAborted();
   return hash.digest('hex');
 }

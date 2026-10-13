@@ -1,4 +1,5 @@
 import { errorMessage } from '../errors.ts';
+import { isCancellation } from '../cancellation.ts';
 import { dirname, join, parse, relative, resolve } from 'node:path';
 import type { RuntimeContext } from '../runtime.ts';
 import {
@@ -221,13 +222,15 @@ export class LocalInstaller {
     name: string,
     record: InstallationRecord | undefined,
     force: boolean,
+    signal?: AbortSignal,
   ): Promise<string | null> {
     if (!(await this.inspectCopy(name, record))) return null;
     const path = getSkillDirectory(this.paths, name);
     let contentHash: string;
     try {
-      contentHash = await hashDirectory(path);
+      contentHash = await hashDirectory(path, { signal });
     } catch (cause) {
+      if (isCancellation(cause, signal)) throw cause;
       if (force) return null;
       throw new Error(
         `Не удалось проверить установленный скилл ${name}; используйте --force для замены его содержимого.`,
@@ -442,6 +445,8 @@ export class LocalInstaller {
         );
       return result;
     } catch (cause) {
+      if (!updating && isCancellation(cause, this.options.signal))
+        throw new AddSkipped({ name: source, status: 'skipped', reason: 'cancelled' });
       if (trace.event && !(cause instanceof UpdateSkipped) && !(cause instanceof AddSkipped))
         this.options.telemetry?.emit('install', trace.event, 'failed');
       throw cause;
@@ -505,7 +510,12 @@ export class LocalInstaller {
     let installedHash: string | null = null;
     if (previousSource) {
       this.assertSupported(previousSource);
-      installedHash = await this.checkCopy(previousSource.name, previousSource, force);
+      installedHash = await this.checkCopy(
+        previousSource.name,
+        previousSource,
+        force,
+        updating ? undefined : this.options.signal,
+      );
     }
     let artifact = null;
     try {
@@ -597,6 +607,7 @@ export class LocalInstaller {
         async (files): Promise<LocalChange> => {
           const global = getStatePaths(this.context.roots, 'global');
           const preparationOptions = {
+            signal: !updating && !artifact ? this.options.signal : undefined,
             cwd: this.paths.cwd,
             temporaryDirectory: files.workspace,
             excludedPaths: [global.skillsDirectory, global.lockPath, global.operationLockPath],

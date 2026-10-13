@@ -13,7 +13,10 @@ export interface DirectorySourceFileSystem {
   readonly mkdir: typeof mkdir;
   readonly mkdtemp: typeof mkdtemp;
   readonly open: typeof open;
-  readonly readFile: (path: string, encoding: 'utf8') => Promise<string>;
+  readonly readFile: (
+    path: string,
+    options: 'utf8' | { encoding: 'utf8'; signal?: AbortSignal | undefined },
+  ) => Promise<string>;
   readonly rm: typeof rm;
 }
 

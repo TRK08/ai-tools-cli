@@ -8,6 +8,18 @@ interface TableColumn {
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
+/** Keep one display row, preserving whole graphemes and reserving space for the ellipsis. */
+export function truncateTerminalText(value: string, width: number): string {
+  if (width <= 0) return '';
+  if (stringWidth(value) <= width) return value;
+  let result = '';
+  for (const { segment } of segmenter.segment(value)) {
+    if (stringWidth(result + segment) > width - 1) break;
+    result += segment;
+  }
+  return result + '…';
+}
+
 export function wrapTerminalText(value: string, width: number): string[] {
   return value.split('\n').flatMap((line) => {
     const lines: string[] = [];

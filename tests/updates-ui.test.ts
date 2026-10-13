@@ -44,7 +44,7 @@ const waitForPrompt = (t: ReturnType<typeof terminal>) =>
   vi.waitFor(() => expect(t.rendered()).toContain('No, skip'), { interval: 10 });
 const approve = (t: ReturnType<typeof terminal>) => t.input.write('\u001b[C\r');
 
-describe('update cards and confirmation', () => {
+describe('update tables and confirmation', () => {
   it.each(['project', 'global'] as const)(
     'shows versions and all agents before download, then installs the approved version in %s',
     async (scope) => {
@@ -66,9 +66,9 @@ describe('update cards and confirmation', () => {
               ...(scope === 'global' ? ['-g'] : []),
             ]);
             await waitForPrompt(t);
-            expect(t.rendered()).toContain('Current version:  1.0.0');
-            expect(t.rendered()).toContain('Latest version:   2.0.0');
-            expect(t.rendered()).toContain('Affected agents:  codex, pi');
+            expect(t.rendered()).toContain('Current');
+            expect(t.rendered()).toContain('Latest');
+            expect(t.rendered()).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 2\.0\.0\s+│.*│ codex, pi\s+│/);
             expect(t.rendered()).toContain('Update demo (1.0.0 → 2.0.0)?');
             expect(backend.requests).toEqual([`${backend.url}/api/v1/skills/demo/artifact`]);
             expect(await readFile(paths.lockPath)).toEqual(before);
@@ -85,7 +85,7 @@ describe('update cards and confirmation', () => {
               version: '2.0.0',
               agents: ['codex', 'pi'],
             });
-            expect(t.rendered()).toContain('Updated demo.');
+            expect(t.rendered()).toMatch(/│ demo\s+│.*│ Updated\s+│/);
           } finally {
             t.close();
           }
@@ -190,36 +190,33 @@ describe('update cards and confirmation', () => {
     );
   });
 
-  it.each([true, false])(
-    'shows a full no-updates card without a prompt with TTY=%s',
-    async (tty) => {
-      const backend = versionRegistry();
-      await withTestEnvironment(
-        async (f) => {
-          const installer = new LocalInstaller(f, { registry: backend.url });
-          await installer.add('demo');
-          const paths = getStatePaths(f.roots, 'project');
-          const before = await lstat(paths.lockPath);
-          backend.requests.length = 0;
-          const t = terminal(tty, tty);
-          try {
-            await run(f, t);
-            expect(t.rendered()).toContain('demo · Up to date');
-            expect(t.rendered()).toContain('Current version:  1.0.0');
-            expect(t.rendered()).toContain('Latest version:   1.0.0');
-            expect(t.rendered()).toContain('No updates available.');
-            expect(t.rendered()).toMatch(/[┌│╭]/);
-            expect(t.input.setRawMode).not.toHaveBeenCalled();
-            expect(backend.requests).toHaveLength(1);
-            expect((await lstat(paths.lockPath)).mtimeMs).toBe(before.mtimeMs);
-          } finally {
-            t.close();
-          }
-        },
-        { http: backend.http },
-      );
-    },
-  );
+  it.each([true, false])('shows a no-updates table without a prompt with TTY=%s', async (tty) => {
+    const backend = versionRegistry();
+    await withTestEnvironment(
+      async (f) => {
+        const installer = new LocalInstaller(f, { registry: backend.url });
+        await installer.add('demo');
+        const paths = getStatePaths(f.roots, 'project');
+        const before = await lstat(paths.lockPath);
+        backend.requests.length = 0;
+        const t = terminal(tty, tty);
+        try {
+          await run(f, t);
+          expect(t.rendered()).toContain('Current');
+          expect(t.rendered()).toContain('Latest');
+          expect(t.rendered()).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 1\.0\.0\s+│ Up to date\s+│/);
+          expect(t.rendered()).toContain('No updates available.');
+          expect(t.rendered()).toMatch(/[┌│╭]/);
+          expect(t.input.setRawMode).not.toHaveBeenCalled();
+          expect(backend.requests).toHaveLength(1);
+          expect((await lstat(paths.lockPath)).mtimeMs).toBe(before.mtimeMs);
+        } finally {
+          t.close();
+        }
+      },
+      { http: backend.http },
+    );
+  });
 
   it.each([
     [false, false],
@@ -253,7 +250,7 @@ describe('update cards and confirmation', () => {
     },
   );
 
-  it('shows a pinned card and does not claim to know latest without HTTP', async () => {
+  it('shows a pinned row and does not claim to know latest without HTTP', async () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
@@ -263,9 +260,9 @@ describe('update cards and confirmation', () => {
         const t = terminal();
         try {
           await run(f, t, ['--force', '--yes']);
-          expect(t.rendered()).toContain('demo · Pinned');
-          expect(t.rendered()).toContain('Current version:  1.0.0');
-          expect(t.rendered()).toContain('Latest version:   Not checked (exact)');
+          expect(t.rendered()).toMatch(
+            /│ demo\s+│ 1\.0\.0\s+│ not checked\s+│ Pinned \(exact\)\s+│/,
+          );
           expect(t.input.setRawMode).not.toHaveBeenCalled();
           expect(backend.http).not.toHaveBeenCalled();
         } finally {
@@ -297,7 +294,7 @@ describe('update cards and confirmation', () => {
         try {
           const pending = run(f, t);
           await waitForPrompt(t);
-          expect(t.rendered()).toContain('Latest version:   Not versioned (local source)');
+          expect(t.rendered()).toMatch(/│ demo\s+│ local\s+│ local\s+│/);
           t.input.write('\r');
           await pending;
           expect(await readFile(paths.lockPath)).toEqual(before);
@@ -388,7 +385,7 @@ describe('update cards and confirmation', () => {
             '2.0.0',
             '1.0.0',
           ]);
-          expect(t.rendered()).toContain('Updated demo.');
+          expect(t.rendered()).toMatch(/│ demo\s+│.*│ Updated\s+│/);
           expect(t.rendered()).toContain('Cancelled before updating other.');
         } finally {
           t.close();

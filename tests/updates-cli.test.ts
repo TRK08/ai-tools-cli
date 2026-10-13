@@ -94,14 +94,14 @@ describe('update CLI', () => {
               ]);
               expect(update.status).toBe(0);
               expect(update.stdout).toContain('affected agents: codex, pi');
-              expect(update.stdout).toContain('Updated demo');
+              expect(update.stdout).toMatch(/│ demo\s+│.*│ Updated\s+│/);
               expect(requests).toHaveLength(2);
               expect((await lstat(join(paths.skillsDirectory, 'demo'))).ino).not.toBe(inode);
               expect((await add('demo@1.0.0')).status).toBe(0);
               requests.length = 0;
               expect(await cli(f, ['update', 'demo', '--force', ...flags])).toMatchObject({
                 status: 0,
-                stdout: expect.stringContaining('Exact version is pinned; update skipped.'),
+                stdout: expect.stringContaining('Pinned (exact)'),
                 stderr: '',
               });
               expect(requests).toEqual([]);
@@ -112,11 +112,11 @@ describe('update CLI', () => {
               const batch = await cli(f, ['update', '--yes', ...flags]);
               expect(batch.status).toBe(1);
               expect(batch.stdout).toContain('Error demo (failed)');
-              expect(batch.stdout).toContain('Updated other.');
+              expect(batch.stdout).toMatch(/│ other\s+│.*│ Updated\s+│/);
               expect(batch.stderr).toContain('One or more skills');
               const listed = await cli(f, ['list', ...flags]);
-              expect(listed.stdout).toContain('other\t3.0.0\tlatest');
-              expect(listed.stdout).toContain(`${url}/origin`);
+              expect(listed.stdout).toContain('other');
+              expect(listed.stdout).toMatch(/│ other\s+│ 3\.0\.0\s+│ latest\s+│/);
             },
             { env: { SKILLS_API_URL: 'http://127.0.0.1:1' } },
           ),
@@ -169,9 +169,9 @@ describe('update CLI', () => {
             '--yes',
           ]);
           expect(input.setRawMode).not.toHaveBeenCalled();
-          expect(rendered).toContain('Updated demo.');
-          expect(rendered).toContain('Current version:  1.0.0');
-          expect(rendered).toContain('Latest version:   2.0.0');
+          expect(rendered).toContain('Current');
+          expect(rendered).toContain('Latest');
+          expect(rendered).toMatch(/│ demo\s+│ 1\.0\.0\s+│ 2\.0\.0\s+│ Updated\s+│/);
           expect((await new LocalInstaller(f).list())[0]!.agents).toEqual(['pi']);
         } finally {
           input.destroy();
@@ -208,7 +208,7 @@ describe('update CLI', () => {
       const result = await cli(f, ['update', '--yes']);
       expect(result.status).toBe(1);
       expect(result.stdout).toContain('Error demo (failed)');
-      expect(result.stdout).toContain('Updated other.');
+      expect(result.stdout).toMatch(/│ other\s+│.*│ Updated\s+│/);
     });
   });
 

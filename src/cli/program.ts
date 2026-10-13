@@ -5,6 +5,7 @@ import type { InstallationScope } from '../installer/types.ts';
 import type { RuntimeContext } from '../runtime.ts';
 import { selectAgents, type PromptStreams } from './agents-prompt.ts';
 import { createUpdatesUi } from './updates-ui.ts';
+import { renderSkillList } from './list-ui.ts';
 
 export interface CliOutput {
   readonly write: (message: string) => void;
@@ -82,7 +83,7 @@ export function createProgram(
         name: string | undefined,
         options: { agent: string[]; global?: boolean; force?: boolean; yes?: boolean },
       ) => {
-        const ui = createUpdatesUi(streams, options.yes);
+        const ui = createUpdatesUi(streams, options.yes, scopeOf(options));
         const result = await new LocalInstaller(context, {
           scope: scopeOf(options),
           report: ui.report,
@@ -95,25 +96,13 @@ export function createProgram(
 
   program
     .command('list')
-    .description('List registered skills, sources, policies and connections')
+    .description('List registered skills with versions, policies and agents')
     .option('-a, --agent <agent>', agentHelp, collectAgent, [])
     .option('-g, --global', 'use global scope')
     .action(async (options: { agent: string[]; global?: boolean }) => {
       const agents = parseAgents(options.agent);
       const records = await installer(options).list(agents);
-      if (!records.length)
-        output.write(
-          `No skills installed in ${scopeOf(options) === 'project' ? 'this project' : 'global scope'}.`,
-        );
-      for (const record of records) {
-        const source =
-          record.source.kind === 'registry'
-            ? `${record.source.registryUrl}/${record.source.slug}`
-            : record.source.path;
-        output.write(
-          `${record.name}\t${record.version ?? 'local'}\t${record.policy}\t${source}\t${record.agents.join(', ')}\t${record.connections.map((item) => `${item.agent}: ${item.path}`).join(', ')}`,
-        );
-      }
+      renderSkillList(records, scopeOf(options), agents, streams);
     });
 
   program

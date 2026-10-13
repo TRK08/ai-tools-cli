@@ -51,8 +51,16 @@ describe('lifecycle CLI', () => {
       expect(cli(context, ['add', './demo', '-a', 'codex']).stdout).toContain('Unchanged demo');
       const listed = cli(context, ['list']);
       expect(listed.status).toBe(0);
-      expect(listed.stdout).toBe('demo\tlocal\tlocal\tdemo\tcodex\tcodex: .agents/skills/demo\n');
-      expect(cli(context, ['list', '-a', 'codex']).stdout).toBe(listed.stdout);
+      expect(listed.stdout).toContain('Installed skills · project');
+      expect(listed.stdout).toContain('Version');
+      expect(listed.stdout).toContain('Policy');
+      expect(listed.stdout).not.toContain('Source');
+      expect(listed.stdout).not.toContain('Connections');
+      expect(listed.stdout).toContain('Agents');
+      expect(listed.stdout).toMatch(/│ demo\s+│ local\s+│ local\s+│ codex\s+│/);
+      expect(listed.stdout).not.toContain('.agents/skills/demo');
+      expect(listed.stdout).toContain('1 skill · 1 connection.');
+      expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('filter: codex');
       const removed = cli(context, ['remove', 'demo', '-a', 'codex']);
       expect(removed.status).toBe(0);
       expect(removed.stdout).toContain('Removed demo');
@@ -124,7 +132,9 @@ describe('lifecycle CLI', () => {
       const args = ['add', './demo', '-a', 'cursor', '-a', 'pi'];
       expect(cli(context, args).status).toBe(0);
       expect(cli(context, [...args, '-g']).status).toBe(0);
-      expect(cli(context, ['list', '-g', '-a', 'pi']).stdout).toContain(context.roots.home);
+      expect(cli(context, ['list', '-g', '-a', 'pi']).stdout).toContain(
+        'Installed skills · global · filter: pi',
+      );
       expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('No skills');
       expect(cli(context, ['remove', 'demo', '-a', 'pi']).status).toBe(0);
       expect(cli(context, ['list']).stdout).toContain('cursor');

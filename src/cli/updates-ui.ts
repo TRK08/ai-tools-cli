@@ -1,19 +1,48 @@
 import { cancel, confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
 import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../installer/local.ts';
 import type { PromptStreams } from './agents-prompt.ts';
+import type { InstallationScope } from '../installer/types.ts';
+import { renderTable } from './table.ts';
 
-export function createUpdatesUi(streams: PromptStreams, yes = false) {
+export function createUpdatesUi(
+  streams: PromptStreams,
+  yes = false,
+  scope: InstallationScope = 'project',
+) {
   const options = { output: streams.output };
+  const previews = new Map<string, UpdatePreview>();
+  const columns = [
+    { title: 'Skill', maximum: 32 },
+    { title: 'Current', maximum: 32 },
+    { title: 'Latest', maximum: 32 },
+    { title: 'Result', maximum: 24 },
+    { title: 'Agents', maximum: 52 },
+  ];
+  const row = (name: string, result: string) => {
+    const preview = previews.get(name);
+    return [
+      name,
+      preview ? (preview.currentVersion ?? 'local') : '—',
+      preview
+        ? preview.status === 'pinned'
+          ? 'not checked'
+          : (preview.latestVersion ?? 'local')
+        : '—',
+      result,
+      preview?.agents.join(', ') ?? '—',
+    ];
+  };
   let started = false;
   const start = () => {
     if (!started) {
-      intro('Skill updates', options);
+      intro(`Skill updates · ${scope}`, options);
       started = true;
     }
   };
 
   const review = async (preview: UpdatePreview): Promise<UpdateDecision> => {
     start();
+    previews.set(preview.name, preview);
     const local = preview.sourceKind !== 'registry';
     const status =
       preview.status === 'pinned'
@@ -31,20 +60,9 @@ export function createUpdatesUi(streams: PromptStreams, yes = false) {
                 : local
                   ? 'Updated source contents are available.'
                   : 'A new version is available.';
-    note(
-      [
-        `Current version:  ${preview.currentVersion ?? 'Local source'}`,
-        `Latest version:   ${local ? 'Not versioned (local source)' : (preview.latestVersion ?? 'Not checked (exact)')}`,
-        `Scope:            ${preview.scope}`,
-        `Affected agents:  ${preview.agents.join(', ')}`,
-        '',
-        status,
-        ...(preview.status === 'pinned' ? [`Use add ${preview.name} to select latest.`] : []),
-      ].join('\n'),
-      `${preview.name} · ${preview.status === 'unchanged' ? 'Up to date' : preview.status === 'pinned' ? 'Pinned' : 'Update available'}`,
-      options,
-    );
     if (preview.status !== 'available' || yes) return 'approve';
+    renderTable(columns, [row(preview.name, 'Update available')], streams.output);
+    log.info(status, options);
     if (!streams.input.isTTY || !streams.output.isTTY)
       throw new Error(
         'Update confirmation requires TTY stdin and stdout; use --yes to approve updates in scripts.',
@@ -72,9 +90,33 @@ export function createUpdatesUi(streams: PromptStreams, yes = false) {
       outro('Nothing to update.', options);
       return;
     }
+    const label = (result: UpdateBatch['results'][number]) => {
+      if (result.status === 'skipped')
+        return result.reason === 'cancelled' ? 'Cancelled' : 'Skipped';
+      return {
+        success: 'Updated',
+        unchanged: 'Up to date',
+        pinned: 'Pinned (exact)',
+        partial: 'Partial',
+        failed: 'Error',
+      }[result.status];
+    };
+    renderTable(
+      columns,
+      batch.results.map((result) => row(result.name, label(result))),
+      streams.output,
+    );
+    if (batch.results.every((result) => result.status === 'unchanged'))
+      log.info(
+        [...previews.values()].every((preview) => preview.sourceKind !== 'registry')
+          ? 'No changes in the source.'
+          : 'No updates available.',
+        options,
+      );
+    if (batch.results.some((result) => result.status === 'pinned'))
+      log.info('Pinned exact versions are skipped. Use add <skill> to select latest.', options);
     for (const result of batch.results) {
-      if (result.status === 'success') log.success(`Updated ${result.name}.`, options);
-      else if (result.status === 'failed' || result.status === 'partial')
+      if (result.status === 'failed' || result.status === 'partial')
         log.error(`Error ${result.name} (${result.status}): ${result.errors.join('; ')}`, options);
       else if (result.status === 'skipped') {
         if (result.reason === 'cancelled') {

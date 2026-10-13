@@ -50,7 +50,7 @@ describe('archive CLI', () => {
           expect(added.stderr).toBe('');
           const listed = cli(f, ['list', ...flags]);
           expect(listed.status).toBe(0);
-          expect(listed.stdout).toContain(`demo.${extension}`);
+          expect(listed.stdout).toMatch(/│ demo\s+│ local\s+│ local\s+│/);
           expect(listed.stdout).toContain('codex, pi');
           expect(cli(f, ['add', path, '-a', 'pi', ...flags]).stdout).toContain('Unchanged demo');
           const before = {

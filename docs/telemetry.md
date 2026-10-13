@@ -1,55 +1,32 @@
 # Статистика registry
 
-`src/telemetry/client.ts` получает RuntimeContext, версию CLI и опции
-`disabled`/`timeoutMs`. Использует только переданные env/http и память процесса.
-`emit(event, context, status?)` начинает независимую отправку, `flush()` ожидает
-запущенные отправки. У каждой — тайм-аут 1000 ms с AbortController и Promise.race,
-чтобы даже транспорт, игнорирующий abort, не задержал команду. Тело ответа
-отменяется; результат доставки не влияет на установку. Redirect/credentials запрещены.
+[Telemetry](../src/telemetry/client.ts) получает RuntimeContext и версию CLI.
+`emit()` начинает отправку, `flush()` ожидает текущие отправки. CLI вызывает flush
+в finally после add/update. Отдельного события find нет: выбранная установка — operation=add.
 
-Endpoint — `SKILLS_TELEMETRY_ENDPOINT`, если задан, иначе исходный registry URL
-с `/api/v1/skills/events`. Неверный endpoint пропускается. `--without-stat`,
-непустые DISABLE_TELEMETRY/DO_NOT_TRACK отключают отправку. Клиент не пишет файлы,
-не создаёт постоянную очередь, не повторяет попытки и не отправляет usage.
+| Событие    | Когда отправляется                                                                            |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| `download` | Получены байты архива и проверены размер/SHA-256, даже если последующая распаковка не удалась |
+| `install`  | Результат одного скилла: success/partial/failed, один раз независимо от числа агентов         |
 
-Пример wire-envelope по контракту backend:
+Чистый повтор, изменение только latest/exact, пропуск exact и отказ/отмена не создают
+install. Новое/восстановленное подключение создаёт install без download, если копия цела.
+Локальные источники, list/remove и чтение каталога/карточки событий не отправляют.
 
-```json
-{
-  "schemaVersion": 1,
-  "eventId": "42058cb2-710b-4d86-9ed3-744fdf06b2b8",
-  "event": "install",
-  "occurredAt": "2026-10-13T10:00:00.000Z",
-  "cliVersion": "0.1.0",
-  "skill": {
-    "name": "demo",
-    "sourceType": "registry",
-    "source": "http://localhost:8000"
-  },
-  "context": {
-    "operation": "add",
-    "scope": "project",
-    "agents": ["claude-code", "codex"],
-    "version": "1.2.3",
-    "status": "success"
-  }
-}
-```
+Endpoint: `SKILLS_TELEMETRY_ENDPOINT` либо `<исходный-registry>/api/v1/skills/events`.
+`--without-stat` и любое непустое `DISABLE_TELEMETRY`/`DO_NOT_TRACK` отключают отправку.
 
-У download такой же envelope без status. EventId — новый UUID для каждого события.
-Версия отсутствует, если metadata latest ещё не разрешены. Подписанные URL,
-локальные пути, описание скилла и текст ошибки не входят в envelope.
+Envelope версии 1 содержит eventId (UUID), event, occurredAt, cliVersion,
+skill `{ name: slug, sourceType: registry, source: registryUrl }` и context
+`{ operation, scope, agents, version?, status? }`. Status задан у install; версия
+может отсутствовать при ошибке разрешения latest. Подписанные URL, локальные пути
+и тексты ошибок не отправляются. Backend-событие `install` сохраняет своё имя,
+хотя команда CLI называется add.
 
-Download учитывает реально полученные байты с проверенными размером/SHA-256,
-даже если распаковка затем отвергнута. Install описывает исход одного скилла:
-success/partial увеличивают счётчик backend один раз, failed хранится без увеличения.
-Новое/восстановленное подключение учитывается, metadata-only/unchanged/pinned
-пропускаются. Контекст агентов описывает всех затронутых общей копией.
-Restore исключён из MVP; разрешённые operation — add/update.
+Тайм-аут отправки — 1 секунда; AbortController и Promise.race ограничивают ожидание
+даже для транспорта, игнорирующего abort. Redirects/credentials запрещены. Ошибка,
+неверный endpoint или тайм-аут не меняют файлы и результат команды. Постоянной очереди,
+файлов статистики и повторных попыток нет.
 
-Проверки — `tests/telemetry.test.ts`: подменяемый транспорт, ошибки/тайм-аут,
-реальные локальные HTTP-серверы и дочерний CLI с изолированными cwd/home/env.
-
-Выбранная через find установка использует operation add и те же события.
-Загрузка/фильтрация каталога, выход без выбора и отмена меню агентов не отправляют
-события. Find поддерживает --without-stat в общей и командной позиции.
+Контракт backend: `../ai-tools-core/docs/openapi/swagger.yaml`; проверки —
+`tests/telemetry.test.ts` с подменяемым транспортом и настоящим локальным HTTP-сервером.

@@ -1,101 +1,51 @@
-# Внутренний registry-клиент
+# Registry
 
-`src/registry/` не зависит от UI, агентов и записи lock. Транспорт передаётся из
-`RuntimeContext.http`; URL вычисляется из явной опции и `context.env`, без чтения
-глобального окружения внутри клиента. Авторизации и событий в 007 нет.
+[RegistryClient](../src/registry/client.ts) — внутренний клиент с подменяемым HTTP,
+без UI, агентов и записи lock. Источник контракта: `../ai-tools-core/docs/openapi/swagger.yaml`.
 
-```ts
-const client = new RegistryClient(getRegistryUrl(explicitUrl, runtime.env), runtime.http);
-const artifact = await client.resolveArtifact({ slug: 'demo', version: '1.2.3' });
-// Installer сравнивает metadata с lock до скачивания в add/update.
-const { bytes, download } = await client.downloadArtifact(artifact);
-```
+URL выбирается через `--registry`, затем `SKILLS_API_URL`, иначе `http://localhost:8000`.
+Допускается HTTP(S) base URL с префиксом пути; credentials, query и fragment запрещены.
+Авторизация не реализована. Update берёт сохранённый URL из записи установки.
 
-Это внутренний контракт, не публичный SDK. `resolveArtifact` запрашивает
-`GET <registry>/api/v1/skills/{slug}/artifact`; только exact добавляет `?version=...`.
-Ответ соответствует `../ai-tools-core/docs/openapi/swagger.yaml`: `slug`, `version`,
-`sha256`, `size`, `format: tar.gz`, `url`, `expiresAt`. Клиент проверяет совпадение
-slug и запрошенной версии, полный SemVer, нижний hex SHA-256, положительный целый
-размер до 20 MiB, формат, HTTP(S) URL без credentials/fragment и дату истечения.
-JSON ограничен 64 KiB, неверный UTF-8/JSON и неподходящие поля дают ошибку.
+| Метод                                 | Запрос                                       | Ограничение ответа |
+| ------------------------------------- | -------------------------------------------- | ------------------ |
+| `listSkills(prefix?, signal?)`        | GET /api/v1/skills?slugPrefix=…              | 8 MiB              |
+| `getSkill(slug, version?, signal?)`   | GET /api/v1/skills/{slug}?version=…          | 4 MiB              |
+| `resolveArtifact(reference, signal?)` | GET /api/v1/skills/{slug}/artifact?version=… | 64 KiB             |
+| `downloadArtifact(artifact)`          | GET по временному URL                        | 20 MiB             |
 
-Каждый HTTP-запрос имеет тайм-аут 30 секунд, включая чтение тела. Redirect запрещён,
-credentials не передаются. Ошибки 404 описывают отсутствующий скилл/версию,
-503 — временную недоступность. Backend использует `{ code, message, debugMessage }`
-с `not_found`/`service_unavailable`; сообщения CLI определяются статусом и запросом,
-не копируют произвольный текст ответа или подписанный URL.
+Параметр version передаётся, когда задана конкретная версия. Запросы ограничены
+30 секундами, включая тело ответа; redirects запрещены, credentials не передаются.
+AbortSignal объединяется с тайм-аутом. Неверные JSON/UTF-8, HTTP-ошибки и неверные
+поля ответа не превращаются в пустой результат; текст ошибки сервера не выводится напрямую.
 
-`downloadArtifact` получает ограниченные байты, сверяет их размер и SHA-256 и только
-после этого возвращает Buffer. Если `expiresAt` уже прошло либо скачивание вернуло
-401/403, разрешён один refresh. Он всегда запрашивает исходную фактическую версию,
-даже если первоначальный запрос был latest. Новые slug/version/format проверяются
-общей функцией; смена размера/digest и повторно истёкший URL отвергаются.
-После refresh второй 401/403 завершает операцию. Остальные ошибки не повторяются.
+## Идентичность и загрузка
 
-`RegistryDownload` содержит только `registryUrl`, `slug`, `version`, `archiveHash`
-и фактический `size`. `downloadArtifact` возвращает его отдельно от байтов;
-адаптер также передаёт его в `PreparedSource.download`, результат Installer и
-необязательный `onDownload` после проверки скачивания. В 010 Installer использует callback для события download; сам клиент
-не отправляет события. Подписанного URL в этих данных нет.
+Slug — строчные латинские буквы/цифры с одиночными дефисами; версия — полная SemVer
+без `v`/диапазонов, с поддержкой prerelease/build. Проверяются slug/version,
+нижний SHA-256, положительный целый size, format=tar.gz, URL и expiresAt.
 
-`prepareRegistrySource` принимает необязательные предварительно разрешённые
-metadata пятым аргументом после onDownload; при их отсутствии запрашивает их сам.
-Переданные slug/version проверяются на соответствие reference. Адаптер получает
-проверенные байты, создаёт временный архив с
-правами 0600, затем вызывает общую `prepareArchive` из 006. `SKILL.md.name` должен
-совпасть со slug. Подготовленная папка содержит те же байты, бинарные ресурсы и
-исполняемые права; contentHash вычисляется общим модулем State. Самостоятельный
-вызов обязан вызвать `cleanup`, Installer очищает весь workspace своей транзакции.
+После загрузки клиент сверяет фактические размер и SHA-256. Истёкший URL или HTTP
+401/403 разрешают один refresh **той же версии и тех же размера/хеша**. Остальные
+ошибки не повторяются. В lock сохраняются исходный registry, slug, версия и хеши;
+подписанная ссылка и её query не сохраняются и не попадают в обычные ошибки.
 
-Lock версии 1 уже поддерживает registry: `source: { kind: registry, registryUrl, slug }`,
-фактическую `version`, политику latest/exact, `archiveHash` и `contentHash`.
-Схема дополнительно проверяет slug/SemVer и соответствие slug имени записи.
-Временный download URL и путь подготовленного архива не сохраняются.
+Metadata разрешаются отдельно от загрузки: Installer может переиспользовать целую
+копию или запросить подтверждение до скачивания. Проверенные байты передаются в
+[адаптер архива](sources.md). `RegistryDownload` содержит только постоянные данные
+скачивания; события отправляет Installer через [Telemetry](telemetry.md).
 
-`registryReferenceForSource` оставляет существующий bare path локальным (включая
-сломанные symlink). Явные пути и archive suffix также не становятся registry.
-Без существующего пути распознаются `slug` и `slug@version`; проверка агента и
-отмена Clack выполняются раньше определения источника и HTTP.
+## Поиск и карточка
 
-Проверки используют настоящий HTTP-сервер на `127.0.0.1` с контрактными ответами,
-изолированные cwd/home/env и подменяемый транспорт/тайм-аут. В песочнице, запрещающей
-listen, нужен разрешённый запуск этих тестов. Реальные установки агентов не затрагиваются.
+Префикс передаётся через URLSearchParams без локальной фильтрации. Backend трактует
+его буквально и с учётом регистра. CLI сортирует по installCount и slug.
+Find в TTY запрашивает от двух символов после паузы 200 ms, отменяет предыдущий запрос
+и игнорирует его запоздалый ответ. Ошибка допускает повтор через Enter.
 
-```sh
-npm run test:run -- tests/registry-client.test.ts tests/registry-installer.test.ts tests/registry-cli.test.ts
-```
+Карточка запрашивается для выбранной версии, сверяет slug/version и список versions.
+Find устанавливает показанную версию с политикой latest; явный add slug@version — exact.
+Совпавшая локальная папка не меняет выбранный find источник.
 
-Коды `RegistryError`: `INVALID_REFERENCE`, `INVALID_REGISTRY`, `NOT_FOUND`,
-`REGISTRY_UNAVAILABLE`, `INVALID_RESPONSE`, `DOWNLOAD_FAILED`, `ARTIFACT_MISMATCH`,
-`URL_EXPIRED`. Архивные и файловые ошибки сохраняют контракт Sources/Installer.
-Байты буферизуются в пределах лимита; постоянного artifact cache нет. Оптимизация
-повторного скачивания и update реализованы в 008, события — в 010. Restore исключён из MVP.
-
-## Поиск и карточка (010)
-
-`listSkills(slugPrefix?, signal?)` получает `GET <registry>/api/v1/skills`.
-Если префикс задан, он передаётся через URLSearchParams в slugPrefix без изменения
-регистра, разбиения на слова или локальной фильтрации. Ответ `{ items }`
-валидируется по полям вывода и ограничен 8 MiB; installCount — неотрицательное
-безопасное целое. Полученные результаты CLI сортирует по популярности и slug.
-
-По Swagger и тесту TestListSkillsSlugPrefix текущего backend префикс буквальный,
-case-sensitive; `%`/`_`/кавычки не являются SQL wildcard. Отсутствующий/пустой
-параметр backend возвращает весь опубликованный каталог; интерактивный find
-при префиксе короче двух символов запрос не выполняет, а без TTY требует минимум
-два символа. Результаты показывают slug, версию и installCount.
-
-`getSkill(slug, version?, signal?)` получает `GET <registry>/api/v1/skills/{slug}`;
-карточка установки запрашивает version выбранного артефакта;
-ответ SkillDetail ограничен 4 MiB. Проверяются поля вывода, slug, полный SemVer,
-longDescription и versions, включая присутствие текущей/выбранной версии
-и точное совпадение ответа с явно запрошенной version. resolveArtifact также
-принимает signal для отмены загрузки карточки до подтверждения.
-Архив и временный skillMd URL не загружаются для показа карточки.
-Общие тайм-аут, запрет redirect/credentials, проверка UTF-8/JSON и ошибки HTTP
-применяются ко всем metadata-запросам. Ошибка не превращается в пустой результат.
-
-Signal отмены объединяется с тайм-аутом. Find-search делает debounce 200 ms,
-отменяет предыдущий HTTP-запрос и дополнительно проверяет номер запроса,
-чтобы проигнорировать ответ транспорта, не исполнившего abort. Следующий запрос
-артефакта указывает точную версию выбранного актуального результата.
+Тесты: `registry-client`, `registry-installer`, `registry-cli`, `discovery`, `find-search`,
+`find-cli`. Интеграционные проверки запускают сервер на 127.0.0.1; настоящий backend
+не требуется. Клиент буферизует данные в пределах лимитов; постоянного кеша нет.

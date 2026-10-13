@@ -51,7 +51,7 @@ describe('lifecycle CLI', () => {
       expect(cli(context, ['add', './demo', '-a', 'codex']).stdout).toContain('Unchanged demo');
       const listed = cli(context, ['list']);
       expect(listed.status).toBe(0);
-      expect(listed.stdout).toBe('demo\tlocal\tcodex\n');
+      expect(listed.stdout).toBe('demo\tlocal\tlocal\tdemo\tcodex\tcodex: .agents/skills/demo\n');
       expect(cli(context, ['list', '-a', 'codex']).stdout).toBe(listed.stdout);
       const removed = cli(context, ['remove', 'demo', '-a', 'codex']);
       expect(removed.status).toBe(0);
@@ -90,13 +90,10 @@ describe('lifecycle CLI', () => {
   });
 
   it.each([
-    { args: ['add', './demo'], message: /specify -a codex/ },
-    { args: ['add', './demo', '-a', 'cursor'], message: /Only Codex/ },
-    { args: ['add', './demo', '-a', 'unknown'], message: /Only Codex/ },
-    { args: ['add', './demo', '-a', 'codex', '-a', 'pi'], message: /Only Codex/ },
-    { args: ['add', './demo', '-a', 'codex', '-g'], message: /unknown option/ },
-    { args: ['list', '--global'], message: /unknown option/ },
-    { args: ['list', '-a', 'pi'], message: /Only Codex/ },
+    { args: ['add', './demo'], message: /TTY.*specify -a/ },
+    { args: ['add', './demo', '-a', 'unknown'], message: /Unknown agent/ },
+    { args: ['list', '-a', 'unknown'], message: /Unknown agent/ },
+    { args: ['remove', 'demo', '-a', 'unknown'], message: /Unknown agent/ },
     { args: ['remove'], message: /missing required argument/ },
     { args: ['add'], message: /missing required argument/ },
     { args: ['remove', '../demo'], message: /Unsafe skill name/ },
@@ -119,6 +116,43 @@ describe('lifecycle CLI', () => {
         lstat(join(context.roots.cwd, '.agents', 'skills', 'demo')),
       ).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await readFile(join(path, 'SKILL.md'), 'utf8')).toBe(skillText);
+    });
+  });
+
+  it('supports multiple agents and independent global scope without TTY', async () => {
+    await withTestEnvironment(async (context) => {
+      await source(context);
+      const args = ['add', './demo', '-a', 'cursor', '-a', 'pi'];
+      expect(cli(context, args).status).toBe(0);
+      expect(cli(context, [...args, '-g']).status).toBe(0);
+      expect(cli(context, ['list', '-g', '-a', 'pi']).stdout).toContain(context.roots.home);
+      expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('No skills');
+      expect(cli(context, ['remove', 'demo', '-a', 'pi']).status).toBe(0);
+      expect(cli(context, ['list']).stdout).toContain('cursor');
+      expect(cli(context, ['remove', 'demo', '-g']).status).toBe(0);
+      expect(cli(context, ['list', '-g']).stdout).toContain('No skills');
+    });
+  });
+
+  it('returns code 1 while preserving successful connections on partial add and remove', async () => {
+    await withTestEnvironment(async (context) => {
+      await source(context);
+      const foreign = join(context.roots.cwd, '.claude', 'skills', 'demo');
+      await mkdir(foreign, { recursive: true });
+      const added = cli(context, ['add', './demo', '-a', 'codex', '-a', 'claude-code']);
+      expect(added.status).toBe(1);
+      expect(added.stderr).toContain('partial');
+      expect(cli(context, ['list']).stdout).toContain('codex');
+      expect((await lstat(foreign)).isDirectory()).toBe(true);
+      await rm(foreign, { recursive: true });
+      expect(cli(context, ['add', './demo', '-a', 'claude-code']).status).toBe(0);
+      await rm(foreign);
+      await mkdir(foreign);
+      const removed = cli(context, ['remove', 'demo']);
+      expect(removed.status).toBe(1);
+      expect(removed.stderr).toContain('Foreign agent destination');
+      expect(cli(context, ['list']).stdout).toContain('claude-code');
+      expect((await lstat(foreign)).isDirectory()).toBe(true);
     });
   });
 

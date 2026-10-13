@@ -1,12 +1,14 @@
-import { lstat, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readlink, rename, rm, symlink } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import { join } from 'node:path';
 import { hasErrorCode } from '../state/errors.ts';
 import { WORKSPACE_PREFIX } from '../state/paths.ts';
 
 /** Mutation seam for testing handled filesystem failures without touching real agents. */
-export const installerFileSystem = { lstat, mkdir, mkdtemp, rename, rm };
-export type InstallerFileSystem = Omit<typeof installerFileSystem, 'mkdtemp'> & {
+export const installerFileSystem = { lstat, mkdir, mkdtemp, readlink, rename, rm, symlink };
+export type InstallerFileSystem = Omit<typeof installerFileSystem, 'mkdtemp' | 'lstat'> & {
   readonly mkdtemp: (prefix: string) => Promise<string>;
+  readonly lstat: (path: string) => Promise<Stats>;
 };
 
 export async function inspectPath(path: string, fs: InstallerFileSystem) {
@@ -103,5 +105,10 @@ export class FileTransaction {
   async move(source: string, destination: string): Promise<void> {
     await this.fs.rename(source, destination);
     this.undo.push(() => this.fs.rename(destination, source));
+  }
+
+  async link(target: string, destination: string): Promise<void> {
+    await this.fs.symlink(target, destination);
+    this.undo.push(() => this.fs.rm(destination));
   }
 }

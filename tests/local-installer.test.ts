@@ -59,7 +59,10 @@ describe('direct project Codex lifecycle', () => {
   it('stores one ordinary shared directory and root lock; clean repeats do not replace files', async () => {
     await withTestEnvironment(async (context) => {
       const fixture = await setup(context);
-      expect(await fixture.installer.add('./demo')).toEqual({ status: 'success', name: 'demo' });
+      expect(await fixture.installer.add('./demo')).toMatchObject({
+        status: 'success',
+        name: 'demo',
+      });
       const info = await lstat(fixture.copy);
       expect(info.isDirectory()).toBe(true);
       expect(info.isSymbolicLink()).toBe(false);

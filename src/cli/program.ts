@@ -4,6 +4,7 @@ import { LocalInstaller, type LocalChange } from '../installer/local.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import type { RuntimeContext } from '../runtime.ts';
 import { selectAgents, type PromptStreams } from './agents-prompt.ts';
+import { createUpdatesUi } from './updates-ui.ts';
 
 export interface CliOutput {
   readonly write: (message: string) => void;
@@ -65,6 +66,30 @@ export function createProgram(
               : `${result.status === 'unchanged' ? 'Unchanged' : 'Added'} ${result.name} (${agents.join(', ')}).`,
           );
         checkResult(result);
+      },
+    );
+
+  program
+    .command('update')
+    .description('Update registered skills from saved sources; skip exact versions')
+    .argument('[name]', 'installed skill name; all matching skills without a name')
+    .option('-a, --agent <agent>', agentHelp, collectAgent, [])
+    .option('-g, --global', 'use global scope')
+    .option('--force', 'replace modified managed contents; exact versions stay pinned')
+    .option('-y, --yes', 'approve updates without prompting (required for changes without TTY)')
+    .action(
+      async (
+        name: string | undefined,
+        options: { agent: string[]; global?: boolean; force?: boolean; yes?: boolean },
+      ) => {
+        const ui = createUpdatesUi(streams, options.yes);
+        const result = await new LocalInstaller(context, {
+          scope: scopeOf(options),
+          report: ui.report,
+          reviewUpdate: ui.review,
+        }).update(name, options.force, parseAgents(options.agent));
+        ui.finish(result);
+        if (result.status === 'failed') throw new Error('One or more skills could not be updated.');
       },
     );
 

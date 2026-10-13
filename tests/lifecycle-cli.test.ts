@@ -99,7 +99,6 @@ describe('lifecycle CLI', () => {
     { args: ['remove', '../demo'], message: /Unsafe skill name/ },
     { args: ['remove', 'demo', '--force'], message: /unknown option/ },
     { args: ['add', './demo', '-a', 'codex', 'extra'], message: /too many arguments/ },
-    { args: ['update'], message: /error: .*update/ },
     { args: ['restore'], message: /error: .*restore/ },
   ])('rejects unsupported arguments $args before changing state', async ({ args, message }) => {
     await withTestEnvironment(async (context) => {

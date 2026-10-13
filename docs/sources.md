@@ -178,7 +178,7 @@ npm run test:run -- tests/archive-source.test.ts tests/archive-installer.test.ts
 
 ## Registry (007)
 
-`prepareRegistrySource(reference, client, options, onDownload?)` получает metadata
+`prepareRegistrySource(reference, client, options, onDownload?, resolvedArtifact?)` получает metadata
 и проверенные байты через [registry-клиент](registry.md), затем использует
 `prepareArchive`. Добавляется проверка `SKILL.md.name === reference.slug`.
 Identity содержит исходный registry и slug, version — фактический SemVer,

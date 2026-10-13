@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import type { RegistryClient, RegistryDownload } from '../registry/client.ts';
+import type { RegistryArtifact, RegistryClient, RegistryDownload } from '../registry/client.ts';
 import { RegistryError } from '../registry/errors.ts';
 import type { RegistryReference } from '../registry/reference.ts';
 import { prepareArchive, type PrepareArchiveOptions } from './archive.ts';
@@ -12,13 +12,22 @@ export async function prepareRegistrySource(
   client: RegistryClient,
   options: PrepareArchiveOptions,
   onDownload?: (download: RegistryDownload) => void,
+  resolvedArtifact?: RegistryArtifact,
 ): Promise<PreparedSource> {
   if (!isAbsolute(options.cwd) || !isAbsolute(options.temporaryDirectory))
     throw new SourceError(
       'INVALID_SOURCE',
       'Source cwd and temporary base must be absolute paths.',
     );
-  const artifact = await client.resolveArtifact(reference);
+  const artifact = resolvedArtifact ?? (await client.resolveArtifact(reference));
+  if (
+    artifact.slug !== reference.slug ||
+    (reference.version !== undefined && artifact.version !== reference.version)
+  )
+    throw new RegistryError(
+      'ARTIFACT_MISMATCH',
+      'Resolved artifact does not match the requested skill or version.',
+    );
   const { bytes, download } = await client.downloadArtifact(artifact);
   onDownload?.(download);
   const workspace = await mkdtemp(join(options.temporaryDirectory, 'skills-installer-download-'));

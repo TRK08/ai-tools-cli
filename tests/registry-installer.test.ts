@@ -92,6 +92,8 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
               onDownload: downloads,
             });
             await installer.add('demo@1.2.3', false, ids);
+            // A forced replacement must download even when version/digest are unchanged.
+            await writeFile(join(copy, 'manual-edit'), 'keep on failure');
             const before = {
               lock: await readFile(paths.lockPath),
               hash: await hashDirectory(copy),

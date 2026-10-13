@@ -7,7 +7,7 @@
 ```ts
 const client = new RegistryClient(getRegistryUrl(explicitUrl, runtime.env), runtime.http);
 const artifact = await client.resolveArtifact({ slug: 'demo', version: '1.2.3' });
-// Метаданные можно сравнить до скачивания в будущих update/restore.
+// Installer сравнивает metadata с lock до скачивания в add/update.
 const { bytes, download } = await client.downloadArtifact(artifact);
 ```
 
@@ -38,7 +38,10 @@ credentials не передаются. Ошибки 404 описывают от�
 необязательный `onDownload` после проверки скачивания. Это данные для 010; callback
 по умолчанию отсутствует и HTTP-события не отправляет. Подписанного URL в этих данных нет.
 
-`prepareRegistrySource` запрашивает metadata и байты, создаёт временный архив с
+`prepareRegistrySource` принимает необязательные предварительно разрешённые
+metadata пятым аргументом после onDownload; при их отсутствии запрашивает их сам.
+Переданные slug/version проверяются на соответствие reference. Адаптер получает
+проверенные байты, создаёт временный архив с
 правами 0600, затем вызывает общую `prepareArchive` из 006. `SKILL.md.name` должен
 совпасть со slug. Подготовленная папка содержит те же байты, бинарные ресурсы и
 исполняемые права; contentHash вычисляется общим модулем State. Самостоятельный
@@ -66,4 +69,4 @@ npm run test:run -- tests/registry-client.test.ts tests/registry-installer.test.
 `REGISTRY_UNAVAILABLE`, `INVALID_RESPONSE`, `DOWNLOAD_FAILED`, `ARTIFACT_MISMATCH`,
 `URL_EXPIRED`. Архивные и файловые ошибки сохраняют контракт Sources/Installer.
 Байты буферизуются в пределах лимита; постоянного artifact cache нет. Оптимизация
-повторного скачивания и update — 008, restore — 009, события — 010.
+повторного скачивания и update реализованы в 008, restore — 009, события — 010.

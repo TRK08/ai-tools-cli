@@ -1,6 +1,17 @@
 import { dirname, join, parse, relative, resolve } from 'node:path';
 import type { RuntimeContext } from '../runtime.ts';
-import { localSourceIdentity, prepareLocalSource } from '../sources/local.ts';
+import {
+  localSourceIdentity,
+  prepareLocalSource,
+  registryReferenceForSource,
+} from '../sources/local.ts';
+import {
+  RegistryClient,
+  type RegistryClientOptions,
+  type RegistryDownload,
+} from '../registry/client.ts';
+import { getRegistryUrl } from '../registry/reference.ts';
+import { prepareRegistrySource } from '../sources/registry.ts';
 import { assertScopeLocation } from '../state/filesystem.ts';
 import { hashDirectory } from '../state/hash.ts';
 import { assertSourceCompatible, sourceIdentityKey } from '../state/identity.ts';
@@ -36,10 +47,14 @@ export interface LocalInstallerOptions {
   readonly store?: StateStore;
   readonly prepare?: typeof prepareLocalSource;
   readonly report?: (message: string) => void;
+  readonly registry?: string;
+  readonly registryClientOptions?: RegistryClientOptions;
+  readonly onDownload?: (download: RegistryDownload) => void;
 }
 
 export type LocalChange = {
   readonly name: string;
+  readonly download?: RegistryDownload;
 } & (
   | { readonly status: 'success' | 'unchanged' }
   | { readonly status: 'partial' | 'failed'; readonly errors: readonly string[] }
@@ -51,7 +66,7 @@ class NoConnections extends Error {
   }
 }
 
-/** Local source lifecycle with one shared copy and independently registered agent connections. */
+/** Shared source lifecycle with one copy and independently registered agent connections. */
 export class LocalInstaller {
   private readonly paths;
   private readonly fs;
@@ -69,9 +84,6 @@ export class LocalInstaller {
   }
 
   private assertSupported(record: InstallationRecord): void {
-    if (record.source.kind === 'registry') {
-      throw new Error('This stage supports only local directory and archive installations.');
-    }
     for (const connection of record.connections) {
       const path = resolveConnectionPath(connection.path, this.paths);
       const shared = getSkillDirectory(this.paths, record.name);
@@ -195,7 +207,22 @@ export class LocalInstaller {
     await assertScopeLocation(this.paths);
     return this.store.transaction(async (state) => {
       const lock = (await state.read()) ?? createEmptyLock();
-      const identity = await localSourceIdentity(source, this.paths.cwd);
+      const reference = await registryReferenceForSource(source, this.paths.cwd);
+      const client =
+        reference === null
+          ? null
+          : new RegistryClient(
+              getRegistryUrl(this.options.registry, this.context.env),
+              this.context.http,
+              this.options.registryClientOptions,
+            );
+      const identity =
+        reference && client
+          ? { kind: 'registry' as const, registryUrl: client.registryUrl, slug: reference.slug }
+          : await localSourceIdentity(source, this.paths.cwd);
+      const policy =
+        reference === null ? 'local' : reference.version === undefined ? 'latest' : 'exact';
+      if (reference) assertSourceCompatible(lock, reference.slug, identity, this.paths);
       const previousSource = Object.values(lock.skills).find(
         (record) =>
           sourceIdentityKey(record.source, this.paths) === sourceIdentityKey(identity, this.paths),
@@ -217,7 +244,7 @@ export class LocalInstaller {
           this.fs,
           async (files): Promise<LocalChange> => {
             const global = getStatePaths(this.context.roots, 'global');
-            const prepared = await this.prepare(source, {
+            const preparationOptions = {
               cwd: this.paths.cwd,
               temporaryDirectory: files.workspace,
               excludedPaths: [global.skillsDirectory, global.lockPath, global.operationLockPath],
@@ -225,7 +252,17 @@ export class LocalInstaller {
                 join(global.agentsDirectory, WORKSPACE_PREFIX),
                 join(global.root, LOCK_TEMP_PREFIX),
               ],
-            });
+            };
+            const prepared =
+              reference && client
+                ? await prepareRegistrySource(
+                    reference,
+                    client,
+                    preparationOptions,
+                    this.options.onDownload,
+                  )
+                : await this.prepare(source, preparationOptions);
+            const download = prepared.download === undefined ? {} : { download: prepared.download };
             const name = prepared.name;
             assertSkillName(name);
             if (previousSource && previousSource.name !== name)
@@ -253,7 +290,7 @@ export class LocalInstaller {
                 errors.push(`${agent}: ${cause instanceof Error ? cause.message : String(cause)}`);
               }
             }
-            if (!candidates.length) return { status: 'failed', name, errors };
+            if (!candidates.length) return { status: 'failed', name, errors, ...download };
             let reported = false;
             const reportReplacement = () => {
               if (previous && !reported) {
@@ -305,20 +342,25 @@ export class LocalInstaller {
                 );
               }
             }
-            if (!successes) throw new NoConnections({ status: 'failed', name, errors });
+            if (!successes)
+              throw new NoConnections({ status: 'failed', name, errors, ...download });
             if (
               !changed &&
               !errors.length &&
               previous?.contentHash === prepared.contentHash &&
               previous.version === prepared.version &&
-              previous.archiveHash === prepared.archiveHash
+              previous.archiveHash === prepared.archiveHash &&
+              previous.policy === policy
             )
-              return { status: 'unchanged', name };
+              return { status: 'unchanged', name, ...download };
             const record: InstallationRecord = {
               name,
-              source: { ...identity, path: portableSourcePath(identity.path, this.paths) },
+              source:
+                identity.kind === 'registry'
+                  ? identity
+                  : { ...identity, path: portableSourcePath(identity.path, this.paths) },
               version: prepared.version,
-              policy: 'local',
+              policy,
               contentHash: prepared.contentHash,
               ...(prepared.archiveHash === undefined ? {} : { archiveHash: prepared.archiveHash }),
               agents: [...new Set([...(previous?.agents ?? []), ...connections.keys()])],
@@ -328,13 +370,14 @@ export class LocalInstaller {
               changed ||
               previous?.contentHash !== record.contentHash ||
               previous.version !== record.version ||
-              previous.archiveHash !== record.archiveHash
+              previous.archiveHash !== record.archiveHash ||
+              previous.policy !== record.policy
             ) {
               await state.write({ ...lock, skills: { ...lock.skills, [name]: record } });
             }
             return errors.length
-              ? { status: 'partial', name, errors }
-              : { status: 'success', name };
+              ? { status: 'partial', name, errors, ...download }
+              : { status: 'success', name, ...download };
           },
         );
       } catch (cause) {

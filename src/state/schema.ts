@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import type { AgentId } from '../installer/types.ts';
 import type { SourceIdentity } from '../sources/types.ts';
+import { isFullSemVer, isRegistrySlug } from '../registry/reference.ts';
 import { StateError } from './errors.ts';
 import { normalizeRegistryUrl } from './identity.ts';
 import {
@@ -66,6 +67,8 @@ function source(value: unknown, paths: StatePaths, storageInput: boolean): Sourc
     keys(entry, ['kind', 'registryUrl', 'slug']);
     const slug = text(entry.slug, 'slug');
     assertSkillName(slug);
+    if (!isRegistrySlug(slug))
+      invalid('Registry slug must use lowercase letters, digits and single hyphens.');
     return {
       kind: 'registry',
       registryUrl: normalizeRegistryUrl(text(entry.registryUrl, 'registryUrl')),
@@ -112,8 +115,13 @@ function record(
   const version = entry.version === null ? null : text(entry.version, 'version');
   const policy = entry.policy;
   if (identity.kind === 'registry') {
-    if (!['latest', 'exact'].includes(policy as string) || version === null)
+    if (
+      !['latest', 'exact'].includes(policy as string) ||
+      version === null ||
+      !isFullSemVer(version)
+    )
       invalid('Registry records require a version and latest/exact policy.');
+    if (identity.slug !== name) invalid('Registry slug and skill name must match.');
   } else if (policy !== 'local') invalid('Local records require local policy.');
   if (!Array.isArray(entry.agents) || entry.agents.length === 0)
     invalid('At least one desired agent is required.');

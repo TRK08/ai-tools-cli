@@ -1,6 +1,9 @@
 The isolated test-environment helper in tests/helpers/test-environment.ts adapts
 environment isolation from ../skills/src/test-utils.ts. The original license
 notice is preserved below. No command handlers from that project are copied.
+The slug and full SemVer patterns and registry reference parsing in
+src/registry/reference.ts adapt ../skills/src/registry-source.ts under the same
+license. The HTTP client and installer integration are implemented separately.
 
 MIT License
 

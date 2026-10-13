@@ -18,7 +18,7 @@ export function createProgram(
   const program = new Command();
   program
     .name('skills-installer')
-    .description('Install and manage local skills for five agents in project or global scope.')
+    .description('Install and manage skills for five agents in project or global scope.')
     .version(version)
     .allowExcessArguments(false)
     .action(() => {
@@ -27,8 +27,12 @@ export function createProgram(
   const collectAgent = (agent: string, previous: string[]) => [...previous, agent];
   const scopeOf = (options: { global?: boolean }): InstallationScope =>
     options.global ? 'global' : 'project';
-  const installer = (options: { global?: boolean }) =>
-    new LocalInstaller(context, { scope: scopeOf(options), report: output.write });
+  const installer = (options: { global?: boolean; registry?: string }) =>
+    new LocalInstaller(context, {
+      scope: scopeOf(options),
+      report: output.write,
+      ...(options.registry === undefined ? {} : { registry: options.registry }),
+    });
   const checkResult = (result: LocalChange) => {
     if (result.status === 'partial' || result.status === 'failed')
       throw new Error(`${result.status}: ${result.errors.join('; ')}`);
@@ -37,13 +41,17 @@ export function createProgram(
 
   program
     .command('add')
-    .description('Add a local directory or archive; select agents interactively without -a')
-    .argument('<source>', 'local directory, .tar.gz or .tgz containing SKILL.md')
+    .description('Add a directory, archive or registry skill; select agents without -a')
+    .argument('<source>', 'local directory, .tar.gz/.tgz, slug or slug@version')
     .option('-a, --agent <agent>', agentHelp, collectAgent, [])
     .option('-g, --global', 'use global scope')
     .option('--force', 'replace modified managed contents')
+    .option('--registry <url>', 'registry HTTP(S) base URL (overrides SKILLS_API_URL)')
     .action(
-      async (source: string, options: { agent: string[]; global?: boolean; force?: boolean }) => {
+      async (
+        source: string,
+        options: { agent: string[]; global?: boolean; force?: boolean; registry?: string },
+      ) => {
         const agents = await selectAgents(options.agent, context, scopeOf(options), streams);
         if (agents === null) {
           output.write('Cancelled.');

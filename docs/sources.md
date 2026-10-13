@@ -1,4 +1,4 @@
-# Подготовка локальных источников
+# Подготовка источников
 
 Внутренний адаптер задачи 003 создаёт самостоятельный снимок одного скилла. Он
 не устанавливает подключения, не пишет lock и не обращается к HTTP. Installer 004
@@ -175,3 +175,15 @@ npm run test:run -- tests/archive-source.test.ts tests/archive-installer.test.ts
 через `tar.Header`. Реальные установки агентов не используются. `fileSystem`
 позволяет проверить ошибки записи/chmod/metadata, фактический лимит чтения при
 неверном fstat и отказ очистки; gzip/tar парсеры при этом не подменяются.
+
+## Registry (007)
+
+`prepareRegistrySource(reference, client, options, onDownload?)` получает metadata
+и проверенные байты через [registry-клиент](registry.md), затем использует
+`prepareArchive`. Добавляется проверка `SKILL.md.name === reference.slug`.
+Identity содержит исходный registry и slug, version — фактический SemVer,
+archiveHash — SHA-256 артефакта, contentHash — общий хеш распакованной папки.
+`download` содержит данные о проверенном скачивании без временной ссылки.
+Все временные файлы принадлежат одному workspace и удаляются через cleanup;
+Installer также очищает workspace операции целиком. Адаптер не знает об агентах
+и не пишет lock. Подписанный URL не входит в PreparedSource или state.

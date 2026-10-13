@@ -1,3 +1,5 @@
+import type { RegistryDownload } from '../registry/client.ts';
+
 /** Permanent identity only: signed download URLs never belong here. */
 export type SourceIdentity =
   | { readonly kind: 'directory'; readonly path: string }
@@ -13,5 +15,7 @@ export interface PreparedSource {
   readonly version: string | null;
   readonly contentHash: string;
   readonly archiveHash?: string;
+  /** Verified download details for future telemetry; contains no signed URL. */
+  readonly download?: RegistryDownload;
   readonly cleanup: () => Promise<void>;
 }

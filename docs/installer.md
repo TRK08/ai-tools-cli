@@ -33,19 +33,22 @@ Callbacks интерфейса возвращают решение коорди�
 ## Пути агентов
 
 `<name>` добавляется к каждому каталогу из таблицы. Правила путей, тип подключения,
-названия и предвыбор задаются в едином [каталоге](../src/agents/catalog.ts).
+названия и закреплённая группа задаются в едином [каталоге](../src/agents/catalog.ts).
+Таблица описывает новые подключения.
 
-| Агент         | Проект            | Глобально                    |
-| ------------- | ----------------- | ---------------------------- |
-| `claude-code` | `.claude/skills/` | `~/.claude/skills/`          |
-| `codex`       | `.agents/skills/` | `~/.agents/skills/`          |
-| `opencode`    | `.agents/skills/` | `~/.config/opencode/skills/` |
-| `pi`          | `.pi/skills/`     | `~/.pi/agent/skills/`        |
-| `cursor`      | `.agents/skills/` | `~/.cursor/skills/`          |
+| Агент         | Проект            | Глобально           |
+| ------------- | ----------------- | ------------------- |
+| `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
+| `codex`       | `.agents/skills/` | `~/.agents/skills/` |
+| `opencode`    | `.agents/skills/` | `~/.agents/skills/` |
+| `pi`          | `.agents/skills/` | `~/.agents/skills/` |
+| `cursor`      | `.agents/skills/` | `~/.agents/skills/` |
 
-Глобальный Claude учитывает `CLAUDE_CONFIG_DIR`, OpenCode — `XDG_CONFIG_HOME`.
-Относительные env-пути разрешаются от cwd. Уже сохранённые подключения используют
-пути из lock, даже после смены env. Перенаправленные через symlink родительские каталоги отклоняются.
+Глобальный Claude учитывает `CLAUDE_CONFIG_DIR`.
+Относительный `CLAUDE_CONFIG_DIR` разрешается от cwd. Сохранённое подключение
+Claude Code использует путь из lock, даже после смены env. Прежние пути
+Pi/OpenCode/Cursor не поддерживаются и автоматически не мигрируются.
+Перенаправленные через symlink родительские каталоги отклоняются.
 
 Совпадающий с общей копией путь используется напрямую, остальные — через symlink;
 в проекте ссылки относительные. Снятие прямого подключения из lock не скрывает

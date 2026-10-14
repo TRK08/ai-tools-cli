@@ -3,6 +3,7 @@ dist/
 coverage/
 *.tgz
 .DS_Store
+docs/tasks/
 
 # Ignore work files before allowing skill resources that may use the same directory names.
 **/.agents/.skills-installer-work-*/

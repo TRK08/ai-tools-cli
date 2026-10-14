@@ -1,13 +1,8 @@
 import type { InstallationScope } from '../installer/types.ts';
-import type { InstallationRecord } from '../state/types.ts';
 
 /** Возвращает русскую подпись области для сообщений CLI. */
 export const scopeLabel = (scope: InstallationScope): string =>
   scope === 'project' ? 'текущий проект' : 'глобальная область';
-
-/** Возвращает русскую подпись политики, сохраняя её идентификатор latest/exact/local. */
-export const policyLabel = (policy: InstallationRecord['policy']): string =>
-  ({ latest: 'Актуальная (latest)', exact: 'Закреплённая (exact)', local: 'Локальная' })[policy];
 
 /** Различает ошибку и частичный результат в сообщениях CLI. */
 export const failureLabel = (status: 'partial' | 'failed'): string =>

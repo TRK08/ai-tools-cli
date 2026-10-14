@@ -107,9 +107,9 @@ describe.each(['project', 'global'] as const)('%s agent lifecycle', (scope) => {
       const result = await new Installer(context, {
         scope,
         fileSystem: { ...installerFileSystem, symlink },
-      }).add('./demo', false, ['claude-code', 'pi']);
+      }).add('./demo', false, ['claude-code']);
       expect(result.status).toBe('failed');
-      expect(symlink).toHaveBeenCalledTimes(2);
+      expect(symlink).toHaveBeenCalledTimes(1);
       expect(await snapshot(f.copy, f.paths.lockPath)).toEqual(before);
       await clean(f.paths);
     });
@@ -137,11 +137,14 @@ describe('connection failures and isolation', () => {
   it('recreates a missing managed link but refuses an unregistered link even with the same target', async () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context);
-      await f.installer.add('./demo', false, ['pi']);
-      const pi = join(context.roots.cwd, '.pi/skills/demo');
-      await rm(pi);
-      expect(await f.installer.add('./demo', false, ['pi'])).toMatchObject({ status: 'success' });
-      expect(await readFile(join(pi, 'SKILL.md'), 'utf8')).toBe(text);
+      await f.installer.add('./demo', false, ['codex', 'claude-code']);
+      const link = join(context.roots.cwd, '.claude/skills/demo');
+      await rm(link);
+      expect(await f.installer.add('./demo', false, ['codex', 'claude-code'])).toMatchObject({
+        status: 'success',
+      });
+      expect(await readFile(join(link, 'SKILL.md'), 'utf8')).toBe(text);
+      await f.installer.remove('demo', ['claude-code']);
       const claude = join(context.roots.cwd, '.claude/skills/demo');
       await mkdir(dirname(claude), { recursive: true });
       await symlink('../../.agents/skills/demo', claude);
@@ -175,10 +178,10 @@ describe('connection failures and isolation', () => {
       const defaults = { ...context, env: {} };
       expect(ids.map((agent) => agentSkillsDirectory(defaults, 'global', agent))).toEqual([
         join(context.roots.home, '.claude/skills'),
-        join(context.roots.home, '.config/opencode/skills'),
         join(context.roots.home, '.agents/skills'),
-        join(context.roots.home, '.cursor/skills'),
-        join(context.roots.home, '.pi/agent/skills'),
+        join(context.roots.home, '.agents/skills'),
+        join(context.roots.home, '.agents/skills'),
+        join(context.roots.home, '.agents/skills'),
       ]);
       const custom = {
         ...context,
@@ -249,14 +252,12 @@ describe('connection failures and isolation', () => {
         'opencode',
         'pi',
       ]);
-      expect(await readFile(join(context.roots.cwd, '.pi/skills/demo/SKILL.md'), 'utf8')).toContain(
-        'v2',
-      );
+      expect(await readFile(join(f.copy, 'SKILL.md'), 'utf8')).toContain('v2');
       expect(
         (await f.store.read())!.skills.demo!.connections.filter(
           (item) => item.path === '.agents/skills/demo',
         ),
-      ).toHaveLength(3);
+      ).toHaveLength(4);
     });
   });
 
@@ -315,26 +316,24 @@ describe('connection failures and isolation', () => {
     },
   );
 
-  it('rolls back new links and old links along with shared files when state commit fails', async () => {
+  it('rolls back direct connections, shared files and the Claude link when state commit fails', async () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context);
-      await f.installer.add('./demo', false, ['codex', 'pi']);
+      await f.installer.add('./demo', false, ['codex', 'claude-code']);
+      const link = join(context.roots.cwd, '.claude/skills/demo');
       const before = await snapshot(f.copy, f.paths.lockPath);
-      const pi = join(context.roots.cwd, '.pi/skills/demo');
-      const piTarget = await readlink(pi);
+      const linkTarget = await readlink(link);
       const store = new StateStore(f.paths, {
         ...defaultStateFileIO,
         rename: vi.fn().mockRejectedValue(new Error('commit failed')),
       });
       await writeFile(join(f.source, 'SKILL.md'), text.replace('v1', 'v2'));
       const installer = new Installer(context, { store });
-      await expect(installer.add('./demo', false, ['claude-code'])).rejects.toThrow(
-        'commit failed',
-      );
-      await absent(join(context.roots.cwd, '.claude/skills/demo'));
+      await expect(installer.add('./demo', false, ['pi'])).rejects.toThrow('commit failed');
+      expect(await readlink(link)).toBe(linkTarget);
       expect(await snapshot(f.copy, f.paths.lockPath)).toEqual(before);
       await expect(installer.remove('demo')).rejects.toThrow('commit failed');
-      expect(await readlink(pi)).toBe(piTarget);
+      expect(await readlink(link)).toBe(linkTarget);
       expect(await snapshot(f.copy, f.paths.lockPath)).toEqual(before);
       await clean(f.paths);
     });

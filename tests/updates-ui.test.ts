@@ -344,8 +344,8 @@ describe('update tables and confirmation', () => {
     await withTestEnvironment(
       async (f) => {
         const installer = new Installer(f, { registry: backend.url });
-        await installer.add('demo', false, ['codex', 'pi']);
-        const link = join(f.roots.cwd, '.pi/skills/demo');
+        await installer.add('demo', false, ['codex', 'claude-code']);
+        const link = join(f.roots.cwd, '.claude/skills/demo');
         await rm(link);
         backend.requests.length = 0;
         const t = terminal();

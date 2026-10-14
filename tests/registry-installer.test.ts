@@ -1,5 +1,14 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, readlink, symlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  rename,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
@@ -206,15 +215,18 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
       withTestEnvironment(
         async (f) => {
           const paths = getStatePaths(f.roots, scope);
-          const foreign = join(agentSkillsDirectory(f, scope, 'pi'), 'demo');
+          const foreign = join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo');
           await mkdir(foreign, { recursive: true });
           await writeFile(join(foreign, 'sentinel'), 'keep');
           const installer = new Installer(f, { scope, registry: url });
-          expect((await installer.add('demo', false, ['pi', 'codex'])).status).toBe('partial');
+          expect((await installer.add('demo', false, ['claude-code', 'codex'])).status).toBe(
+            'partial',
+          );
           const before = {
             copy: await hashDirectory(join(paths.skillsDirectory, 'demo')),
             lock: await readFile(paths.lockPath),
           };
+          await rename(foreign, join(f.roots.cwd, 'foreign-backup'));
           const failed = new Installer(f, {
             scope,
             registry: url,
@@ -228,6 +240,7 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
             copy: await hashDirectory(join(paths.skillsDirectory, 'demo')),
             lock: await readFile(paths.lockPath),
           }).toEqual(before);
+          await rename(join(f.roots.cwd, 'foreign-backup'), foreign);
           await installer.remove('demo');
           expect(await readFile(join(foreign, 'sentinel'), 'utf8')).toBe('keep');
         },

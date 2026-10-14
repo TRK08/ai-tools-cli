@@ -81,7 +81,7 @@ describe('registry CLI', () => {
               const listed = await cli(f, ['list', ...flags]);
               expect(listed.status).toBe(0);
               expect(listed.stdout).toContain('demo');
-              expect(listed.stdout).toContain(source.includes('@') ? 'exact' : 'latest');
+              expect(listed.stdout).not.toContain('Обновление');
               expect(listed.stdout).toContain(
                 source.includes('@') ? '1.2.3-rc.1+build.2' : '1.2.3',
               );
@@ -117,9 +117,7 @@ describe('registry CLI', () => {
       withTestEnvironment(
         async (f) => {
           expect((await cli(f, ['add', 'demo', '-a', 'codex'])).status).toBe(0);
-          expect((await cli(f, ['list'])).stdout).toMatch(
-            /│ demo\s+│ 1\.2\.3\s+│ Актуальная \(latest\)\s+│/,
-          );
+          expect((await cli(f, ['list'])).stdout).toMatch(/│ demo\s+│ 1\.2\.3\s+│ codex\s+│/);
         },
         { env: { SKILLS_API_URL: url } },
       ),
@@ -163,9 +161,10 @@ describe('registry CLI', () => {
               }
               await run;
               expect((await new Installer(f, { scope }).list())[0]!.agents).toEqual([
-                'claude-code',
                 'codex',
+                'cursor',
                 'opencode',
+                'pi',
               ]);
               expect(
                 (await readdir(getStatePaths(f.roots, scope).agentsDirectory)).filter((n) =>

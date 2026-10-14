@@ -16,6 +16,8 @@ import { terminalText } from './discovery-ui.ts';
 import { MIN_FIND_PREFIX_LENGTH, RegistryFindSearch } from './find-search.ts';
 import { truncateTerminalText } from './table.ts';
 import { plural } from './labels.ts';
+import { createLoading } from './loading.ts';
+import { formatChoice } from './selection-style.ts';
 
 // Адаптировано из ../skills/src/find.ts; см. ThirdPartyNoticeText.txt.
 /** Форматирует счётчик установок с русским склонением и сокращениями тыс./млн. */
@@ -60,10 +62,17 @@ export async function selectRegistrySkill(
       cursor = [...initialPrefix].length;
     let query = [...initialPrefix];
     let previousLines: string[] = [];
+    let loadingLine: string | null = null;
     let canSubmit = false;
     const previousRaw = streams.input.isRaw ?? false;
+    const loading = createLoading(streams, (line) => {
+      loadingLine = line;
+      render();
+    });
     const search = new RegistryFindSearch(client, () => {
       selectedIndex = 0;
+      if (search.state.status === 'loading') loading.start('Поиск в реестре…');
+      else loading.stop();
       render();
     });
 
@@ -76,6 +85,7 @@ export async function selectRegistrySkill(
     const finish = (skill: CatalogSkill | null, error?: unknown) => {
       if (closed) return;
       closed = true;
+      loading.stop();
       search.close();
       streams.input.off('keypress', onKey);
       streams.input.off('end', onEnd);
@@ -92,73 +102,99 @@ export async function selectRegistrySkill(
       else resolve(skill);
     };
 
-    /** Рисует текущий кадр с видимым выбранным пунктом; в маленьком окне запрещает подтверждение. */
+    /** Разделяет запрос, результаты и управление; цвет оставляет только у значка выбранного пункта. */
     function render() {
       if (closed) return;
       try {
-        const width = Math.max(0, (streams.output.columns ?? 80) - 3);
+        const width = Math.max(0, (streams.output.columns ?? 80) - 1);
         const maximum = Math.max(0, (streams.output.rows ?? 24) - 1);
-        canSubmit = width >= 16 && maximum >= 6;
+        const expandedHelp = maximum >= 9 && width >= 42;
+        const fixedRows = expandedHelp ? 7 : 6;
+        canSubmit = width >= 18 && maximum >= fixedRows + 1;
         const body: string[] = [];
-        const add = (text: string) => {
-          body.push(truncateTerminalText(text, width));
+        const formatted: string[] = [];
+        const add = (
+          text: string,
+          format?: Parameters<typeof styleText>[0] | ((line: string) => string),
+        ) => {
+          const line = truncateTerminalText(text, width);
+          body.push(line);
+          formatted.push(
+            typeof format === 'function'
+              ? format(line)
+              : format
+                ? styleText(format, line, { stream: streams.output })
+                : line,
+          );
+        };
+        const section = (title: string) => {
+          const prefix = `├─ ${title} `;
+          add(prefix + '─'.repeat(Math.max(0, width - stringWidth(prefix))), ['bold', 'gray']);
         };
         if (!canSubmit) {
           if (maximum > 0 && width > 0) add('Увеличьте окно терминала');
           if (maximum > 1 && width > 0) add('Esc / Ctrl+C — отмена');
         } else {
-          add(`${S_STEP_ACTIVE} Найдите скилл для установки · префикс slug`);
+          add(`${S_STEP_ACTIVE} Найдите скилл для установки · префикс slug`, 'bold');
+          const queryLabel = `${S_BAR} Префикс slug: `;
           const prefix = queryViewport(
             terminalText(query.slice(0, cursor).join('')),
             terminalText(query.slice(cursor).join('')),
-            width - stringWidth('Префикс slug: '),
+            width - stringWidth(queryLabel),
           );
-          add(`Префикс slug: ${query.length ? prefix : 'Введите префикс slug…'}`);
+          add(`${queryLabel}${query.length ? prefix : 'Введите префикс slug…'}`, (line) =>
+            query.length
+              ? line
+              : line.slice(0, queryLabel.length) +
+                styleText('gray', line.slice(queryLabel.length), { stream: streams.output }),
+          );
           const state = search.state;
+          if (state.status !== 'ready' || !state.items.length) section('Результаты');
           if (state.status === 'idle')
-            add(`Для поиска введите от ${MIN_FIND_PREFIX_LENGTH} символов.`);
-          else if (state.status === 'loading') add('Поиск в реестре…');
+            add(`${S_BAR} Для поиска введите от ${MIN_FIND_PREFIX_LENGTH} символов.`, 'gray');
+          else if (state.status === 'loading')
+            add(`${S_BAR} ${loadingLine ?? 'Поиск в реестре…'}`, 'gray');
           else if (state.status === 'error') {
-            add(`Не удалось выполнить поиск: ${terminalText(state.message)}`);
-            add('Enter — повторить поиск; или измените префикс.');
-          } else if (!state.items.length) add('Скиллы с таким префиксом не найдены.');
+            add(`${S_BAR} Не удалось выполнить поиск: ${terminalText(state.message)}`);
+          } else if (!state.items.length)
+            add(`${S_BAR} Скиллы с таким префиксом не найдены.`, 'gray');
           else {
-            const count = Math.min(8, maximum - 5, state.items.length);
+            const count = Math.min(8, maximum - fixedRows, state.items.length);
             const start = Math.max(
               0,
               Math.min(selectedIndex - Math.floor(count / 2), state.items.length - count),
             );
-            add(`Совпадений: ${state.items.length} · ${start + 1}–${start + count}`);
+            section(`Совпадений: ${state.items.length} · ${start + 1}–${start + count}`);
             for (let i = start; i < Math.min(start + count, state.items.length); i++) {
               const skill = state.items[i]!,
                 selected = i === selectedIndex;
+              const marker = selected ? S_RADIO_ACTIVE : S_RADIO_INACTIVE;
               add(
-                `${selected ? S_RADIO_ACTIVE : S_RADIO_INACTIVE} ${skill.slug}@${skill.currentVersion} · ${installs(skill.installCount)}`,
+                `${S_BAR} ${marker} ${skill.slug}@${skill.currentVersion} · ${installs(skill.installCount)}`,
+                (line) => formatChoice(line, marker, selected, false, streams.output),
               );
             }
           }
-          add('↑/↓ — выбор · Enter — установить · Введите префикс slug · Esc / Ctrl+C — отмена');
-          add(S_BAR_END);
+          section('Управление');
+          if (expandedHelp) {
+            add(
+              `${S_BAR} ${state.status === 'error' ? 'Enter — повторить поиск; или измените префикс.' : '↑/↓ — выбор · Enter — установить'}`,
+              'gray',
+            );
+            add(
+              `${S_BAR} ${state.status === 'error' ? 'Esc / Ctrl+C — отмена' : 'Введите префикс slug · Esc/Ctrl+C — отмена'}`,
+              'gray',
+            );
+          } else
+            add(
+              `${S_BAR} ${state.status === 'error' ? 'Enter · Esc' : '↑↓ · Enter · Esc'}`,
+              'gray',
+            );
+          add(S_BAR_END + '─'.repeat(Math.max(0, width - stringWidth(S_BAR_END))), 'gray');
         }
         clear();
-        previousLines = body.map((line) => (line === S_BAR_END ? line : `${S_BAR} ${line}`));
-        if (previousLines.length)
-          streams.output.write(
-            previousLines
-              .map((line, i) =>
-                styleText(
-                  i === 0 || body[i]!.startsWith('Префикс slug:')
-                    ? 'cyan'
-                    : body[i]!.startsWith(S_RADIO_ACTIVE)
-                      ? 'green'
-                      : body[i]!.startsWith('Не удалось выполнить поиск:')
-                        ? 'red'
-                        : 'gray',
-                  line,
-                ),
-              )
-              .join('\n') + '\n',
-          );
+        previousLines = body;
+        if (previousLines.length) streams.output.write(formatted.join('\n') + '\n');
       } catch (cause) {
         finish(null, cause);
       }

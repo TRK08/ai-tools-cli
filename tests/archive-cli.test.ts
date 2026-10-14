@@ -51,7 +51,7 @@ describe('archive CLI', () => {
           expect(added.stderr).toBe('');
           const listed = cli(f, ['list', ...flags]);
           expect(listed.status).toBe(0);
-          expect(listed.stdout).toMatch(/│ demo\s+│ локальная\s+│ Локальная\s+│/);
+          expect(listed.stdout).toMatch(/│ demo\s+│ локальная\s+│ codex, pi\s+│/);
           expect(listed.stdout).toContain('codex, pi');
           expect(cli(f, ['add', path, '-a', 'pi', ...flags]).stdout).toContain(
             'Без изменений demo',
@@ -121,9 +121,10 @@ describe('archive CLI', () => {
           }
           await run;
           expect((await new Installer(f, { scope }).list())[0]!.agents).toEqual([
-            'claude-code',
             'codex',
+            'cursor',
             'opencode',
+            'pi',
           ]);
           expect(
             (await readdir(getStatePaths(f.roots, scope).agentsDirectory)).filter((name) =>

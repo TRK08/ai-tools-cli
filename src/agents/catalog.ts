@@ -6,7 +6,6 @@ export const AGENTS = [
   {
     id: 'claude-code',
     label: 'Claude Code',
-    defaultSelected: true,
     helpOrder: 0,
     project: {
       kind: 'symlink',
@@ -27,29 +26,19 @@ export const AGENTS = [
   {
     id: 'opencode',
     label: 'OpenCode',
-    defaultSelected: true,
     helpOrder: 2,
     project: {
       kind: 'direct',
       directory: (context: RuntimeContext) => join(context.roots.cwd, '.agents', 'skills'),
     },
     global: {
-      kind: 'symlink',
-      directory: (context: RuntimeContext) =>
-        join(
-          resolve(
-            context.roots.cwd,
-            context.env.XDG_CONFIG_HOME?.trim() || join(context.roots.home, '.config'),
-          ),
-          'opencode',
-          'skills',
-        ),
+      kind: 'direct',
+      directory: (context: RuntimeContext) => join(context.roots.home, '.agents', 'skills'),
     },
   },
   {
     id: 'codex',
     label: 'Codex',
-    defaultSelected: true,
     helpOrder: 1,
     project: {
       kind: 'direct',
@@ -63,29 +52,27 @@ export const AGENTS = [
   {
     id: 'cursor',
     label: 'Cursor',
-    defaultSelected: false,
     helpOrder: 4,
     project: {
       kind: 'direct',
       directory: (context: RuntimeContext) => join(context.roots.cwd, '.agents', 'skills'),
     },
     global: {
-      kind: 'symlink',
-      directory: (context: RuntimeContext) => join(context.roots.home, '.cursor', 'skills'),
+      kind: 'direct',
+      directory: (context: RuntimeContext) => join(context.roots.home, '.agents', 'skills'),
     },
   },
   {
     id: 'pi',
     label: 'Pi',
-    defaultSelected: false,
     helpOrder: 3,
     project: {
-      kind: 'symlink',
-      directory: (context: RuntimeContext) => join(context.roots.cwd, '.pi', 'skills'),
+      kind: 'direct',
+      directory: (context: RuntimeContext) => join(context.roots.cwd, '.agents', 'skills'),
     },
     global: {
-      kind: 'symlink',
-      directory: (context: RuntimeContext) => join(context.roots.home, '.pi', 'agent', 'skills'),
+      kind: 'direct',
+      directory: (context: RuntimeContext) => join(context.roots.home, '.agents', 'skills'),
     },
   },
 ] as const;

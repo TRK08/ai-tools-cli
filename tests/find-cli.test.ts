@@ -199,7 +199,7 @@ describe('backend live registry finder', () => {
           source: { kind: 'registry', slug: 'demo', registryUrl: registry.url },
           policy: 'latest',
           version: '1.0.0',
-          agents: ['claude-code', 'codex', 'opencode'],
+          agents: ['codex', 'cursor', 'opencode', 'pi'],
         });
         expect(registry.requests).toContain(
           `${registry.url}/api/v1/skills/demo/artifact?version=1.0.0`,

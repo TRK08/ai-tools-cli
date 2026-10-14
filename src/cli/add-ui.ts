@@ -9,7 +9,7 @@ import type { SkillDetail } from '../registry/catalog.ts';
 import type { PromptStreams } from './agents-prompt.ts';
 import { terminalText } from './discovery-ui.ts';
 import { renderTable, wrapTerminalText } from './table.ts';
-import { policyLabel } from './labels.ts';
+import { createLoading } from './loading.ts';
 
 /**
  * Выбирает область add/find; -g и запуск без TTY обходят меню.
@@ -38,8 +38,8 @@ export async function selectScope(
 }
 
 /**
- * Показывает полную карточку выбранной версии и фактические назначения агентов. Очищает управляющие
- * символы данных и переносит строки по ширине терминала.
+ * Показывает выбранную версию, источник, краткое описание и агентов для каждого пути.
+ * Очищает управляющие символы данных и переносит строки по ширине терминала.
  */
 function card(preview: AddPreview, details: SkillDetail | undefined, streams: PromptStreams) {
   const width = Math.max(16, (streams.output.columns ?? 80) - 8);
@@ -50,10 +50,8 @@ function card(preview: AddPreview, details: SkillDetail | undefined, streams: Pr
     `Версия: ${preview.version ?? 'локальный источник'}`,
     `Источник: ${preview.source.kind === 'registry' ? preview.source.registryUrl : preview.source.path}`,
     `Область: ${preview.scope === 'project' ? 'локальная — текущий проект' : 'глобальная — для пользователя'}`,
-    `Политика: ${policyLabel(preview.policy)}`,
     '',
     details?.shortDescription ?? preview.description ?? '',
-    ...(details?.longDescription ? ['', details.longDescription] : []),
     ...(details?.tags.length ? ['', `Теги: ${details.tags.join(', ')}`] : []),
     ...(details ? [`Установок: ${details.installCount}`] : []),
     '',
@@ -64,15 +62,18 @@ function card(preview: AddPreview, details: SkillDetail | undefined, streams: Pr
     'Установка скилла',
     { output: streams.output },
   );
+  const destinations = new Map<string, string[]>();
+  for (const { agent, path } of preview.destinations) {
+    const labels = destinations.get(path) ?? [];
+    labels.push(AGENTS.find((item) => item.id === agent)!.label);
+    destinations.set(path, labels);
+  }
   renderTable(
     [
-      { title: 'Агент', maximum: 20 },
+      { title: 'Агенты', maximum: 52 },
       { title: 'Путь установки', maximum: 100 },
     ],
-    preview.destinations.map(({ agent, path }) => [
-      AGENTS.find((item) => item.id === agent)!.label,
-      terminalText(path),
-    ]),
+    [...destinations].map(([path, labels]) => [labels.join(', '), terminalText(path)]),
     streams.output,
   );
 }
@@ -80,18 +81,21 @@ function card(preview: AddPreview, details: SkillDetail | undefined, streams: Pr
 /**
  * Создаёт callbacks карточки и подтверждения add/find вместе с сигналом отмены подготовки.
  *
- * @remarks run владеет клавиатурой до диалога, затем обработку ввода принимает Clack.
+ * @remarks run владеет клавиатурой до диалога, затем обработку ввода принимает Clack. Индикатор
+ * очищается перед карточкой, вопросом, сообщением Installer и при завершении run.
  */
 export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes = false) {
   const controller = new AbortController();
+  const loading = createLoading(streams);
   let listening = false;
   const previousRaw = streams.input.isRaw ?? false;
   const cancelLoading = () => controller.abort();
   const onKey = (_value: string, key: Key) => {
     if (key.name === 'escape' || (key.ctrl && key.name === 'c')) cancelLoading();
   };
-  /** Снимает обработчики отмены подготовки и восстанавливает прежний raw mode терминала. */
+  /** Очищает индикатор, снимает обработчики подготовки и восстанавливает прежний raw mode терминала. */
   const stopLoading = () => {
+    loading.stop();
     if (!listening) return;
     listening = false;
     streams.input.off('keypress', onKey);
@@ -102,7 +106,7 @@ export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes
   /** Запускает подготовку с обработкой Esc/Ctrl+C; в finally освобождает терминальные обработчики. */
   const run = async <T>(operation: () => Promise<T>): Promise<T> => {
     if (streams.input.isTTY && streams.output.isTTY) {
-      log.info('Подготовка карточки… Esc / Ctrl+C — отмена', { output: streams.output });
+      loading.start('Подготовка скилла… Esc / Ctrl+C — отмена');
       emitKeypressEvents(streams.input);
       listening = true;
       streams.input.on('keypress', onKey);
@@ -137,7 +141,10 @@ export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes
     stopLoading();
     if (controller.signal.aborted) return 'cancel';
     card(preview, details, streams);
-    if (yes) return 'approve';
+    if (yes) {
+      loading.start('Установка скилла…');
+      return 'approve';
+    }
     const accepted = await confirm({
       message: `Установить ${terminalText(preview.name)}?`,
       initialValue: false,
@@ -146,7 +153,15 @@ export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes
       input: streams.input,
       output: streams.output,
     });
-    return isCancel(accepted) ? 'cancel' : accepted ? 'approve' : 'decline';
+    const decision = isCancel(accepted) ? 'cancel' : accepted ? 'approve' : 'decline';
+    if (decision === 'approve') loading.start('Установка скилла…');
+    return decision;
   };
-  return { run, review, signal: controller.signal };
+  /** Выводит сообщение установки между кадрами и продолжает индикатор следующего ожидания. */
+  const report = (message: string) => {
+    loading.stop();
+    log.info(message, { output: streams.output });
+    loading.start('Установка скилла…');
+  };
+  return { run, review, report, signal: controller.signal };
 }

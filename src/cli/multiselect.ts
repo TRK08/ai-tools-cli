@@ -9,13 +9,14 @@ import {
   symbol,
   type Option,
 } from '@clack/prompts';
-import { styleText } from 'node:util';
 import type { PromptStreams } from './agents-prompt.ts';
 import { wrapTerminalText } from './table.ts';
+import { formatChoice } from './selection-style.ts';
 
 /**
  * Открывает множественный выбор Clack с русской отрисовкой и запретом пустого выбора. Навигацию и отмену
- * выполняет штатное ядро MultiSelectPrompt.
+ * выполняет штатное ядро MultiSelectPrompt. Активный текст обычный, остальные строки серые;
+ * цветом выделяется только значок.
  */
 export function multiselect<Value>(
   options: PromptStreams & {
@@ -66,16 +67,12 @@ export function multiselect<Value>(
                   ? S_CHECKBOX_ACTIVE
                   : S_CHECKBOX_INACTIVE;
               const text = `${marker} ${option.label ?? String(option.value)}${option.hint ? ` (${option.hint})` : ''}`;
-              return styleText(active ? 'cyan' : checked ? 'green' : 'dim', text);
+              return formatChoice(text, marker, active, checked, options.output);
             },
           }).map((line) => `${S_BAR}  ${line}`),
         );
         if (this.state === 'error')
-          lines.push(
-            ...wrapTerminalText(this.error, width).map(
-              (line) => `${S_BAR}  ${styleText('yellow', line)}`,
-            ),
-          );
+          lines.push(...wrapTerminalText(this.error, width).map((line) => `${S_BAR}  ${line}`));
         lines.push(S_BAR_END);
       }
       return lines.join('\n') + '\n';

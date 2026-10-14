@@ -155,7 +155,7 @@ describe('scope, agents and installation card', () => {
         await key(t, down);
         await key(t, enter);
         await wait(t, 'Установить demo?');
-        expect(t.rendered()).toContain('Политика: Актуальная (latest)');
+        expect(t.rendered()).not.toContain('Обновление:');
         expect(t.rendered()).toContain(join(f.roots.home, '.agents/skills/demo'));
         expect(t.rendered()).not.toContain('Выберите агентов');
         await key(t, enter);
@@ -193,15 +193,17 @@ describe('scope, agents and installation card', () => {
           const paths = getStatePaths(f.roots, scope);
           await expect(lstat(paths.lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
           expect(t.rendered()).toContain('Версия: локальный источник');
-          expect(t.rendered()).toContain('Политика: Локальная');
+          expect(t.rendered()).not.toContain('Обновление:');
           expect(t.rendered()).toContain(join(paths.skillsDirectory, 'demo'));
-          expect(t.rendered()).not.toContain('│ Pi ');
+          expect(t.rendered()).toContain('OpenCode, Codex, Cursor, Pi');
+          expect(t.rendered()).not.toContain('│ Claude Code ');
           await key(t, '\u001b[C\r');
           await pending;
           expect((await new Installer(f, { scope }).list())[0]!.agents).toEqual([
-            'claude-code',
             'codex',
+            'cursor',
             'opencode',
+            'pi',
           ]);
           expect(t.input.isRaw).toBe(false);
         } finally {
@@ -210,7 +212,7 @@ describe('scope, agents and installation card', () => {
       }),
   );
 
-  it('shows the selected registry version and detailed text, then retains latest policy after current changes', async () =>
+  it('shows the selected registry version and short description without long text, then retains latest policy', async () =>
     withTestEnvironment(async (f) => {
       const backend = versionRegistry();
       const http = vi.fn<typeof fetch>(async (input, init) => {
@@ -222,6 +224,7 @@ describe('scope, agents and installation card', () => {
               currentVersion: '2.0.0',
               version: '1.0.0',
               versions: ['2.0.0', '1.0.0'],
+              shortDescription: 'Краткое описание — Кириллица 🚀.\u001b[31m',
               longDescription: 'Paragraph one.\n\nКириллица 🚀 paragraph two.\u001b[31m',
             }),
           );
@@ -245,8 +248,9 @@ describe('scope, agents and installation card', () => {
         expect(t.rendered()).not.toContain('Выберите агентов');
         expect(t.rendered()).toContain('API Contract Checker');
         expect(t.rendered()).toContain('Версия: 1.0.0');
-        expect(t.rendered()).toContain('Paragraph one.');
-        expect(t.rendered()).toContain('Кириллица 🚀 paragraph two.');
+        expect(t.rendered()).toContain('Краткое описание — Кириллица 🚀.');
+        expect(t.rendered()).not.toContain('Paragraph one.');
+        expect(t.rendered()).not.toContain('paragraph two.');
         expect(t.rendered()).not.toContain('\u001b[31m');
         expect(t.rendered()).toContain('Установок: 2');
         expect(t.rendered()).toContain('Go, backend');
@@ -315,6 +319,7 @@ describe('scope, agents and installation card', () => {
             backend.url,
           ]);
           await vi.waitFor(() => expect(signal).toBeDefined(), { interval: 5 });
+          await vi.waitFor(() => expect(t.rendered()).toContain('◒'), { interval: 5 });
           await key(t, '\u0003');
           await pending;
           expect(signal!.aborted).toBe(true);
@@ -322,6 +327,8 @@ describe('scope, agents and installation card', () => {
           expect(http.mock.calls.every((call) => call[1]?.method !== 'POST')).toBe(true);
           expect(await hashDirectory(f.temporaryRoot)).toBe(before);
           expect(t.input.isRaw).toBe(false);
+          expect(t.input.listenerCount('keypress')).toBe(0);
+          expect(t.rendered()).toContain('\u001b[?25h');
         } finally {
           t.close();
         }

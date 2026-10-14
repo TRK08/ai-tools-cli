@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
+import { lstat, rename, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
@@ -181,11 +181,11 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
     await withTestEnvironment(async (f) => {
       const source = join(f.roots.cwd, 'demo.tgz');
       await writeFile(source, archiveBytes([{ path: 'SKILL.md', contents: skillText }]));
-      const foreign = join(agentSkillsDirectory(f, scope, 'pi'), 'demo');
+      const foreign = join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo');
       await mkdir(foreign, { recursive: true });
       await writeFile(join(foreign, 'sentinel'), 'keep');
       const installer = new Installer(f, { scope });
-      expect((await installer.add(source, false, ['codex', 'pi'])).status).toBe('partial');
+      expect((await installer.add(source, false, ['codex', 'claude-code'])).status).toBe('partial');
       expect((await installer.list())[0]!.agents).toEqual(['codex']);
       const paths = getStatePaths(f.roots, scope);
       const before = {
@@ -193,6 +193,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
         lock: await readFile(paths.lockPath),
       };
       await writeFile(source, archiveBytes([{ path: 'SKILL.md', contents: `${skillText}v2\n` }]));
+      await rename(foreign, join(f.roots.cwd, 'foreign-backup'));
       const failed = new Installer(f, {
         scope,
         fileSystem: {
@@ -205,6 +206,7 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
         copy: await hashDirectory(join(paths.skillsDirectory, 'demo')),
         lock: await readFile(paths.lockPath),
       }).toEqual(before);
+      await rename(join(f.roots.cwd, 'foreign-backup'), foreign);
       expect(await readFile(join(foreign, 'sentinel'), 'utf8')).toBe('keep');
       await rm(source);
       await installer.remove('demo');

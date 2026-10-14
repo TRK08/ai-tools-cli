@@ -118,7 +118,7 @@ describe('update CLI', () => {
               expect(batch.stderr).toContain('Не удалось');
               const listed = await cli(f, ['list', ...flags]);
               expect(listed.stdout).toContain('other');
-              expect(listed.stdout).toMatch(/│ other\s+│ 3\.0\.0\s+│ Актуальная \(latest\)\s+│/);
+              expect(listed.stdout).toMatch(/│ other\s+│ 3\.0\.0\s+│ codex, pi\s+│/);
             },
             { env: { SKILLS_API_URL: 'http://127.0.0.1:1' } },
           ),

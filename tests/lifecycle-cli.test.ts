@@ -54,11 +54,11 @@ describe('lifecycle CLI', () => {
       expect(listed.status).toBe(0);
       expect(listed.stdout).toContain('Установленные скиллы · текущий проект');
       expect(listed.stdout).toContain('Версия');
-      expect(listed.stdout).toContain('Политика');
+      expect(listed.stdout).not.toContain('Обновление');
       expect(listed.stdout).not.toContain('Источник');
       expect(listed.stdout).not.toContain('Подключения');
       expect(listed.stdout).toContain('Агенты');
-      expect(listed.stdout).toMatch(/│ demo\s+│ локальная\s+│ Локальная\s+│ codex\s+│/);
+      expect(listed.stdout).toMatch(/│ demo\s+│ локальная\s+│ codex\s+│/);
       expect(listed.stdout).not.toContain('.agents/skills/demo');
       expect(listed.stdout).toContain('Скиллов: 1 · Подключений: 1.');
       expect(cli(context, ['list', '-a', 'codex']).stdout).toContain('фильтр: codex');

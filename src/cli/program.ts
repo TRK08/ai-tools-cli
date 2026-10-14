@@ -21,6 +21,7 @@ import { createRemoveUi } from './remove-ui.ts';
 import { assertSkillName } from '../state/paths.ts';
 import { RussianCommand } from './command.ts';
 import { failureLabel } from './labels.ts';
+import { createLoading } from './loading.ts';
 
 export interface CliOutput {
   readonly write: (message: string) => void;
@@ -108,7 +109,7 @@ export function createProgram(
     const telemetry = telemetryFor(command);
     const target = new Installer(context, {
       scope,
-      report: output.write,
+      report: ui.report,
       telemetry,
       reviewAdd: ui.review,
       signal: ui.signal,
@@ -148,12 +149,14 @@ export function createProgram(
 
   program
     .command('list')
-    .description('Показать установленные скиллы, версии, политики и агентов')
+    .description('Показать установленные скиллы, версии и агентов')
     .option('-a, --agent <agent>', agentHelp, collectAgent, [])
     .option('-g, --global', 'использовать глобальную область')
     .action(async (options: { agent: string[]; global?: boolean }) => {
       const agents = parseAgents(options.agent);
-      const records = await installer(options).list(agents);
+      const records = await createLoading(streams).run('Чтение установленных скиллов…', () =>
+        installer(options).list(agents),
+      );
       renderSkillList(records, scopeOf(options), agents, streams);
     });
 
@@ -216,13 +219,15 @@ export function createProgram(
       ) => {
         const ui = createUpdatesUi(streams, options.yes, scopeOf(options));
         const telemetry = telemetryFor(command);
-        const result = await new Installer(context, {
-          scope: scopeOf(options),
-          report: ui.report,
-          reviewUpdate: ui.review,
-          telemetry,
-        })
-          .update(name, options.force, parseAgents(options.agent))
+        const result = await ui
+          .run(() =>
+            new Installer(context, {
+              scope: scopeOf(options),
+              report: ui.report,
+              reviewUpdate: ui.review,
+              telemetry,
+            }).update(name, options.force, parseAgents(options.agent)),
+          )
           .finally(() => telemetry.flush());
         ui.finish(result);
         if (result.status === 'failed')
@@ -247,7 +252,10 @@ export function createProgram(
             'Для выбора скиллов нужны stdin и stdout терминала (TTY); в скриптах используйте remove demo --yes.',
           );
         const target = installer(options);
-        const records = await target.list(agents);
+        const loading = createLoading(streams);
+        const records = await loading.run('Чтение установленных скиллов…', () =>
+          target.list(agents),
+        );
         const ui = createRemoveUi(streams, scopeOf(options), agents, options.yes);
         const byName = new Map(records.map((record) => [record.name, record]));
         const matching = requested.flatMap((name) => {
@@ -263,20 +271,22 @@ export function createProgram(
         const selected = requested.length ? matching : await ui.select(records);
         if (selected === null || !(await ui.review(selected))) return;
         const results: InstallationChange[] = [];
-        for (const record of selected) {
-          try {
-            const affected = record.agents.filter(
-              (agent) => !agents.length || agents.includes(agent),
-            );
-            results.push(await target.remove(record.name, affected));
-          } catch (cause) {
-            results.push({
-              name: record.name,
-              status: 'failed',
-              errors: [errorMessage(cause)],
-            });
+        await loading.run('Удаление скиллов…', async () => {
+          for (const record of selected) {
+            try {
+              const affected = record.agents.filter(
+                (agent) => !agents.length || agents.includes(agent),
+              );
+              results.push(await target.remove(record.name, affected));
+            } catch (cause) {
+              results.push({
+                name: record.name,
+                status: 'failed',
+                errors: [errorMessage(cause)],
+              });
+            }
           }
-        }
+        });
         ui.finish(selected, results);
         const errors = results.flatMap((result) =>
           result.status === 'partial' || result.status === 'failed' ? result.errors : [],

@@ -188,12 +188,12 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         const installer = new Installer(f, { scope, registry: backend.url });
         await installer.add('demo', false, ['codex']);
         backend.requests.length = 0;
-        expect(await installer.add('demo', false, ['pi'])).toMatchObject({
+        expect(await installer.add('demo', false, ['claude-code'])).toMatchObject({
           status: 'success',
           changes: { content: false, connections: true, metadata: false },
         });
         expect(backend.requests).toHaveLength(1);
-        const link = join(agentSkillsDirectory(f, scope, 'pi'), 'demo');
+        const link = join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo');
         await rm(link);
         backend.requests.length = 0;
         expect((await installer.update()).results[0]).toMatchObject({
@@ -337,8 +337,8 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     await withTestEnvironment(
       async (f) => {
         const installer = new Installer(f, { scope, registry: backend.url });
-        await installer.add('demo', false, ['codex', 'pi']);
-        const link = join(agentSkillsDirectory(f, scope, 'pi'), 'demo');
+        await installer.add('demo', false, ['codex', 'claude-code']);
+        const link = join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo');
         await rm(link);
         await symlink(f.roots.cwd, link);
         backend.current.demo = '2.0.0';
@@ -348,7 +348,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         });
         expect((await installer.list())[0]).toMatchObject({
           version: '2.0.0',
-          agents: ['codex', 'pi'],
+          agents: ['claude-code', 'codex'],
         });
         const paths = getStatePaths(f.roots, scope);
         const copy = join(paths.skillsDirectory, 'demo');
@@ -433,12 +433,12 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     await withTestEnvironment(
       async (f) => {
         const installer = new Installer(f, { scope, registry: backend.url });
-        await installer.add('demo', false, ['pi']);
+        await installer.add('demo', false, ['claude-code']);
         const paths = getStatePaths(f.roots, scope);
         const before = await readFile(paths.lockPath);
         const copy = join(paths.skillsDirectory, 'demo');
         const hash = await hashDirectory(copy);
-        await rm(join(agentSkillsDirectory(f, scope, 'pi'), 'demo'));
+        await rm(join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo'));
         backend.current.demo = '2.0.0';
         const failed = new Installer(f, {
           scope,

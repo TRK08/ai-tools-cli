@@ -3,11 +3,11 @@ import type { AgentId, InstallationScope } from '../installer/types.ts';
 import type { InstallationRecord } from '../state/types.ts';
 import type { PromptStreams } from './agents-prompt.ts';
 import { renderTable } from './table.ts';
-import { policyLabel, scopeLabel } from './labels.ts';
+import { scopeLabel } from './labels.ts';
 
 /**
- * Показывает записи собственного lock и общий счётчик подключений в выбранной области. Фильтр отражается
- * в заголовке; таблица сохраняет всех агентов каждой переданной записи.
+ * Показывает имена, установленные версии и агентов из собственного lock, затем счётчик подключений.
+ * Фильтр отражается в заголовке; таблица сохраняет всех агентов каждой переданной записи.
  */
 export function renderSkillList(
   records: readonly InstallationRecord[],
@@ -35,15 +35,9 @@ export function renderSkillList(
     [
       { title: 'Скилл', maximum: 32 },
       { title: 'Версия', maximum: 32 },
-      { title: 'Политика', maximum: 24 },
       { title: 'Агенты', maximum: 52 },
     ],
-    records.map((record) => [
-      record.name,
-      record.version ?? 'локальная',
-      policyLabel(record.policy),
-      record.agents.join(', '),
-    ]),
+    records.map((record) => [record.name, record.version ?? 'локальная', record.agents.join(', ')]),
     streams.output,
   );
   const connections = records.reduce((total, record) => total + record.connections.length, 0);

@@ -4,14 +4,19 @@ import type { PromptStreams } from './agents-prompt.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import { renderTable } from './table.ts';
 import { failureLabel, scopeLabel } from './labels.ts';
+import { createLoading } from './loading.ts';
 
-/** Создаёт callbacks подтверждения и итогового вывода update, сохраняя preview каждой записи. */
+/**
+ * Создаёт callbacks подтверждения и итогового вывода update, сохраняя preview каждой записи. run
+ * владеет индикатором; сообщения и review останавливают его до вывода и вопросов.
+ */
 export function createUpdatesUi(
   streams: PromptStreams,
   yes = false,
   scope: InstallationScope = 'project',
 ) {
   const options = { output: streams.output };
+  const loading = createLoading(streams);
   const previews = new Map<string, UpdatePreview>();
   const columns = [
     { title: 'Скилл', maximum: 32 },
@@ -48,6 +53,7 @@ export function createUpdatesUi(
    * @returns approve/decline/cancel; без TTY для изменения требуется --yes.
    */
   const review = async (preview: UpdatePreview): Promise<UpdateDecision> => {
+    loading.stop();
     start();
     previews.set(preview.name, preview);
     const local = preview.sourceKind !== 'registry';
@@ -67,7 +73,12 @@ export function createUpdatesUi(
                 : local
                   ? 'В источнике доступно обновлённое содержимое.'
                   : 'Доступна новая версия.';
-    if (preview.status !== 'available' || yes) return 'approve';
+    if (preview.status !== 'available' || yes) {
+      loading.start(
+        preview.status === 'available' ? 'Обновление скиллов…' : 'Проверка обновлений…',
+      );
+      return 'approve';
+    }
     renderTable(columns, [row(preview.name, 'Доступно обновление')], streams.output);
     log.info(status, options);
     if (!streams.input.isTTY || !streams.output.isTTY)
@@ -87,11 +98,15 @@ export function createUpdatesUi(
       input: streams.input,
       output: streams.output,
     });
-    return isCancel(accepted) ? 'cancel' : accepted ? 'approve' : 'decline';
+    const decision = isCancel(accepted) ? 'cancel' : accepted ? 'approve' : 'decline';
+    if (decision !== 'cancel')
+      loading.start(decision === 'approve' ? 'Обновление скиллов…' : 'Проверка обновлений…');
+    return decision;
   };
 
   /** Выводит результаты обработанной части пакета и счётчики; отдельно показывает отказ и отмену. */
   const finish = (batch: UpdateBatch) => {
+    loading.stop();
     start();
     if (!batch.results.length) {
       note('Нет подходящих скиллов для обновления.', 'Нет подходящих скиллов', options);
@@ -147,5 +162,15 @@ export function createUpdatesUi(
       options,
     );
   };
-  return { review, finish, report: (message: string) => log.info(message, options) };
+  /** Выполняет пакет с индикатором ожидания и очищает его также при ошибке вне preview. */
+  const run = async <T>(operation: () => Promise<T>): Promise<T> => {
+    return loading.run('Проверка обновлений…', operation);
+  };
+  /** Показывает сообщение Installer между кадрами индикатора обновления. */
+  const report = (message: string) => {
+    loading.stop();
+    log.info(message, options);
+    loading.start('Обновление скиллов…');
+  };
+  return { review, finish, report, run };
 }

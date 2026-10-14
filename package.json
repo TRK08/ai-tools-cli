@@ -1,9 +1,17 @@
 {
-  "name": "skills-installer",
+  "name": "@trof_r/skills-installer",
   "version": "0.1.0",
   "description": "CLI for installing and managing agent skills",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TRK08/ai-tools-cli.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": ">=22.20.0"
   },
@@ -27,7 +35,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "changeset": "changeset",
-    "package:check": "publint --strict"
+    "package:check": "publint --strict",
+    "package:smoke": "node scripts/check-package.mjs"
   },
   "dependencies": {
     "@clack/core": "1.5.1",

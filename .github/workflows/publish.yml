@@ -1,0 +1,52 @@
+name: Publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version already committed in package.json (for example 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main' && github.repository == 'TRK08/ai-tools-cli'
+    uses: ./.github/workflows/ci.yml
+    with:
+      release-version: ${{ inputs.version }}
+
+  publish:
+    name: Publish verified archive
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install pinned npm
+        run: npm install --global npm@11.19.0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+          path: artifacts/npm
+
+      - name: Publish to npm with OIDC
+        run: |
+          archives=(artifacts/npm/*.tgz)
+          test "${#archives[@]}" -eq 1
+          npm publish "${archives[0]}" --access public --tag latest --provenance --ignore-scripts --registry https://registry.npmjs.org/

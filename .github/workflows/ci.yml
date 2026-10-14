@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+    inputs:
+      release-version:
+        description: Expected stable package version for a manual release
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ['22.20.0', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Install pinned npm
+        run: |
+          npm_spec=$(node -p "require('./package.json').packageManager")
+          npm install --global "$npm_spec"
+          node --version
+          npm --version
+
+      - name: Check release version
+        if: inputs.release-version != ''
+        env:
+          RELEASE_VERSION: ${{ inputs.release-version }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          assert.match(process.env.RELEASE_VERSION, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
+            'Only stable SemVer releases are supported');
+          assert.equal(manifest.version, process.env.RELEASE_VERSION,
+            'Release version must match package.json');
+          assert.equal(lock.packages[''].version, manifest.version,
+            'package-lock.json must match the release version');
+          NODE
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run test:run
+      - run: npm run build
+      - run: npm run package:check
+      - run: npm run package:smoke
+
+      - name: Save verified npm archive
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-package
+          path: artifacts/npm/*.tgz
+          if-no-files-found: error
+          retention-days: 7

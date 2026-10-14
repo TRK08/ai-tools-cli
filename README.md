@@ -1,8 +1,9 @@
-# skills-installer
+# @trof_r/skills-installer
 
 CLI для установки, обновления и удаления скиллов AI-агентов **в проекте или глобально**.
 Поддерживает Claude Code, Codex, OpenCode, Pi и Cursor. Источники: локальная папка,
 архив `.tar.gz`/`.tgz` или собственный registry. Интерфейс на русском.
+Npm-пакет — `@trof_r/skills-installer`, команда запуска — `skills-installer`.
 
 Требования: macOS или Linux, Node.js **≥22.20.0**, npm. Для разработки зафиксирован npm 11.19.0.
 Функциональная часть реализована; итоговая проверка релиза ещё не завершена.
@@ -146,14 +147,18 @@ npm run format:check
 npm run test:run
 npm run build
 npm run package:check
+npm run package:smoke
 ```
 
 Тесты используют временные cwd/home и подменяемый HTTP; сетевым интеграционным тестам
 нужен доступ к localhost. `npm run test` — watch, `npm run format` — форматирование.
-`npm pack` собирает архив после build; `npm run changeset` создаёт заметку об изменениях.
-Публикация выполняется отдельно.
+`npm run package:smoke` после build проверяет состав архива, установку без devDependencies
+и реальный bin во временных проекте/home/npm-prefix. Проверенный архив остаётся в `artifacts/npm/`.
+`npm run changeset` создаёт заметку об изменениях. CI выполняет проверки на Linux/macOS
+с Node 22.20 и 24; публикация запускается вручную через отдельный GitHub Actions workflow.
 
 - [Архитектура и расширение](docs/architecture.md).
+- [CI и публикация пакета в npm](docs/releasing.md).
 - [Источники](docs/sources.md), [состояние](docs/state.md), [registry](docs/registry.md), [статистика](docs/telemetry.md).
 - [Пример скилла](demo/README.md).
 

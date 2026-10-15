@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+import packageJson from '../package.json' with { type: 'json' };
 
 import { withTestEnvironment } from './helpers/test-environment.js';
 
@@ -47,7 +48,7 @@ describe('CLI in a separate process', () => {
       name: 'version',
       args: ['--version'],
       exitCode: 0,
-      stdout: /^0\.1\.0\s*$/,
+      stdout: `${packageJson.version}\n`,
       stderr: /^$/,
     },
     {
@@ -134,7 +135,11 @@ describe('CLI in a separate process', () => {
         expect(result.error).toBeUndefined();
         expect(result.signal).toBeNull();
         expect(result.status).toBe(scenario.exitCode);
-        expect(result.stdout).toMatch(scenario.stdout);
+        if (typeof scenario.stdout === 'string') {
+          expect(result.stdout).toBe(scenario.stdout);
+        } else {
+          expect(result.stdout).toMatch(scenario.stdout);
+        }
         if (scenario.args.includes('--help') || scenario.args[0] === 'help') {
           expect(result.stdout).toContain('Параметры:');
           expect(result.stdout).toContain('показать справку по команде');

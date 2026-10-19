@@ -1,4 +1,3 @@
-import { isAbsolute, resolve } from 'node:path';
 import { isAgentId, isDirectAgent } from '../agents/catalog.ts';
 import type { AgentId } from '../installer/types.ts';
 import type { SourceIdentity } from '../sources/types.ts';
@@ -10,9 +9,12 @@ import {
   getSkillDirectory,
   portableConnectionPath,
   portableSourcePath,
+  validatePortablePathText,
   validatePathText,
   type StatePaths,
 } from './paths.ts';
+import { assertPortableNames } from './names.ts';
+import { nativePath, pathIdentityKey } from './native-path.ts';
 import {
   LOCK_VERSION,
   type InstallationRecord,
@@ -87,8 +89,9 @@ function source(value: unknown, paths: StatePaths, storageInput: boolean): Sourc
     invalid('Неподдерживаемый тип источника.');
   keys(entry, ['kind', 'path']);
   const path = text(entry.path, 'source.path');
-  validatePathText(path);
-  if (!storageInput && isAbsolute(path) !== (paths.scope === 'global'))
+  if (!storageInput && paths.scope === 'project') validatePortablePathText(path);
+  else validatePathText(path);
+  if (!storageInput && nativePath.isAbsolute(path) !== (paths.scope === 'global'))
     invalid(
       'Сохранённый путь локального источника должен быть относительным в проекте и абсолютным в глобальной области.',
     );
@@ -100,11 +103,18 @@ function connection(value: unknown, paths: StatePaths, storageInput: boolean): M
   const entry = object(value, 'connection');
   keys(entry, ['agent', 'path']);
   const path = text(entry.path, 'connection.path');
-  if (!storageInput && isAbsolute(path) !== (paths.scope === 'global'))
+  if (!storageInput && paths.scope === 'project') validatePortablePathText(path);
+  else validatePathText(path);
+  if (!storageInput && nativePath.isAbsolute(path) !== (paths.scope === 'global'))
     invalid(
       'Сохранённый путь подключения должен быть относительным в проекте и абсолютным в глобальной области.',
     );
   return { agent: agent(entry.agent), path: portableConnectionPath(path, paths) };
+}
+
+/** Строит ключ владения назначением, сохраняя исходную строку пути в записи lock. */
+function connectionKey(path: string, paths: StatePaths): string {
+  return pathIdentityKey(nativePath.resolve(paths.cwd, path));
 }
 
 /** Проверяет одну запись lock: имя, источник/политику, версии, хеши и согласованность подключений. */
@@ -142,18 +152,19 @@ function record(
     invalid('Повторяющиеся агенты недопустимы.');
   if (!Array.isArray(entry.connections)) invalid('Поле connections должно быть массивом.');
   const connections = entry.connections.map((value) => connection(value, paths, storageInput));
+  const groups = new Map<string, ManagedConnection[]>();
+  for (const item of connections) {
+    const key = connectionKey(item.path, paths);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  const sharedKey = connectionKey(getSkillDirectory(paths, name), paths);
   if (
     connections.some((item) => !desiredAgents.includes(item.agent)) ||
     new Set(connections.map((item) => item.agent)).size !== connections.length ||
-    connections.some(
-      (item, index) =>
-        connections.slice(0, index).some((other) => other.path === item.path) &&
-        !(
-          resolve(paths.cwd, item.path) === getSkillDirectory(paths, name) &&
-          connections
-            .filter((other) => other.path === item.path)
-            .every((other) => isDirectAgent(other.agent, paths.scope))
-        ),
+    [...groups].some(
+      ([key, group]) =>
+        group.length > 1 &&
+        (key !== sharedKey || group.some((item) => !isDirectAgent(item.agent, paths.scope))),
     )
   )
     invalid(
@@ -197,6 +208,7 @@ function normalize(value: unknown, paths: StatePaths, storageInput: boolean): Lo
     }
     keys(lock, ['version', 'skills']);
     const skills = object(lock.skills, 'skills');
+    assertPortableNames(Object.keys(skills));
     const records = Object.fromEntries(
       Object.keys(skills)
         .sort()
@@ -205,9 +217,10 @@ function normalize(value: unknown, paths: StatePaths, storageInput: boolean): Lo
     const managedPaths = new Map<string, string>();
     for (const entry of Object.values(records)) {
       for (const connection of entry.connections) {
-        if (managedPaths.has(connection.path) && managedPaths.get(connection.path) !== entry.name)
+        const key = connectionKey(connection.path, paths);
+        if (managedPaths.has(key) && managedPaths.get(key) !== entry.name)
           invalid('Разные скиллы не могут управлять одним путём подключения.');
-        managedPaths.set(connection.path, entry.name);
+        managedPaths.set(key, entry.name);
       }
     }
     return {

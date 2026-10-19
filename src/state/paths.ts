@@ -1,7 +1,9 @@
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { posix } from 'node:path';
 import type { InstallationScope } from '../installer/types.ts';
 import type { FileSystemRoots } from '../runtime.ts';
 import { PROJECT_IN_HOME_MESSAGE, StateError } from './errors.ts';
+import { assertPortableName } from './names.ts';
+import { isPathWithin, nativePath, samePath, validateNativePath } from './native-path.ts';
 
 export const INSTALLER_LOCK_NAME = 'skills-installer-lock.json';
 export const WORKSPACE_PREFIX = '.skills-installer-work-';
@@ -17,11 +19,13 @@ export interface StatePaths extends FileSystemRoots {
 }
 
 /**
- * Вычисляет нормализованные пути состояния и общей копии для выбранной области без I/O.
- *
- * @throws StateError — корни не абсолютны либо проектная область лексически совпадает с home.
+ * Вычисляет нативные пути состояния текущей ОС без I/O.
+ * @throws StateError — корни не абсолютны/неподдерживаемы либо проект лексически совпадает с home.
  */
 export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope): StatePaths {
+  const { isAbsolute, join, resolve } = nativePath;
+  validatePathText(roots.cwd);
+  validatePathText(roots.home);
   if (!isAbsolute(roots.cwd) || !isAbsolute(roots.home)) {
     throw new StateError(
       'INVALID_PATH',
@@ -30,7 +34,7 @@ export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope):
   }
   const cwd = resolve(roots.cwd);
   const home = resolve(roots.home);
-  if (scope === 'project' && cwd === home) {
+  if (scope === 'project' && samePath(cwd, home)) {
     throw new StateError('PROJECT_IN_HOME', PROJECT_IN_HOME_MESSAGE);
   }
   const base = scope === 'project' ? cwd : home;
@@ -48,59 +52,68 @@ export function getStatePaths(roots: FileSystemRoots, scope: InstallationScope):
   });
 }
 
-/**
- * Проверяет непустое имя каталога: запрещает разделители, управляющие символы и «.»/«..», ограничивает
- * длину 255 байтами UTF-8.
- */
+/** Проверяет переносимое имя скилла без переименования: правила Windows/POSIX и до 255 байт UTF-8. */
 export function assertSkillName(name: string): void {
-  if (
-    !name.trim() ||
-    name === '.' ||
-    name === '..' ||
-    /[/\\\p{Cc}]/u.test(name) ||
-    Buffer.byteLength(name, 'utf8') > 255
-  ) {
-    throw new StateError('INVALID_PATH', `Небезопасное имя скилла: ${JSON.stringify(name)}.`);
+  try {
+    assertPortableName(name);
+  } catch (cause) {
+    throw new StateError('INVALID_PATH', 'Небезопасное имя скилла: ' + JSON.stringify(name) + '.', {
+      cause,
+    });
   }
 }
 
 /** Проверяет имя и вычисляет каталог общей копии скилла, не создавая его. */
 export function getSkillDirectory(paths: StatePaths, name: string): string {
   assertSkillName(name);
-  return join(paths.skillsDirectory, name);
+  return nativePath.join(paths.skillsDirectory, name);
 }
 
-/** Отклоняет пустые POSIX-пути, обратные слеши и управляющие символы. */
+/** Проверяет нативный путь по правилам текущей ОС, не выполняя файловых операций. */
 export function validatePathText(path: string): void {
-  if (!path || /[\\\p{Cc}]/u.test(path)) {
+  validateNativePath(path);
+}
+
+/** Проверяет относительный путь проектного lock с разделителем / и переносимыми компонентами. */
+export function validatePortablePathText(path: string): void {
+  if (!path || /[\\\p{Cc}]/u.test(path) || posix.isAbsolute(path)) {
     throw new StateError(
       'INVALID_PATH',
-      'Пути должны быть непустыми путями POSIX без управляющих символов.',
+      'Проектный путь должен быть относительным с разделителем /.',
     );
+  }
+  for (const part of path.split('/').filter(Boolean)) {
+    if (part !== '.' && part !== '..') assertPortableName(part);
   }
 }
 
 /**
- * Кодирует источник относительным путём в проекте и абсолютным — глобально. Локальный источник может
- * находиться вне cwd; symlink не разыменовывается.
+ * Кодирует источник относительно cwd в проекте и абсолютно глобально, без realpath.
+ * Внешний источник проекта допустим на том же диске; другой диск отклоняется до подготовки.
  */
 export function portableSourcePath(path: string, paths: StatePaths): string {
+  const { resolve, relative, isAbsolute, sep } = nativePath;
   validatePathText(path);
   const absolute = resolve(paths.cwd, path);
-  return paths.scope === 'global' ? absolute : relative(paths.cwd, absolute) || '.';
+  if (paths.scope === 'global') return absolute;
+  const local = relative(paths.cwd, absolute);
+  if (isAbsolute(local)) {
+    throw new StateError('INVALID_PATH', 'Источник проекта должен находиться на том же диске.');
+  }
+  const portable = local.split(sep).join('/') || '.';
+  validatePortablePathText(portable);
+  return portable;
 }
 
-/** Разрешает сохранённый путь источника относительно cwd, сохраняя лексическую идентичность. */
+/** Разрешает источник относительно cwd без realpath; предварительно проверяет переносимость области. */
 export function resolveSourcePath(path: string, paths: StatePaths): string {
-  validatePathText(path);
-  return resolve(paths.cwd, path);
+  portableSourcePath(path, paths);
+  return nativePath.resolve(paths.cwd, path);
 }
 
-/**
- * Кодирует управляемое назначение, запрещая выход проектного пути за cwd. Глобальное назначение должно
- * быть абсолютным.
- */
+/** Кодирует назначение: проектное строго внутри cwd с /, глобальное — абсолютный нативный путь. */
 export function portableConnectionPath(path: string, paths: StatePaths): string {
+  const { isAbsolute, resolve, relative, sep } = nativePath;
   validatePathText(path);
   if (paths.scope === 'global') {
     if (!isAbsolute(path)) {
@@ -108,19 +121,21 @@ export function portableConnectionPath(path: string, paths: StatePaths): string 
     }
     return resolve(path);
   }
-  const portable = relative(paths.cwd, resolve(paths.cwd, path));
-  if (!portable || portable === '..' || portable.startsWith('../') || isAbsolute(portable)) {
+  const absolute = resolve(paths.cwd, path);
+  if (samePath(paths.cwd, absolute) || !isPathWithin(paths.cwd, absolute)) {
     throw new StateError(
       'INVALID_PATH',
       'Подключения проекта должны находиться внутри рабочей папки.',
     );
   }
+  const portable = relative(paths.cwd, absolute).split(sep).join('/');
+  validatePortablePathText(portable);
   return portable;
 }
 
-/** Получает абсолютный путь подключения после проверки правил переносимости области. */
+/** Получает абсолютный нативный путь назначения после проверки правил области. */
 export function resolveConnectionPath(path: string, paths: StatePaths): string {
   return paths.scope === 'project'
-    ? join(paths.cwd, portableConnectionPath(path, paths))
+    ? nativePath.resolve(paths.cwd, portableConnectionPath(path, paths))
     : portableConnectionPath(path, paths);
 }

@@ -372,13 +372,13 @@ describe('remove in CLI processes without TTY', () => {
     });
   });
 
-  it('does not expand a wildcard into installed names', async () => {
+  it('rejects a literal wildcard without expanding it into installed names', async () => {
     await withTestEnvironment(async (f) => {
       await install(f);
       const before = await hashDirectory(f.temporaryRoot);
       const result = await runCli(f, ['remove', '*', '--yes']);
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain('* не имеет подходящей установки.');
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Небезопасное имя скилла');
       expect(await hashDirectory(f.temporaryRoot)).toBe(before);
     });
   });

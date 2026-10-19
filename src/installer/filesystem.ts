@@ -1,8 +1,8 @@
 import { lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
-import { join } from 'node:path';
 import { hasErrorCode } from '../state/errors.ts';
 import { WORKSPACE_PREFIX } from '../state/paths.ts';
+import { nativePath } from '../state/native-path.ts';
 
 /** Подменяемый файловый I/O для проверок обрабатываемых ошибок на временных корнях. */
 export const installerFileSystem = { lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink };
@@ -24,7 +24,7 @@ export async function inspectPath(path: string, fs: InstallerFileSystem) {
 }
 
 /**
- * Проверяет обычные каталоги последовательно по частям пути, отклоняя ссылки и чужие объекты.
+ * Проверяет обычные каталоги по нативным частям пути, отклоняя ссылки и чужие объекты.
  *
  * @param create - Создавать отсутствующие каталоги; без него проверка прекращается на первом
  * отсутствующем родителе.
@@ -37,7 +37,7 @@ export async function directoryChain(
 ): Promise<void> {
   let path = root;
   for (const part of parts) {
-    path = join(path, part);
+    path = nativePath.join(path, part);
     if (create) {
       await fs.mkdir(path).catch((cause: unknown) => {
         if (!hasErrorCode(cause, 'EEXIST')) throw cause;
@@ -75,7 +75,7 @@ export class FileTransaction {
     run: (files: FileTransaction) => Promise<T>,
   ): Promise<T> {
     const files = new FileTransaction(
-      await fs.mkdtemp(join(workspaceParent, WORKSPACE_PREFIX)),
+      await fs.mkdtemp(nativePath.join(workspaceParent, WORKSPACE_PREFIX)),
       fs,
     );
     let result: T;

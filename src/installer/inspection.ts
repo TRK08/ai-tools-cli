@@ -1,5 +1,4 @@
 import { errorMessage } from '../errors.ts';
-import { dirname, join, parse, relative, resolve } from 'node:path';
 import { isCancellation } from '../cancellation.ts';
 import type { RuntimeContext } from '../runtime.ts';
 import { isDirectAgent } from '../agents/catalog.ts';
@@ -11,6 +10,7 @@ import {
   type StatePaths,
 } from '../state/paths.ts';
 import type { InstallationRecord, ManagedConnection } from '../state/types.ts';
+import { isPathWithin, nativePath, relativePathParts, samePath } from '../state/native-path.ts';
 import { agentSkillsDirectory } from './agents.ts';
 import { directoryChain, inspectPath, type InstallerFileSystem } from './filesystem.ts';
 import type { AgentId, InstalledSnapshot } from './types.ts';
@@ -26,16 +26,19 @@ export class InstallationInspection {
 
   /** Проверяет соответствие сохранённых подключений правилам агентов и области. */
   assertSupported(record: InstallationRecord): void {
+    const { join } = nativePath;
     for (const connection of record.connections) {
       const path = resolveConnectionPath(connection.path, this.paths);
       const shared = getSkillDirectory(this.paths, record.name);
       const direct = isDirectAgent(connection.agent, this.paths.scope);
       if (
-        (direct && path !== shared) ||
-        (!direct && path === shared) ||
+        (direct && !samePath(path, shared)) ||
+        (!direct && samePath(path, shared)) ||
         (this.paths.scope === 'project' &&
-          path !==
-            join(agentSkillsDirectory(this.context, 'project', connection.agent), record.name))
+          !samePath(
+            path,
+            join(agentSkillsDirectory(this.context, 'project', connection.agent), record.name),
+          ))
       )
         throw new Error(`Некорректное управляемое подключение для ${connection.agent}: ${path}.`);
     }
@@ -53,10 +56,11 @@ export class InstallationInspection {
 
   /** Проверяет каждый родитель пути агента, включая env-пути вне home. */
   async connectionParents(path: string, create = false): Promise<void> {
+    const { dirname, parse } = nativePath;
     // Для env-пути вне home проверяем каждый родитель до мутаций.
     const parent = dirname(path);
     const root = this.paths.scope === 'project' ? this.paths.cwd : parse(parent).root;
-    await directoryChain(root, relative(root, parent).split('/').filter(Boolean), this.fs, create);
+    await directoryChain(root, relativePathParts(root, parent), this.fs, create);
   }
 
   /** Проверяет наличие управляемого обычного каталога; чужие объекты отклоняет. */
@@ -102,6 +106,7 @@ export class InstallationInspection {
 
   /** Возвращает сохранённый путь или вычисляет новый; запрещает пересечения. */
   connection(name: string, agent: AgentId, previous?: InstallationRecord): ManagedConnection {
+    const { join } = nativePath;
     const connection = previous?.connections.find((item) => item.agent === agent) ?? {
       agent,
       path: portableConnectionPath(
@@ -111,8 +116,7 @@ export class InstallationInspection {
     };
     const path = resolveConnectionPath(connection.path, this.paths);
     const directAgent = isDirectAgent(agent, this.paths.scope);
-    const withinShared = relative(this.paths.skillsDirectory, path);
-    if (!directAgent && !withinShared.startsWith('../') && withinShared !== '..') {
+    if (!directAgent && isPathWithin(this.paths.skillsDirectory, path)) {
       throw new Error(`Путь агента пересекается с общим хранилищем скиллов: ${path}.`);
     }
     return connection;
@@ -124,18 +128,19 @@ export class InstallationInspection {
     name: string,
     owned: boolean,
   ): Promise<boolean> {
+    const { resolve, dirname } = nativePath;
     const path = resolveConnectionPath(connection.path, this.paths);
     await this.connectionParents(path);
     const stats = await inspectPath(path, this.fs);
     if (!stats) return false;
     const shared = getSkillDirectory(this.paths, name);
-    if (path === shared) {
+    if (samePath(path, shared)) {
       if (!owned || !stats.isDirectory() || stats.isSymbolicLink())
         throw new Error(`Общий каталог занят чужим объектом: ${path}.`);
     } else if (
       !owned ||
       !stats.isSymbolicLink() ||
-      resolve(dirname(path), await this.fs.readlink(path)) !== shared
+      !samePath(resolve(dirname(path), await this.fs.readlink(path)), shared)
     ) {
       throw new Error(`Путь агента занят чужим объектом: ${path}.`);
     }
@@ -201,7 +206,8 @@ export class InstallationInspection {
           connection,
           name,
           !!previous?.connections.some((item) => item.agent === agent) ||
-            (resolveConnectionPath(connection.path, this.paths) === destination && !!previous),
+            (samePath(resolveConnectionPath(connection.path, this.paths), destination) &&
+              !!previous),
         );
         if (!exists) connectionsNeedRepair = true;
         candidates.push(connection);

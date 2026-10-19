@@ -63,6 +63,14 @@ describe('skill frontmatter', () => {
     'a\nb',
     'a\0b',
     'ä'.repeat(128),
+    'CON',
+    'nul.txt',
+    'COM1',
+    'LPT²',
+    'a:b',
+    'demo.',
+    'demo ',
+    '\ud800',
   ])('rejects unsafe skill name %j', (name) => {
     expect(() =>
       readSkillMetadata(`---\nname: ${JSON.stringify(name)}\ndescription: Demo\n---\n`),

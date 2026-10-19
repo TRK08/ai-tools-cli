@@ -1,0 +1,367 @@
+import { posix } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { agentSkillsDirectory } from '../src/installer/agents.ts';
+import { InstallationInspection } from '../src/installer/inspection.ts';
+import { installerFileSystem } from '../src/installer/filesystem.ts';
+import { selectSource } from '../src/installer/source.ts';
+import { assertPortableName, assertPortableNames, portableNameKey } from '../src/state/names.ts';
+import {
+  createPathOperations,
+  isPathWithin,
+  pathIdentityKey,
+  relativePathParts,
+  samePath,
+  validateNativePath,
+} from '../src/state/native-path.ts';
+import {
+  assertSkillName,
+  getStatePaths,
+  portableConnectionPath,
+  portableSourcePath,
+  resolveConnectionPath,
+  resolveSourcePath,
+  validatePortablePathText,
+} from '../src/state/paths.ts';
+import { sourceIdentityKey } from '../src/state/identity.ts';
+import { parseLockFile, serializeLockFile } from '../src/state/schema.ts';
+import { LOCK_VERSION, type LockFile } from '../src/state/types.ts';
+import type { RuntimeContext } from '../src/runtime.ts';
+
+vi.mock('../src/state/native-path.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/state/native-path.ts')>();
+  const { win32 } = await import('node:path');
+  return { ...actual, ...actual.createPathOperations(win32) };
+});
+
+const roots = { cwd: 'C:\\Projects\\Мой проект', home: 'C:\\Users\\Тест' };
+const project = getStatePaths(roots, 'project');
+const global = getStatePaths(roots, 'global');
+const context: RuntimeContext = {
+  roots,
+  env: {},
+  http: async () => {
+    throw new Error('HTTP is disabled.');
+  },
+};
+
+function windowsLock(): LockFile {
+  return {
+    version: LOCK_VERSION,
+    skills: {
+      demo: {
+        name: 'demo',
+        source: { kind: 'directory', path: roots.cwd + '\\sources\\demo' },
+        version: null,
+        policy: 'local',
+        contentHash: 'a'.repeat(64),
+        agents: ['codex', 'claude-code'],
+        connections: [
+          { agent: 'codex', path: roots.cwd + '\\.agents\\skills\\demo' },
+          { agent: 'claude-code', path: roots.cwd + '\\.claude\\skills\\demo' },
+        ],
+      },
+    },
+  };
+}
+
+describe('native and portable paths', () => {
+  it('uses native Windows roots and keeps project lock paths portable', () => {
+    expect(project.skillsDirectory).toBe(roots.cwd + '\\.agents\\skills');
+    const json = serializeLockFile(windowsLock(), project);
+    expect(json).not.toContain('C:');
+    const lock = parseLockFile(JSON.parse(json), project);
+    expect(lock.skills.demo?.source).toEqual({ kind: 'directory', path: 'sources/demo' });
+    expect(lock.skills.demo?.connections.map((connection) => connection.path)).toEqual([
+      '.claude/skills/demo',
+      '.agents/skills/demo',
+    ]);
+    const moved = getStatePaths({ ...roots, cwd: 'D:\\Перенесённый проект' }, 'project');
+    expect(resolveSourcePath('sources/demo', moved)).toBe('D:\\Перенесённый проект\\sources\\demo');
+    expect(resolveConnectionPath('.claude/skills/demo', moved)).toBe(
+      'D:\\Перенесённый проект\\.claude\\skills\\demo',
+    );
+  });
+
+  it('accepts both native Windows separators and external sources on the same drive', () => {
+    expect(portableSourcePath('.\\sources/demo', project)).toBe('sources/demo');
+    expect(portableSourcePath('C:/Projects/External/demo', project)).toBe('../External/demo');
+    expect(portableConnectionPath('.agents\\skills/demo', project)).toBe('.agents/skills/demo');
+    expect(portableSourcePath('.', project)).toBe('.');
+    expect(() => portableSourcePath('D:\\sources\\demo', project)).toThrowError(
+      expect.objectContaining({ code: 'INVALID_PATH' }),
+    );
+  });
+
+  it.each([
+    '',
+    'C:',
+    'C:relative',
+    '1:\\project',
+    'K:\\project',
+    '\\rooted',
+    '/rooted',
+    '\\\\server\\share\\project',
+    '//server/share/project',
+    '\\\\?\\C:\\project',
+    '\\\\.\\C:\\project',
+    'C:\\file:stream',
+    'C:\\folder\\NUL.txt',
+    'C:\\folder.\\project',
+    'C:\\bad\\line\nbreak',
+  ])('rejects unsupported Windows input %j before resolution', (path) => {
+    expect(() => validateNativePath(path)).toThrowError(
+      expect.objectContaining({ code: 'INVALID_PATH' }),
+    );
+  });
+
+  it('keeps global paths native and allows another local drive', () => {
+    expect(portableSourcePath('D:\\Sources\\demo', global)).toBe('D:\\Sources\\demo');
+    expect(portableConnectionPath('D:\\Claude\\skills\\demo', global)).toBe(
+      'D:\\Claude\\skills\\demo',
+    );
+    expect(() => portableConnectionPath('.claude/skills/demo', global)).toThrow();
+    const lock = windowsLock();
+    const record = lock.skills.demo!;
+    const json = serializeLockFile(
+      {
+        ...lock,
+        skills: {
+          demo: {
+            ...record,
+            connections: [{ agent: 'codex', path: roots.home + '\\.agents\\skills\\demo' }],
+          },
+        },
+      },
+      global,
+    );
+    expect(parseLockFile(JSON.parse(json), global).skills.demo?.source).toEqual(record.source);
+  });
+
+  it.each(['..\\escape', '../escape', 'C:\\outside', 'D:\\outside', '.'])(
+    'rejects a managed project destination outside the root: %j',
+    (path) => {
+      expect(() => portableConnectionPath(path, project)).toThrow();
+    },
+  );
+
+  it('rejects native backslashes in stored project paths on Windows as well', () => {
+    const stored = JSON.parse(serializeLockFile(windowsLock(), project));
+    stored.skills.demo.source.path = 'sources\\demo';
+    expect(() => parseLockFile(stored, project)).toThrowError(
+      expect.objectContaining({ code: 'INVALID_LOCK' }),
+    );
+  });
+
+  it('compares Windows paths without changing their I/O spelling or dereferencing symlinks', () => {
+    expect(samePath('C:\\Work\\Project\\', 'c:/work/PROJECT')).toBe(true);
+    expect(samePath('C:\\Work\\alias', 'C:\\Work\\target')).toBe(false);
+    expect(pathIdentityKey('\\\\?\\C:\\Work\\Project')).toBe('c:\\work\\project');
+    expect(sourceIdentityKey({ kind: 'directory', path: 'sources/demo' }, project)).toBe(
+      sourceIdentityKey(
+        { kind: 'directory', path: 'c:/PROJECTS/Мой проект/SOURCES/DEMO' },
+        project,
+      ),
+    );
+    expect(() =>
+      getStatePaths({ cwd: 'c:\\USERS\\ТЕСТ', home: roots.home }, 'project'),
+    ).toThrowError(expect.objectContaining({ code: 'PROJECT_IN_HOME' }));
+  });
+
+  it('checks containment by components, including roots, siblings and different drives', () => {
+    expect(isPathWithin('C:\\Work', 'c:/work/child')).toBe(true);
+    expect(isPathWithin('C:\\Work', 'C:\\Work')).toBe(true);
+    expect(isPathWithin('C:\\Work', 'C:\\Work-other\\child')).toBe(false);
+    expect(isPathWithin('C:\\Work', 'C:\\Work\\..\\outside')).toBe(false);
+    expect(isPathWithin('C:\\Work', 'D:\\Work\\child')).toBe(false);
+    expect(relativePathParts('C:\\Work', 'c:\\work\\.claude\\skills')).toEqual([
+      '.claude',
+      'skills',
+    ]);
+    expect(relativePathParts('C:\\Work', '\\\\?\\C:\\Work\\Child')).toEqual(['Child']);
+    expect(() => relativePathParts('C:\\Work', 'C:\\outside')).toThrow();
+  });
+
+  it('retains POSIX case sensitivity and treats backslash as a native filename character', () => {
+    const posixOperations = createPathOperations(posix);
+    expect(posixOperations.samePath('/repo/A', '/repo/a')).toBe(false);
+    expect(posixOperations.isPathWithin('/repo', '/repo-other/file')).toBe(false);
+    expect(() => posixOperations.validateNativePath('/repo/has\\backslash')).not.toThrow();
+    expect(() => validatePortablePathText('has\\backslash')).toThrow();
+  });
+
+  it('walks every Windows connection parent and stops at a redirected parent', async () => {
+    const lstat = vi.fn(
+      async (
+        _path: string,
+      ): Promise<{
+        isDirectory: () => boolean;
+        isSymbolicLink: () => boolean;
+      }> => ({
+        isDirectory: () => true,
+        isSymbolicLink: () => false,
+      }),
+    );
+    const inspection = new InstallationInspection(context, project, {
+      ...installerFileSystem,
+      lstat: lstat as unknown as typeof installerFileSystem.lstat,
+    });
+    await inspection.connectionParents(roots.cwd + '\\.claude\\skills\\demo');
+    expect(lstat.mock.calls.map(([path]) => path)).toEqual([
+      roots.cwd + '\\.claude',
+      roots.cwd + '\\.claude\\skills',
+    ]);
+    lstat.mockResolvedValueOnce({ isDirectory: () => true, isSymbolicLink: () => true });
+    await expect(
+      inspection.connectionParents(roots.cwd + '\\.claude\\skills\\demo'),
+    ).rejects.toThrow('ссылка');
+  });
+
+  it('validates native agent paths and rejects drive-relative env overrides', () => {
+    expect(agentSkillsDirectory(context, 'project', 'claude-code')).toBe(
+      roots.cwd + '\\.claude\\skills',
+    );
+    expect(() =>
+      agentSkillsDirectory(
+        { ...context, env: { CLAUDE_CONFIG_DIR: 'D:claude' } },
+        'global',
+        'claude-code',
+      ),
+    ).toThrow();
+  });
+
+  it('accepts the separate Claude destination and validates its native catalog path', () => {
+    const inspection = new InstallationInspection(context, project, installerFileSystem);
+    expect(inspection.connection('demo', 'claude-code')).toEqual({
+      agent: 'claude-code',
+      path: '.claude/skills/demo',
+    });
+    expect(() => inspection.assertSupported(windowsLock().skills.demo!)).not.toThrow();
+    expect(() =>
+      inspection.assertSupported({
+        ...windowsLock().skills.demo!,
+        connections: [{ agent: 'claude-code', path: '.other/skills/demo' }],
+      }),
+    ).toThrow();
+  });
+
+  it('checks Windows link ownership and its target across drives and namespace spelling', async () => {
+    const fs = {
+      ...installerFileSystem,
+      lstat: vi.fn(async (path: string) => ({
+        isDirectory: () => !path.endsWith('\\demo'),
+        isSymbolicLink: () => path.endsWith('\\demo'),
+      })) as unknown as typeof installerFileSystem.lstat,
+      readlink: vi.fn(
+        async () => '\\\\?\\c:\\USERS\\ТЕСТ\\.agents\\skills\\demo',
+      ) as unknown as typeof installerFileSystem.readlink,
+    };
+    const inspection = new InstallationInspection(context, global, fs);
+    const connection = { agent: 'claude-code' as const, path: 'D:\\Claude\\skills\\demo' };
+    await expect(inspection.inspectConnection(connection, 'demo', true)).resolves.toBe(true);
+    await expect(inspection.inspectConnection(connection, 'demo', false)).rejects.toThrow('чужим');
+    fs.readlink = vi.fn(
+      async () => 'C:\\Outside\\demo',
+    ) as unknown as typeof installerFileSystem.readlink;
+    await expect(inspection.inspectConnection(connection, 'demo', true)).rejects.toThrow('чужим');
+  });
+
+  it('rejects a cross-drive source before any source preparation or HTTP', async () => {
+    const http = vi.fn(context.http);
+    await expect(
+      selectSource('D:\\sources\\demo', { ...context, http }, project, {}),
+    ).rejects.toMatchObject({ code: 'INVALID_PATH' });
+    expect(http).not.toHaveBeenCalled();
+  });
+});
+
+describe('portable names', () => {
+  it.each([
+    'CON',
+    'nul.txt',
+    'PRN.md',
+    'AUX',
+    'com1',
+    'LPT9.log',
+    'COM¹.txt',
+    'lpt²',
+    'CON .txt',
+    'CONIN$',
+    'conout$',
+    'demo.',
+    'demo ',
+    'bad:name',
+    'a?b',
+    'a*b',
+    'a|b',
+    'a<b',
+    'a>b',
+    'a"b',
+    '\ud800',
+    '',
+  ])('rejects unsafe name %j without rewriting it', (name) => {
+    expect(() => assertSkillName(name)).toThrowError(
+      expect.objectContaining({ code: 'INVALID_PATH' }),
+    );
+  });
+
+  it('accepts portable Unicode, spaces and names resembling reserved words', () => {
+    for (const name of ['Мой скилл', 'café', '工具', '😀', 'COM0', 'COM10', 'console', '.hidden']) {
+      expect(() => assertPortableName(name)).not.toThrow();
+    }
+    expect(() => assertPortableName(Buffer.from([0xff, 0xfe]))).toThrow();
+    expect(() => assertPortableName('ä'.repeat(128))).toThrow();
+    expect(() => assertPortableName(Buffer.from('Мой скилл'))).not.toThrow();
+  });
+
+  it.each([
+    ['Readme', 'README'],
+    ['café', 'cafe\u0301'],
+    ['Demo', Buffer.from('demo')],
+  ])('rejects name collisions for %j and %j', (first, second) => {
+    expect(() => assertPortableNames([first, second])).toThrow();
+  });
+
+  it('does not modify the names while calculating collision keys', () => {
+    const decomposed = 'cafe\u0301';
+    expect(portableNameKey(decomposed)).toBe('café');
+    expect(decomposed).toBe('cafe\u0301');
+    expect(() => assertPortableNames(['first', 'second'])).not.toThrow();
+  });
+
+  it('rejects skill dictionary names that collide before accepting the lock', () => {
+    const lock = windowsLock();
+    const record = lock.skills.demo!;
+    expect(() =>
+      serializeLockFile(
+        { ...lock, skills: { demo: record, Demo: { ...record, name: 'Demo' } } },
+        project,
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_LOCK' }));
+  });
+
+  it('rejects global destinations shared by different records with different casing', () => {
+    const record = windowsLock().skills.demo!;
+    expect(() =>
+      serializeLockFile(
+        {
+          version: LOCK_VERSION,
+          skills: {
+            first: {
+              ...record,
+              name: 'first',
+              agents: ['claude-code'],
+              connections: [{ agent: 'claude-code', path: 'D:\\Claude\\skills\\shared' }],
+            },
+            second: {
+              ...record,
+              name: 'second',
+              agents: ['claude-code'],
+              connections: [{ agent: 'claude-code', path: 'd:\\CLAUDE\\skills\\SHARED' }],
+            },
+          },
+        },
+        global,
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'INVALID_LOCK' }));
+  });
+});

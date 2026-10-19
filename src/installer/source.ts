@@ -15,6 +15,7 @@ import type { InstallationRecord } from '../state/types.ts';
 import {
   getSkillDirectory,
   getStatePaths,
+  portableSourcePath,
   LOCK_TEMP_PREFIX,
   WORKSPACE_PREFIX,
   type StatePaths,
@@ -26,7 +27,7 @@ import type {
   SourceSelection,
 } from './types.ts';
 
-/** Выбирает постоянный источник и политику; update использует сохранённый registry. */
+/** Проверяет переносимость пути до I/O и выбирает источник/политику; update сохраняет registry. */
 export async function selectSource(
   input: string,
   context: RuntimeContext,
@@ -35,6 +36,8 @@ export async function selectSource(
   updating?: InstallationRecord,
   selection?: RegistrySelection,
 ): Promise<SourceSelection> {
+  // Проверка выполняется до чтения источника, workspace и сетевых запросов.
+  portableSourcePath(input, paths);
   const reference = updating
     ? updating.source.kind === 'registry'
       ? { slug: updating.source.slug }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { createGunzip } from 'node:zlib';
 import { Parser, ReadEntry } from 'tar';
 import { hasErrorCode } from '../state/errors.ts';
@@ -109,7 +109,7 @@ async function readArchive(
 
 /**
  * Разбирает ограниченный gzip/tar в памяти, проверяя типы записей, пути, дубликаты и полноту потока.
- * Записи на диск ещё нет; при завершении снимает обработчик abort и закрывает gzip.
+ * Пути записей трактуются как POSIX. Записи на диск ещё нет; при завершении закрывает gzip и снимает abort.
  */
 async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly ArchiveEntry[]> {
   signal?.throwIfAborted();
@@ -249,11 +249,11 @@ async function unpack(bytes: Buffer, signal?: AbortSignal): Promise<readonly Arc
       invalid('Tar-архив обрезан: отсутствуют полные завершающие блоки.');
     for (const entry of entries.values()) {
       signal?.throwIfAborted();
-      let parent = dirname(entry.path);
+      let parent = posix.dirname(entry.path);
       while (parent !== '.') {
         if (entries.get(parent)?.directory === false)
           invalid(`Файл в архиве также используется как каталог: ${JSON.stringify(parent)}.`);
-        parent = dirname(parent);
+        parent = posix.dirname(parent);
       }
     }
     return [...entries.values()];

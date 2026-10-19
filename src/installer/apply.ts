@@ -1,6 +1,7 @@
 import { dirname, join, relative } from 'node:path';
 import { errorMessage } from '../errors.ts';
 import { getSkillDirectory, resolveConnectionPath } from '../state/paths.ts';
+import { samePath } from '../state/native-path.ts';
 import type { StateTransaction } from '../state/store.ts';
 import type { InstallationRecord, LockFile } from '../state/types.ts';
 import { directoryChain, FileTransaction, type InstallerFileSystem } from './filesystem.ts';
@@ -80,7 +81,7 @@ export async function applyInstallPlan(
   for (const connection of candidates) {
     try {
       const path = resolveConnectionPath(connection.path, paths);
-      const direct = path === destination;
+      const direct = samePath(path, destination);
       const existed = await inspection.inspectConnection(
         connection,
         name,
@@ -168,7 +169,7 @@ export async function applyRemoval(
           const connection = record.connections.find((item) => item.agent === agent);
           if (connection && (await inspection.inspectConnection(connection, name, true))) {
             const path = resolveConnectionPath(connection.path, paths);
-            if (path !== getSkillDirectory(paths, name))
+            if (!samePath(path, getSkillDirectory(paths, name)))
               await files.move(path, join(files.workspace, `connection-${agent}`));
           }
           removed.push(agent);

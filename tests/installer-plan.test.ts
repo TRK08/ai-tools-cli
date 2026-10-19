@@ -41,6 +41,8 @@ const content = {
 const snapshot = {
   previous: record,
   contentHash: 'a'.repeat(64),
+  copies: [{ path: content.directory, owned: true, exists: true, contentHash: record.contentHash }],
+  destinations: record.connections.map((connection) => ({ connection, exists: true })),
   candidates: record.connections,
   errors: [],
   connectionsNeedRepair: false,
@@ -115,7 +117,7 @@ describe('pure installation decisions', () => {
     const plan = createInstallPlan(next, snapshot, record.source, 'latest', true);
     expect(plan.kind).toBe('apply');
     expect(plan.content.version).toBe('2.0.0');
-    expect(plan.reviewedUnchanged).toBe(true);
+    expect(plan.force).toBe(true);
   });
 
   it('classifies changed archive metadata separately from unchanged unpacked contents', () => {
@@ -147,7 +149,7 @@ describe('pure installation decisions', () => {
       localUpdateReason(
         record,
         { ...content, contentHash: 'c'.repeat(64) },
-        { ...snapshot, contentHash: null },
+        { ...snapshot, contentHash: null, copies: [{ ...snapshot.copies[0]!, contentHash: null }] },
       ),
     ).toBe('copy');
     expect(localUpdateReason(record, { ...content, contentHash: 'c'.repeat(64) }, snapshot)).toBe(

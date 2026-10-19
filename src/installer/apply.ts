@@ -1,4 +1,5 @@
-import { dirname, join, relative } from 'node:path';
+import { join } from 'node:path';
+import { hashDirectory } from '../state/hash.ts';
 import { errorMessage } from '../errors.ts';
 import { getSkillDirectory, resolveConnectionPath } from '../state/paths.ts';
 import { samePath } from '../state/native-path.ts';
@@ -29,114 +30,127 @@ export async function applyInstallPlan(
   const name = prepared.name;
   const destination = getSkillDirectory(paths, name);
   const errors = [...snapshot.errors];
-  const currentHash = snapshot.contentHash;
   const download = prepared.download === undefined ? {} : { download: prepared.download };
-  if (prepared.ownership === 'reuse' && plan.kind !== 'apply') {
-    if ((await inspection.checkCopy(name, previous, force)) !== prepared.contentHash)
-      throw new Error(
-        `Установленный скилл ${name} изменился во время подготовки; повторите операцию.`,
-      );
+  await inspection.assertUnchanged(name, snapshot, force);
+  if (!candidates.length) return { status: 'failed', name, errors, ...download };
+  if (plan.kind !== 'apply') {
     const metadata = plan.kind === 'metadata-only';
-    if (metadata)
-      await state.write({ ...lock, skills: { ...lock.skills, [name]: { ...previous!, policy } } });
+    if (metadata) {
+      const record = createInstallationRecord(plan, paths, previous!.connections);
+      await state.write({ ...lock, skills: { ...lock.skills, [name]: record } });
+    }
     return {
       name,
       status: metadata ? 'success' : 'unchanged',
+      ...download,
       changes: { content: false, connections: false, metadata },
     };
   }
   if (!files) throw new Error('Для применения файлового плана требуется транзакция файлов.');
-  if (!candidates.length) return { status: 'failed', name, errors, ...download };
-  let reported = false;
-  const reportReplacement = () => {
-    if (previous && !reported) {
-      report?.(
-        `Замена ${name}; затрагиваемые агенты: ${[...new Set([...previous.agents, ...candidates.map((item) => item.agent)])].sort().join(', ')}.`,
-      );
-      reported = true;
+  const allConnections = new Map([
+    ...(previous?.connections ?? []).map((item) => [item.agent, item] as const),
+    ...candidates.map((item) => [item.agent, item] as const),
+  ]);
+  const staged = new Map<AgentId, string>();
+  const rejected = new Set<AgentId>();
+  // Снимок ещё не перемещён: все copy-назначения получают одни и те же проверенные bytes.
+  for (const connection of allConnections.values()) {
+    if (connection.kind !== 'copy') continue;
+    const path = resolveConnectionPath(connection.path, paths);
+    if (
+      snapshot.copies.some(
+        (copy) => samePath(copy.path, path) && copy.contentHash === prepared.contentHash,
+      )
+    )
+      continue;
+    try {
+      const staging = await files.stageCopy(prepared.directory, connection.agent);
+      if (
+        (await hashDirectory(staging, { portableNames: paths.scope === 'project' })) !==
+        prepared.contentHash
+      )
+        throw new Error(`Хеш подготовленной копии ${name} не совпадает со снимком.`);
+      staged.set(connection.agent, staging);
+    } catch (cause) {
+      if (previous?.connections.some((item) => item.agent === connection.agent)) throw cause;
+      rejected.add(connection.agent);
+      errors.push(`${connection.agent}: ${errorMessage(cause)}`);
     }
-  };
-  if (currentHash !== prepared.contentHash) reportReplacement();
+  }
+  if (candidates.every((item) => rejected.has(item.agent)))
+    throw new NoConnections({ status: 'failed', name, errors, ...download });
   await inspection.checkParents(true);
-  const finalHash = await inspection.checkCopy(name, previous, force);
-  if (plan.reviewedUnchanged && finalHash !== prepared.contentHash)
-    throw new Error(
-      `Установленный скилл ${name} изменился во время подтверждения; повторите операцию.`,
+  const replaced = snapshot.contentHash !== prepared.contentHash;
+  if (replaced && prepared.ownership === 'reuse')
+    throw new Error(`Заимствованная общая копия ${name} не может быть заменена.`);
+  if (previous && (replaced || staged.size))
+    report?.(
+      `Замена ${name}; затрагиваемые агенты: ${[...new Set([...previous.agents, ...candidates.map((item) => item.agent)])].sort().join(', ')}.`,
     );
-  if (prepared.ownership === 'reuse' && finalHash !== prepared.contentHash)
-    throw new Error(
-      `Установленный скилл ${name} изменился во время подготовки; повторите операцию.`,
-    );
-  const replaced = finalHash !== prepared.contentHash;
+  await inspection.assertUnchanged(name, snapshot, force);
   if (replaced) {
-    reportReplacement();
     if (await inspection.inspectCopy(name, previous))
       await files.move(destination, join(files.workspace, 'previous'));
     await files.move(prepared.directory, destination);
   }
   const connections = new Map(previous?.connections.map((item) => [item.agent, item]));
   let successes = 0;
-  let changed = replaced;
+  let contentChanged = replaced;
   let connectionsChanged = false;
-  for (const connection of candidates) {
+  for (const connection of allConnections.values()) {
+    if (rejected.has(connection.agent)) continue;
+    const owned = connections.has(connection.agent);
     try {
       const path = resolveConnectionPath(connection.path, paths);
-      const direct = samePath(path, destination);
       const existed = await inspection.inspectConnection(
         connection,
         name,
-        direct || connections.has(connection.agent),
+        connection.kind === 'direct' || owned,
       );
-      if (!existed && plan.reviewedUnchanged)
-        throw new Error(
-          `Подключения ${name} изменились во время подтверждения; повторите операцию.`,
-        );
-      if (!existed) {
-        if (direct) throw new Error(`Общая копия отсутствует: ${path}.`);
+      if (connection.kind === 'copy' && staged.has(connection.agent)) {
+        // Повторная проверка конкретной копии непосредственно перед её заменой.
+        if (owned) {
+          const current = await inspection.connectionCopy(connection, previous!, force);
+          const before = snapshot.copies.find((copy) => samePath(copy.path, path));
+          if (
+            !before ||
+            current.exists !== before.exists ||
+            current.contentHash !== before.contentHash
+          )
+            throw new Error(`Копия ${name} изменилась во время применения; повторите операцию.`);
+        }
         await inspection.connectionParents(path, true);
-        await files.link(
-          paths.scope === 'project' ? relative(dirname(path), destination) : destination,
-          path,
-        );
-        changed = true;
-        connectionsChanged = true;
+        if (existed) await files.move(path, join(files.workspace, `previous-${connection.agent}`));
+        await files.move(staged.get(connection.agent)!, path);
+        if (owned) contentChanged = true;
+      } else if (!existed) {
+        if (connection.kind === 'direct') throw new Error(`Общая копия отсутствует: ${path}.`);
+        if (connection.kind === 'copy') throw new Error(`Копия агента отсутствует: ${path}.`);
+        await inspection.connectionParents(path, true);
+        await files.link(destination, path);
       }
-      if (!connections.has(connection.agent)) {
-        changed = true;
-        connectionsChanged = true;
-      }
+      if (!existed || !owned) connectionsChanged = true;
       connections.set(connection.agent, connection);
-      successes++;
+      if (candidates.some((item) => item.agent === connection.agent)) successes++;
     } catch (cause) {
+      // Прежние назначения обязаны перейти на одну версию вместе с общей копией.
+      if (owned) throw cause;
       errors.push(`${connection.agent}: ${errorMessage(cause)}`);
     }
   }
   if (!successes) throw new NoConnections({ status: 'failed', name, errors, ...download });
-  if (!changed && !errors.length && !metadataChanged(previous, prepared, policy))
-    return {
-      status: 'unchanged',
-      name,
-      ...download,
-      changes: { content: false, connections: false, metadata: false },
-    };
   const record = createInstallationRecord(plan, paths, [...connections.values()]);
   const metadata = metadataChanged(previous, record, policy);
-  if (changed || metadata) {
+  if (contentChanged || connectionsChanged || metadata)
     await state.write({ ...lock, skills: { ...lock.skills, [name]: record } });
-  }
+  const changes = { content: contentChanged, connections: connectionsChanged, metadata };
   return errors.length
-    ? {
-        status: 'partial',
-        name,
-        errors,
-        ...download,
-        changes: { content: replaced, connections: connectionsChanged, metadata },
-      }
+    ? { status: 'partial', name, errors, ...download, changes }
     : {
-        status: 'success',
+        status: contentChanged || connectionsChanged || metadata ? 'success' : 'unchanged',
         name,
         ...download,
-        changes: { content: replaced, connections: connectionsChanged, metadata },
+        changes,
       };
 }
 
@@ -169,7 +183,9 @@ export async function applyRemoval(
           const connection = record.connections.find((item) => item.agent === agent);
           if (connection && (await inspection.inspectConnection(connection, name, true))) {
             const path = resolveConnectionPath(connection.path, paths);
-            if (!samePath(path, getSkillDirectory(paths, name)))
+            if (connection.kind === 'link')
+              await files.unlink(path, getSkillDirectory(paths, name));
+            else if (connection.kind === 'copy')
               await files.move(path, join(files.workspace, `connection-${agent}`));
           }
           removed.push(agent);

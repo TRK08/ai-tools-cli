@@ -156,13 +156,13 @@ describe('lifecycle CLI', () => {
       expect((await lstat(foreign)).isDirectory()).toBe(true);
       await rm(foreign, { recursive: true });
       expect(cli(context, ['add', './demo', '-a', 'claude-code']).status).toBe(0);
-      await rm(foreign);
-      await mkdir(foreign);
+      await rm(foreign, { recursive: true });
+      await writeFile(foreign, 'foreign file');
       const removed = cli(context, ['remove', 'demo', '--yes']);
       expect(removed.status).toBe(1);
       expect(removed.stderr).toContain('Путь агента занят чужим объектом');
       expect(cli(context, ['list']).stdout).toContain('claude-code');
-      expect((await lstat(foreign)).isDirectory()).toBe(true);
+      expect(await readFile(foreign, 'utf8')).toBe('foreign file');
     });
   });
 

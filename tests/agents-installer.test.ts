@@ -54,11 +54,11 @@ describe.each(['project', 'global'] as const)('%s agent lifecycle', (scope) => {
       const f = await fixture(context, scope);
       expect(await f.installer.add('./demo', false, [agent])).toMatchObject({ status: 'success' });
       const destination = join(agentSkillsDirectory(context, scope, agent), 'demo');
-      if (destination === f.copy) expect((await lstat(destination)).isSymbolicLink()).toBe(false);
+      if (destination === f.copy || scope === 'project')
+        expect((await lstat(destination)).isSymbolicLink()).toBe(false);
       else {
         const link = await readlink(destination);
         expect(resolve(dirname(destination), link)).toBe(f.copy);
-        if (scope === 'project') expect(link.startsWith('/')).toBe(false);
       }
       expect(await readFile(join(destination, 'SKILL.md'), 'utf8')).toBe(text);
       const record = (await f.store.read())!.skills.demo!;
@@ -97,7 +97,7 @@ describe.each(['project', 'global'] as const)('%s agent lifecycle', (scope) => {
     });
   });
 
-  it('rolls back replacement if all requested symlink creations fail', async () => {
+  it('rolls back replacement if all requested connection creations fail', async () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context, scope);
       await f.installer.add('./demo');
@@ -106,7 +106,7 @@ describe.each(['project', 'global'] as const)('%s agent lifecycle', (scope) => {
       const symlink = vi.fn().mockRejectedValue(new Error('connection failure'));
       const result = await new Installer(context, {
         scope,
-        fileSystem: { ...installerFileSystem, symlink },
+        fileSystem: { ...installerFileSystem, [scope === 'project' ? 'cp' : 'symlink']: symlink },
       }).add('./demo', false, ['claude-code']);
       expect(result.status).toBe('failed');
       expect(symlink).toHaveBeenCalledTimes(1);
@@ -134,12 +134,12 @@ describe('connection failures and isolation', () => {
     });
   });
 
-  it('recreates a missing managed link but refuses an unregistered link even with the same target', async () => {
+  it('recreates a missing managed copy but refuses an unregistered link even with the same target', async () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context);
       await f.installer.add('./demo', false, ['codex', 'claude-code']);
       const link = join(context.roots.cwd, '.claude/skills/demo');
-      await rm(link);
+      await rm(link, { recursive: true });
       expect(await f.installer.add('./demo', false, ['codex', 'claude-code'])).toMatchObject({
         status: 'success',
       });
@@ -261,13 +261,13 @@ describe('connection failures and isolation', () => {
     });
   });
 
-  it('cleans an unused new copy when every link creation fails', async () => {
+  it('cleans an unused new copy when staging fails', async () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context);
       const result = await new Installer(context, {
         fileSystem: {
           ...installerFileSystem,
-          symlink: vi.fn().mockRejectedValue(new Error('denied')),
+          cp: vi.fn().mockRejectedValue(new Error('denied')),
         },
       }).add('./demo', false, ['claude-code']);
       expect(result.status).toBe('failed');
@@ -298,9 +298,9 @@ describe('connection failures and isolation', () => {
     'keeps a foreign %s on remove and records only successful removals',
     async (kind) => {
       await withTestEnvironment(async (context) => {
-        const f = await fixture(context);
+        const f = await fixture(context, 'global');
         await f.installer.add('./demo', false, ['codex', 'claude-code']);
-        const path = join(context.roots.cwd, '.claude/skills/demo');
+        const path = join(context.roots.home, '.claude/skills/demo');
         await rm(path);
         if (kind === 'directory') await mkdir(path);
         else if (kind === 'link') await symlink(f.source, path);
@@ -316,13 +316,13 @@ describe('connection failures and isolation', () => {
     },
   );
 
-  it('rolls back direct connections, shared files and the Claude link when state commit fails', async () => {
+  it('rolls back direct connections, shared files and the Claude copy when state commit fails', async () => {
     await withTestEnvironment(async (context) => {
       const f = await fixture(context);
       await f.installer.add('./demo', false, ['codex', 'claude-code']);
       const link = join(context.roots.cwd, '.claude/skills/demo');
       const before = await snapshot(f.copy, f.paths.lockPath);
-      const linkTarget = await readlink(link);
+      const copyHash = await hashDirectory(link);
       const store = new StateStore(f.paths, {
         ...defaultStateFileIO,
         rename: vi.fn().mockRejectedValue(new Error('commit failed')),
@@ -330,10 +330,10 @@ describe('connection failures and isolation', () => {
       await writeFile(join(f.source, 'SKILL.md'), text.replace('v1', 'v2'));
       const installer = new Installer(context, { store });
       await expect(installer.add('./demo', false, ['pi'])).rejects.toThrow('commit failed');
-      expect(await readlink(link)).toBe(linkTarget);
+      expect(await hashDirectory(link)).toBe(copyHash);
       expect(await snapshot(f.copy, f.paths.lockPath)).toEqual(before);
       await expect(installer.remove('demo')).rejects.toThrow('commit failed');
-      expect(await readlink(link)).toBe(linkTarget);
+      expect(await hashDirectory(link)).toBe(copyHash);
       expect(await snapshot(f.copy, f.paths.lockPath)).toEqual(before);
       await clean(f.paths);
     });

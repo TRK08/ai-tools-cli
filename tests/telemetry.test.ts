@@ -208,7 +208,10 @@ describe.each(['project', 'global'] as const)('%s registry statistics', (scope) 
       const { installer, events, flush } = tracking(f, scope);
       await flush(installer.add('demo', false, ['codex', 'claude-code']));
       events.length = 0;
-      await rm(join(scope === 'project' ? f.roots.cwd : f.roots.home, '.claude', 'skills', 'demo'));
+      await rm(
+        join(scope === 'project' ? f.roots.cwd : f.roots.home, '.claude', 'skills', 'demo'),
+        { recursive: true },
+      );
       await flush(installer.update());
       expect(events.map((e) => e.payload.event)).toEqual(['install']);
       expect(events[0]!.payload.context.operation).toBe('update');

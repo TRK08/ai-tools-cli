@@ -64,7 +64,7 @@ describe('installation review lifecycle', () => {
           expect(record.policy).toBe(kind === 'registry' ? 'latest' : 'local');
           expect(record.version).toBe(kind === 'registry' ? '1.0.0' : null);
           for (const { path } of preview.destinations) {
-            expect(await realpath(path)).toBe(preview.sharedDirectory);
+            expect(await realpath(path)).toBe(scope === 'project' ? path : preview.sharedDirectory);
             expect(await readFile(join(path, 'SKILL.md'), 'utf8')).toContain('name: demo');
           }
         });

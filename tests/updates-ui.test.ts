@@ -346,17 +346,17 @@ describe('update tables and confirmation', () => {
         const installer = new Installer(f, { registry: backend.url });
         await installer.add('demo', false, ['codex', 'claude-code']);
         const link = join(f.roots.cwd, '.claude/skills/demo');
-        await rm(link);
+        await rm(link, { recursive: true });
         backend.requests.length = 0;
         const t = terminal();
         try {
           const pending = run(f, t);
           await waitForPrompt(t);
-          expect(t.rendered()).toContain('Подключения агентов требуют восстановления.');
+          expect(t.rendered()).toContain('Установленное содержимое требует замены.');
           await expect(lstat(link)).rejects.toMatchObject({ code: 'ENOENT' });
           approve(t);
           await pending;
-          expect((await lstat(link)).isSymbolicLink()).toBe(true);
+          expect((await lstat(link)).isSymbolicLink()).toBe(false);
           expect(backend.requests).toHaveLength(1);
         } finally {
           t.close();

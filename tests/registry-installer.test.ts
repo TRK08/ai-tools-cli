@@ -53,7 +53,9 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
               const path = join(agentSkillsDirectory(f, scope, agent), 'demo');
               expect(await readFile(join(path, 'resource'))).toEqual(Buffer.from([0, 255, 128]));
               expect((await lstat(join(path, 'run.sh'))).mode & 0o777).toBe(0o711);
-              if (path !== copy) expect(resolve(dirname(path), await readlink(path))).toBe(copy);
+              if (path !== copy && scope === 'global')
+                expect(resolve(dirname(path), await readlink(path))).toBe(copy);
+              else expect((await lstat(path)).isSymbolicLink()).toBe(false);
             }
             expect(requests[0]).toBe(
               `/api/v1/skills/demo/artifact${source.includes('@') ? '?version=1.2.3' : ''}`,
@@ -113,7 +115,11 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
                 .filter((id) => join(agentSkillsDirectory(f, scope, id), 'demo') !== copy)
                 .map(async (id) => {
                   const path = join(agentSkillsDirectory(f, scope, id), 'demo');
-                  return { path, inode: (await lstat(path)).ino, target: await readlink(path) };
+                  return {
+                    path,
+                    inode: (await lstat(path)).ino,
+                    target: scope === 'global' ? await readlink(path) : await hashDirectory(path),
+                  };
                 }),
             );
             failing = true;
@@ -125,7 +131,9 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
             }).toEqual(before);
             for (const link of links) {
               expect((await lstat(link.path)).ino).toBe(link.inode);
-              expect(await readlink(link.path)).toBe(link.target);
+              expect(
+                scope === 'global' ? await readlink(link.path) : await hashDirectory(link.path),
+              ).toBe(link.target);
             }
             expect(
               (await readdir(paths.agentsDirectory)).filter((n) => n.startsWith(WORKSPACE_PREFIX)),
@@ -232,7 +240,9 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
             registry: url,
             fileSystem: {
               ...installerFileSystem,
-              symlink: vi.fn().mockRejectedValue(new Error('link failed')),
+              [scope === 'project' ? 'cp' : 'symlink']: vi
+                .fn()
+                .mockRejectedValue(new Error('connection failed')),
             },
           });
           expect((await failed.add('demo', false, ['claude-code'])).status).toBe('failed');

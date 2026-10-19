@@ -63,7 +63,7 @@ function windowsLock(): LockFile {
           { agent: 'codex', kind: 'direct' as const, path: roots.cwd + '\\.agents\\skills\\demo' },
           {
             agent: 'claude-code',
-            kind: 'link' as const,
+            kind: 'copy' as const,
             path: roots.cwd + '\\.claude\\skills\\demo',
           },
         ],
@@ -311,7 +311,7 @@ describe('native and portable paths', () => {
     expect(inspection.connection('demo', 'claude-code')).toEqual({
       agent: 'claude-code',
       path: '.claude/skills/demo',
-      kind: 'link',
+      kind: 'copy',
     });
     expect(() => inspection.assertSupported(windowsLock().skills.demo!)).not.toThrow();
     expect(() =>

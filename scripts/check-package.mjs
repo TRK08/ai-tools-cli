@@ -96,8 +96,14 @@ function checkInstalledCli(bin, cwd, source, global) {
     readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
     readFileSync(join(source, 'SKILL.md'), 'utf8'),
   );
-  assert.ok(lstatSync(connectionPath).isSymbolicLink());
-  assert.equal(realpathSync(connectionPath), realpathSync(skillPath));
+  assert.equal(lstatSync(connectionPath).isSymbolicLink(), global);
+  assert.equal(lstatSync(connectionPath).isDirectory(), !global);
+  if (global) assert.equal(realpathSync(connectionPath), realpathSync(skillPath));
+  else assert.notEqual(realpathSync(connectionPath), realpathSync(skillPath));
+  assert.equal(
+    readFileSync(join(connectionPath, 'SKILL.md'), 'utf8'),
+    readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
+  );
   assert.match(run(bin, ['list', ...scope], cwd), /package-smoke/);
   run(bin, ['update', 'package-smoke', ...scope, '--yes', '--without-stat'], cwd);
   run(bin, ['remove', 'package-smoke', ...scope, '--yes'], cwd);

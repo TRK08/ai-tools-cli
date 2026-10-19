@@ -375,7 +375,7 @@ describe('strict lock reading', () => {
           { agent: 'codex', kind: 'direct' as const, path: canonical },
           { agent: 'opencode', kind: 'direct' as const, path: canonical },
           { agent: 'cursor', kind: 'direct' as const, path: canonical },
-          { agent: 'claude-code', kind: 'link' as const, path: '.claude/skills/demo' },
+          { agent: 'claude-code', kind: 'copy' as const, path: '.claude/skills/demo' },
         ],
       };
       const parsed = parseLockFile(JSON.parse(serializeLockFile(oneRecord(record), paths)), paths);

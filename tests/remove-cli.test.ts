@@ -387,16 +387,15 @@ describe('remove in CLI processes without TTY', () => {
     await withTestEnvironment(async (f) => {
       const installer = await install(f, ['alpha', 'demo'], 'project', ['codex', 'claude-code']);
       const foreign = join(f.roots.cwd, '.claude', 'skills', 'alpha');
-      await rm(foreign);
-      await mkdir(foreign);
-      await writeFile(join(foreign, 'keep'), 'foreign');
+      await rm(foreign, { recursive: true });
+      await writeFile(foreign, 'foreign');
       const result = await runCli(f, ['remove', 'alpha', 'demo', '--yes']);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain('Путь агента занят чужим объектом');
       expect(result.stdout).toMatch(/│ alpha\s+│ локальная\s+│ Частично\s+│/);
       expect(result.stdout).toMatch(/│ demo\s+│ локальная\s+│ Удалён\s+│/);
       expect(result.stdout).toContain('Удалено: 1 · Нет совпадений: 0 · Ошибок: 1');
-      expect(await readFile(join(foreign, 'keep'), 'utf8')).toBe('foreign');
+      expect(await readFile(foreign, 'utf8')).toBe('foreign');
       expect(await installer.list()).toMatchObject([{ name: 'alpha', agents: ['claude-code'] }]);
     });
   });

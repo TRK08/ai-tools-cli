@@ -119,10 +119,23 @@ export interface SourceSelection {
   readonly artifact: RegistryArtifact | null;
 }
 
-/** Проверенное состояние общей копии и допустимых подключений до применения. */
+/** Проверенный физический каталог; один contentHash записи служит эталоном всех копий. */
+export interface InstalledCopy {
+  readonly path: string;
+  readonly owned: boolean;
+  readonly exists: boolean;
+  readonly contentHash: string | null;
+}
+
+/** Проверенное состояние всех копий и назначений до подтверждения и применения. */
 export interface InstalledSnapshot {
   readonly previous: InstallationRecord | undefined;
   readonly contentHash: string | null;
+  readonly copies: readonly InstalledCopy[];
+  readonly destinations: readonly {
+    readonly connection: ManagedConnection;
+    readonly exists: boolean;
+  }[];
   readonly candidates: readonly ManagedConnection[];
   readonly errors: readonly string[];
   readonly connectionsNeedRepair: boolean;
@@ -148,6 +161,5 @@ export interface InstallPlan {
   readonly snapshot: InstalledSnapshot;
   readonly identity: SourceIdentity;
   readonly policy: InstallationRecord['policy'];
-  readonly reviewedUnchanged: boolean;
   readonly force: boolean;
 }

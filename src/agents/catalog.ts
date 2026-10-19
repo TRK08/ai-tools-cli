@@ -10,7 +10,7 @@ export const AGENTS = [
     label: 'Claude Code',
     helpOrder: 0,
     project: {
-      kind: 'link',
+      kind: 'copy',
       directory: (context: RuntimeContext) =>
         nativePath.join(context.roots.cwd, '.claude', 'skills'),
     },

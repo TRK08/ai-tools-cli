@@ -194,14 +194,14 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         });
         expect(backend.requests).toHaveLength(1);
         const link = join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo');
-        await rm(link);
+        await rm(link, { recursive: true });
         backend.requests.length = 0;
         expect((await installer.update()).results[0]).toMatchObject({
           status: 'success',
-          changes: { content: false, connections: true, metadata: false },
+          changes: { content: scope === 'project', connections: true, metadata: false },
         });
         expect(backend.requests).toHaveLength(1);
-        expect((await lstat(link)).isSymbolicLink()).toBe(true);
+        expect((await lstat(link)).isSymbolicLink()).toBe(scope === 'global');
       },
       { http: backend.http },
     );
@@ -332,22 +332,22 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
     );
   });
 
-  it('keeps foreign links with partial success; force cannot bypass them or a foreign shared copy', async () => {
+  it('rejects foreign registered links; force cannot bypass them or a foreign shared copy', async () => {
     const backend = versionRegistry();
     await withTestEnvironment(
       async (f) => {
         const installer = new Installer(f, { scope, registry: backend.url });
         await installer.add('demo', false, ['codex', 'claude-code']);
         const link = join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo');
-        await rm(link);
+        await rm(link, { recursive: true });
         await symlink(f.roots.cwd, link);
         backend.current.demo = '2.0.0';
         expect((await installer.update('demo', true, ['codex'])).results[0]).toMatchObject({
-          status: 'partial',
+          status: 'failed',
           errors: [expect.stringContaining('Путь агента занят чужим объектом')],
         });
         expect((await installer.list())[0]).toMatchObject({
-          version: '2.0.0',
+          version: '1.0.0',
           agents: ['claude-code', 'codex'],
         });
         const paths = getStatePaths(f.roots, scope);
@@ -438,13 +438,15 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
         const before = await readFile(paths.lockPath);
         const copy = join(paths.skillsDirectory, 'demo');
         const hash = await hashDirectory(copy);
-        await rm(join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo'));
+        await rm(join(agentSkillsDirectory(f, scope, 'claude-code'), 'demo'), { recursive: true });
         backend.current.demo = '2.0.0';
         const failed = new Installer(f, {
           scope,
           fileSystem: {
             ...installerFileSystem,
-            symlink: vi.fn().mockRejectedValue(new Error('link failure')),
+            [scope === 'project' ? 'cp' : 'symlink']: vi
+              .fn()
+              .mockRejectedValue(new Error('connection failure')),
           },
         });
         expect((await failed.update()).status).toBe('failed');

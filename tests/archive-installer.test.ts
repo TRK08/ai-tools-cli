@@ -45,7 +45,8 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
           const destination = join(agentSkillsDirectory(f, scope, agent), 'demo');
           expect(await readFile(join(destination, 'resource'))).toEqual(Buffer.from([0, 255, 128]));
           expect((await lstat(join(destination, 'run.sh'))).mode & 0o777).toBe(0o755);
-          if (destination === copy) expect((await lstat(destination)).isSymbolicLink()).toBe(false);
+          if (destination === copy || scope === 'project')
+            expect((await lstat(destination)).isSymbolicLink()).toBe(false);
           else expect(resolve(dirname(destination), await readlink(destination))).toBe(copy);
         }
         const lock = await readFile(paths.lockPath);
@@ -87,7 +88,11 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
             .filter((agent) => join(agentSkillsDirectory(f, scope, agent), 'demo') !== copy)
             .map(async (agent) => {
               const path = join(agentSkillsDirectory(f, scope, agent), 'demo');
-              return { path, target: await readlink(path), inode: (await lstat(path)).ino };
+              return {
+                path,
+                target: scope === 'global' ? await readlink(path) : await hashDirectory(path),
+                inode: (await lstat(path)).ino,
+              };
             }),
         );
         const bytes =
@@ -113,7 +118,9 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
           inode: (await lstat(copy)).ino,
         }).toEqual(before);
         for (const link of links) {
-          expect(await readlink(link.path)).toBe(link.target);
+          expect(
+            scope === 'global' ? await readlink(link.path) : await hashDirectory(link.path),
+          ).toBe(link.target);
           expect((await lstat(link.path)).ino).toBe(link.inode);
         }
         expect(
@@ -198,7 +205,9 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
         scope,
         fileSystem: {
           ...installerFileSystem,
-          symlink: vi.fn().mockRejectedValue(new Error('link failed')),
+          [scope === 'project' ? 'cp' : 'symlink']: vi
+            .fn()
+            .mockRejectedValue(new Error('connection failed')),
         },
       });
       expect((await failed.add(source, false, ['claude-code'])).status).toBe('failed');

@@ -39,7 +39,7 @@ describe.each(['project', 'global'] as const)('%s shared agents', (scope) => {
         ).rejects.toMatchObject({ code: 'ENOENT' });
       await installer.add(source, false, ['claude-code']);
       const claude = join(agentSkillsDirectory(context, scope, 'claude-code'), 'demo');
-      expect((await lstat(claude)).isSymbolicLink()).toBe(true);
+      expect((await lstat(claude)).isSymbolicLink()).toBe(scope === 'global');
       await installer.remove('demo', sharedAgents);
       expect(await readFile(join(claude, 'SKILL.md'), 'utf8')).toBe(content);
       await installer.remove('demo', ['claude-code']);

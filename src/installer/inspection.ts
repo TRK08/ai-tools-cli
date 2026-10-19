@@ -13,7 +13,7 @@ import type { InstallationRecord, ManagedConnection } from '../state/types.ts';
 import { isPathWithin, nativePath, relativePathParts, samePath } from '../state/native-path.ts';
 import { agentSkillsDirectory } from './agents.ts';
 import { directoryChain, inspectPath, type InstallerFileSystem } from './filesystem.ts';
-import type { AgentId, InstalledSnapshot } from './types.ts';
+import type { AgentId, InstalledCopy, InstalledSnapshot } from './types.ts';
 
 /** Проверки файловых объектов и управляемых путей с подменяемым I/O. */
 export class InstallationInspection {
@@ -74,15 +74,14 @@ export class InstallationInspection {
     return true;
   }
 
-  /** Проверяет хеш с политикой области; force не поглощает отмену и её ошибки закрытия ресурсов. */
-  async checkCopy(
+  /** Сверяет физическую копию с общим эталоном; force разрешает только замену её содержимого. */
+  private async hashCopy(
+    path: string,
     name: string,
-    record: InstallationRecord | undefined,
+    record: InstallationRecord,
     force: boolean,
     signal?: AbortSignal,
   ): Promise<string | null> {
-    if (!(await this.inspectCopy(name, record))) return null;
-    const path = getSkillDirectory(this.paths, name);
     let contentHash: string;
     try {
       contentHash = await hashDirectory(path, {
@@ -99,7 +98,7 @@ export class InstallationInspection {
         },
       );
     }
-    if (!force && contentHash !== record!.contentHash) {
+    if (!force && contentHash !== record.contentHash) {
       throw new Error(
         `Установленный скилл ${name} изменён локально; используйте --force для замены его содержимого.`,
       );
@@ -141,6 +140,9 @@ export class InstallationInspection {
     if (samePath(path, shared)) {
       if (!owned || !stats.isDirectory() || stats.isSymbolicLink())
         throw new Error(`Общий каталог занят чужим объектом: ${path}.`);
+    } else if (connection.kind === 'copy') {
+      if (!owned || !stats.isDirectory() || stats.isSymbolicLink())
+        throw new Error(`Путь агента занят чужим объектом: ${path}.`);
     } else if (
       !owned ||
       !stats.isSymbolicLink() ||
@@ -151,74 +153,114 @@ export class InstallationInspection {
     return true;
   }
 
-  /** Определяет необходимость восстановления управляемых подключений. */
-  async connectionsNeedRepair(record: InstallationRecord): Promise<boolean> {
-    for (const connection of record.connections) {
-      try {
-        if (!(await this.inspectConnection(connection, record.name, true))) return true;
-      } catch {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /** Проверяет только ранее зарегистрированные назначения для быстрого повторного add/update. */
-  async reusableSnapshot(
+  /** Проверяет каталог copy-агента, родителей и общий эталон; отмена не подавляется force. */
+  async connectionCopy(
+    connection: ManagedConnection,
     record: InstallationRecord,
-    requested: readonly AgentId[],
-    contentHash: string | null,
-  ): Promise<InstalledSnapshot> {
-    let intact = true;
-    const candidates: ManagedConnection[] = [];
-    for (const agent of requested) {
-      const connection = record.connections.find((item) => item.agent === agent);
-      try {
-        if (!connection || !(await this.inspectConnection(connection, record.name, true)))
-          intact = false;
-      } catch {
-        intact = false;
-      }
-      if (connection) candidates.push(connection);
-    }
+    force: boolean,
+    signal?: AbortSignal,
+  ): Promise<InstalledCopy> {
+    const exists = await this.inspectConnection(connection, record.name, true);
+    const path = resolveConnectionPath(connection.path, this.paths);
     return {
-      previous: record,
-      contentHash,
-      candidates,
-      errors: [],
-      connectionsNeedRepair: !intact,
+      path,
+      owned: true,
+      exists,
+      contentHash: exists ? await this.hashCopy(path, record.name, record, force, signal) : null,
     };
   }
 
-  /** Собирает допустимые подключения и ошибки до изменения копии; не создаёт назначений. */
+  /** Проверяет все физические копии независимо от фильтра агентов. */
+  private async copies(
+    name: string,
+    previous: InstallationRecord | undefined,
+    force: boolean,
+    signal?: AbortSignal,
+  ): Promise<InstalledCopy[]> {
+    await this.checkParents();
+    const path = getSkillDirectory(this.paths, name);
+    const exists = await this.inspectCopy(name, previous);
+    const copies: InstalledCopy[] = [
+      {
+        path,
+        owned: !!previous,
+        exists,
+        contentHash: exists ? await this.hashCopy(path, name, previous!, force, signal) : null,
+      },
+    ];
+    for (const connection of previous?.connections ?? []) {
+      signal?.throwIfAborted();
+      if (connection.kind === 'copy')
+        copies.push(await this.connectionCopy(connection, previous!, force, signal));
+    }
+    return copies;
+  }
+
+  /** Собирает все прежние назначения и допустимые новые; ошибка прежнего объекта фатальна. */
   async snapshot(
     name: string,
     previous: InstallationRecord | undefined,
     force: boolean,
     requested: readonly AgentId[],
+    signal?: AbortSignal,
   ): Promise<InstalledSnapshot> {
-    await this.checkParents();
-    const contentHash = await this.checkCopy(name, previous, force);
-    const destination = getSkillDirectory(this.paths, name);
+    const copies = await this.copies(name, previous, force, signal);
     const candidates: ManagedConnection[] = [];
     const errors: string[] = [];
-    let connectionsNeedRepair = false;
-    for (const agent of requested) {
+    const destinations: InstalledSnapshot['destinations'][number][] = [];
+    for (const agent of new Set([
+      ...(previous?.connections.map((item) => item.agent) ?? []),
+      ...requested,
+    ])) {
+      signal?.throwIfAborted();
+      const owned = !!previous?.connections.some((item) => item.agent === agent);
       try {
         const connection = this.connection(name, agent, previous);
         const exists = await this.inspectConnection(
           connection,
           name,
-          !!previous?.connections.some((item) => item.agent === agent) ||
-            (samePath(resolveConnectionPath(connection.path, this.paths), destination) &&
-              !!previous),
+          owned || (connection.kind === 'direct' && !!previous),
         );
-        if (!exists) connectionsNeedRepair = true;
-        candidates.push(connection);
+        destinations.push({ connection, exists });
+        if (requested.includes(agent)) candidates.push(connection);
       } catch (cause) {
+        if (owned || isCancellation(cause, signal) || signal?.aborted) throw cause;
         errors.push(`${agent}: ${errorMessage(cause)}`);
       }
     }
-    return { previous, contentHash, candidates, errors, connectionsNeedRepair };
+    return {
+      previous,
+      contentHash: copies[0]!.contentHash,
+      copies,
+      destinations,
+      candidates,
+      errors,
+      connectionsNeedRepair: destinations.some((item) => !item.exists),
+    };
+  }
+
+  /** Повторяет проверки перед мутациями; гонка после preview отменяет весь план, включая force/reuse. */
+  async assertUnchanged(
+    name: string,
+    snapshot: InstalledSnapshot,
+    force: boolean,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const current = await this.snapshot(
+      name,
+      snapshot.previous,
+      force,
+      snapshot.candidates.map((item) => item.agent),
+      signal,
+    );
+    if (
+      current.errors.length ||
+      JSON.stringify(current.copies) !== JSON.stringify(snapshot.copies) ||
+      JSON.stringify(current.destinations) !== JSON.stringify(snapshot.destinations)
+    ) {
+      throw new Error(
+        `Установленный скилл ${name} изменился во время подготовки или подтверждения (содержимое или подключения); повторите операцию.`,
+      );
+    }
   }
 }

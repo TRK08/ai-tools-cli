@@ -68,8 +68,8 @@ names, недопустимые символы, завершающие точк�
 принимает Buffer и отклоняет невалидный UTF-8 без переименования.
 
 Правила путей проверяются отдельно через path.win32 на любой ОС; это не заменяет
-нативную проверку Windows. Проектная копия Claude и операции junction реализованы;
-переносимый npm runner и итоговая Windows-приёмка остаются отдельными этапами.
+нативную проверку Windows. Проектная копия Claude, junction и переносимый npm runner
+реализованы; статус нативной приёмки — в [матрице проверок](windows-validation.md).
 
 ### Атомарная работа с состоянием
 
@@ -126,3 +126,51 @@ project — true, global — false. Прямой native POSIX-вызов тре�
 Переносите через Git lock, общий каталог и обычную проектную копию Claude вместе;
 служебные work/lock/tmp
 исключайте, сохраняя ресурсы внутри скиллов.
+
+## Перенос проекта через Git
+
+Закоммитьте обе обычные проектные копии и `skills-installer-lock.json` вместе.
+В lock нет абсолютных проектных путей; глобальные установки и lock между машинами
+не переносятся. После clone/checkout агенты читают копии сразу: CLI не создаёт
+Git-коммиты, не меняет Git config и не требует post-clone команды.
+
+До первого `git add` добавьте корневую `.gitattributes`:
+
+```gitattributes
+.agents/skills/** -text -filter -ident -working-tree-encoding
+.claude/skills/** -text -filter -ident -working-tree-encoding
+skills-installer-lock.json text eol=lf -filter -ident -working-tree-encoding
+```
+
+Если локальный source тоже хранится в Git, примените такие же byte-preserving
+правила к его каталогу, например `skills/** -text -filter -ident -working-tree-encoding`.
+Иначе source после checkout может отличаться от установленных копий.
+Attributes действуют при добавлении/checkout и не восстанавливают уже потерянные
+CRLF или бинарные bytes. Вложенная `.gitattributes`, `.git/info/attributes` и
+пользовательские filters/ident/encoding могут переопределить корневые правила.
+Проверяйте эффективные attributes ресурсов через `git check-attr`; вложенные правила
+не должны включать преобразования. CLI не переписывает эти файлы внутри скилла.
+
+Пример последних правил `.gitignore` после общих `node_modules/`, `dist/`, `*.tgz`:
+
+```gitignore
+**/.agents/.skills-installer-work-*/
+**/.skills-installer-operation.lock
+**/.skills-installer-lock-*.tmp
+!**/skills-installer-lock.json
+!**/.agents/skills/**
+!**/.claude/skills/**
+```
+
+Нужен `**` у обоих деревьев: одного `*` недостаточно для глубоких ресурсов.
+Исключения располагаются после общих правил и служебных имён: одноимённые файлы
+внутри скилла остаются обычными ресурсами. Проверьте `git check-ignore --no-index`
+и `git ls-files` после добавления; не применяйте общий `git add -f` к служебному workspace.
+
+Проверка [Git roundtrip](../scripts/git-roundtrip.ts) использует настоящий собранный
+CLI, commit/bundle/clone и `core.autocrlf=true/false`, `core.symlinks=false`.
+Она сверяет bytes/hash, no-op без переписывания, защиту обеих копий и force,
+работу list/remove без внешнего source и сохранность Vercel `skills-lock.json`.
+Executable и исчезновение пустой папки при Git checkout не считаются ручной правкой;
+изменённые bytes любой копии защищаются. Переход из старых установок не мигрируется:
+принимается одна текущая схема 1 с `kind` и текущим hash marker.

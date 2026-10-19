@@ -1,12 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
-import { symlink } from './helpers/links.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { withTestEnvironment } from './helpers/test-environment.ts';
 
-it('keeps shared lock, all skill resources and agent links in Git while ignoring only state work files', async () => {
+it('tracks both project copies including deeply ignored resources while excluding state work files', async () => {
   await withTestEnvironment(async (fixture) => {
     const gitConfig = join(fixture.temporaryRoot, 'gitconfig');
     await writeFile(gitConfig, '', { flag: 'wx' });
@@ -35,6 +34,13 @@ it('keeps shared lock, all skill resources and agent links in Git while ignoring
       '.agents/skills/demo/.skills-installer-operation.lock',
       'nested/skills-installer-lock.json',
       'nested/.agents/skills/demo/resources.tgz',
+      '.claude/skills/demo/SKILL.md',
+      '.claude/skills/demo/nested/node_modules/resource/deep.tgz',
+      '.claude/skills/demo/nested/dist/.DS_Store',
+      '.claude/skills/demo/nested/.agents/.skills-installer-work-resource/file',
+      '.claude/skills/demo/.skills-installer-lock-resource.tmp',
+      '.claude/skills/demo/.skills-installer-operation.lock',
+      'nested/.claude/skills/demo/nested/node_modules/resource/deep.tgz',
     ];
     const ignored = [
       '.agents/.skills-installer-work-example/previous/SKILL.md',
@@ -49,20 +55,31 @@ it('keeps shared lock, all skill resources and agent links in Git while ignoring
       await mkdir(dirname(absolute), { recursive: true });
       await writeFile(absolute, 'fixture');
     }
-    const links = ['.claude', '.pi'].map((directory) => `${directory}/skills/demo.tgz`);
-    for (const path of links) {
-      const absolute = join(fixture.roots.cwd, path);
-      await mkdir(dirname(absolute), { recursive: true });
-      await symlink('../../.agents/skills/demo', absolute);
-    }
     const result = spawnSync('git', ['check-ignore', '--no-index', '--stdin'], {
       cwd: fixture.roots.cwd,
       env,
-      input: [...kept, ...links, ...ignored].join('\n') + '\n',
+      input: [...kept, ...ignored].join('\n') + '\n',
       encoding: 'utf8',
     });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
     expect(result.stdout.trim().split('\n').sort()).toEqual([...ignored].sort());
+    const added = spawnSync('git', ['add', '--all'], {
+      cwd: fixture.roots.cwd,
+      env,
+      encoding: 'utf8',
+    });
+    expect(added.error, added.stderr).toBeUndefined();
+    expect(added.status, added.stderr).toBe(0);
+    const tracked = spawnSync('git', ['ls-files', '-z'], {
+      cwd: fixture.roots.cwd,
+      env,
+      encoding: 'utf8',
+    });
+    expect(tracked.error, tracked.stderr).toBeUndefined();
+    expect(tracked.status, tracked.stderr).toBe(0);
+    expect(tracked.stdout.split('\0').filter(Boolean).sort()).toEqual(
+      ['.gitignore', ...kept].sort(),
+    );
   });
 });

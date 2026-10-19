@@ -113,3 +113,12 @@ StateTransaction удерживает блокировку, но сам не о�
 
 Тестовый helper изолирует cwd/home/env; HTTP запрещён, пока явно не передан транспорт.
 Файловые ошибки, HTTP, подтверждения и терминальные потоки подменяются независимо.
+
+Отдельный [Git roundtrip](../scripts/git-roundtrip.ts) работает через собранный dist CLI
+во временных репозиториях. Producer создаёт обычные project-копии и Git bundles;
+consumer делает настоящий clone с разными core.autocrlf и проверяет bytes/hash
+и CLI lifecycle. CI передаёт bundles через artifacts от каждой ОС каждой ОС на
+обеих Node; никакого Git-сервера, post-clone repair или настоящего home здесь нет.
+Изоляция env переиспользует helper package-smoke. Сценарий содержит только
+тестовые Git-коммиты, автор/config/hooks изолированы. Статус межплатформенных
+и ручных проверок хранится в [матрице приёмки](windows-validation.md).

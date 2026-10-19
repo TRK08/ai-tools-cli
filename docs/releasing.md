@@ -29,6 +29,28 @@ Windows jobs запускают полный набор ниже; пока ад�
 их ошибки показывают оставшиеся несовместимости. Добавление runner не означает
 успешного Windows-прогона или завершения нативной приёмки.
 
+Дополнительно настроены три Git producer jobs на Node 24 и шесть consumer jobs
+на Linux/macOS/Windows × Node 22.20/24. После успеха основной матрицы producer
+строит CLI, через него создаёт обе project-копии и текущий lock, затем сохраняет
+самодостаточные Git bundles для отдельных NFC/NFD fixtures. Consumer скачивает
+artifacts всех трёх producers и делает настоящий clone/checkout каждого bundle
+с core.autocrlf=false/true и core.symlinks=false. Проверяются все 9 направлений
+на обеих consumer-версиях Node (72 checkout-сценария с учётом Unicode/attributes).
+Отсутствие bundle любого producer или Unicode-варианта завершает consumer ошибкой.
+Все Git config/hooks/автор и домашние каталоги изолированы.
+
+Для локальной проверки доступной пары после `npm run build`:
+
+```sh
+npm run test:git
+# В CI: produce записывает bundles, consume требует полный набор всех трёх ОС.
+npm run test:git -- produce artifacts/git-producer
+npm run test:git -- consume artifacts/git-input
+```
+
+Git jobs не заменяют нативную приёмку обычным Windows-пользователем и обнаружение
+реальными агентами. Факты и оставшиеся проверки — в [матрице](windows-validation.md).
+
 На каждой комбинации выполняются:
 
 ```sh
@@ -94,6 +116,8 @@ Npm prefix/cache и пустые user/global npmrc тоже временные; 
 
 Из комбинации Linux / Node 24 загружается артефакт `npm-package` со сроком хранения
 семь дней. Публикация скачивает его из своего запуска после успеха всей матрицы.
+Reusable CI завершается после всех основных и Git jobs, поэтому publish ждёт обе
+группы; Git bundles имеют отдельные имена и не подменяют проверенный npm tgz.
 Повторной сборки между проверкой и публикацией нет. Actions закреплены commit SHA;
 права обычных проверок — `contents: read`, npm-кеш не используется.
 

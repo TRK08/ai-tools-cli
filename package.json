@@ -34,6 +34,7 @@
     "format:check": "prettier --check .",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:git": "node --import tsx scripts/check-git-roundtrip.ts",
     "changeset": "changeset",
     "package:check": "publint --strict",
     "package:smoke": "node scripts/check-package.mjs"

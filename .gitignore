@@ -14,7 +14,7 @@ docs/tasks/
 # Project state and skill contents are shared, including resources matching rules above.
 !**/skills-installer-lock.json
 !**/.agents/skills/**
-!**/.claude/skills/*
+!**/.claude/skills/**
 !**/.agents/skills/*
 !**/.opencode/skills/*
 !**/.pi/skills/*

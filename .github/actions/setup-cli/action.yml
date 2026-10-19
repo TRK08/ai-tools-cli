@@ -1,0 +1,34 @@
+name: Set up CLI checks
+description: Install the selected Node, pinned npm and locked dependencies
+inputs:
+  node-version:
+    description: Node version used by this Git fixture job
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+    - name: Install npm and dependencies (Linux/macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        npm_spec=$(node -p "require('./package.json').packageManager")
+        npm install --global "$npm_spec"
+        node --version
+        npm --version
+        npm ci
+    - name: Install npm and dependencies (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $npmSpec = node -p "require('./package.json').packageManager"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        npm install --global $npmSpec
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        node --version
+        npm --version
+        npm ci
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

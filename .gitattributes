@@ -2,6 +2,6 @@
 * text=auto eol=lf
 
 # Ресурсы установленных скиллов сохраняют исходные байты, включая CRLF и бинарные данные.
-.agents/skills/** -text
-.claude/skills/** -text
-skills-installer-lock.json text eol=lf
+.agents/skills/** -text -filter -ident -working-tree-encoding
+.claude/skills/** -text -filter -ident -working-tree-encoding
+skills-installer-lock.json text eol=lf -filter -ident -working-tree-encoding

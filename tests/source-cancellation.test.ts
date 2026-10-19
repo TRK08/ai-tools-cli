@@ -149,11 +149,14 @@ describe('cooperative preparation cancellation', () => {
               );
             }
             if (stage === 'write' && args[1] === 'wx') {
-              const write = handle.writeFile.bind(handle);
-              vi.spyOn(handle, 'writeFile').mockImplementation(async (...writeArgs) => {
-                await write(...writeArgs);
-                controller.abort(reason);
-              });
+              const write = handle.write.bind(handle);
+              vi.spyOn(handle, 'write').mockImplementation(
+                async (...writeArgs: Parameters<typeof write>) => {
+                  const result = await write(...writeArgs);
+                  controller.abort(reason);
+                  return result;
+                },
+              );
             }
             return handle;
           },
@@ -218,6 +221,7 @@ describe('cooperative preparation cancellation', () => {
 
   it('preserves cancellation and cleanup errors instead of reporting a clean cancellation', async () =>
     withTestEnvironment(async (f) => {
+      let reads = 0;
       const path = await source(f),
         controller = new AbortController(),
         reason = new Error('cancel');
@@ -231,7 +235,7 @@ describe('cooperative preparation cancellation', () => {
             ...directorySourceFileSystem,
             readdir: async (path) => {
               const names = await directorySourceFileSystem.readdir(path);
-              controller.abort(reason);
+              if (++reads === 2) controller.abort(reason);
               return names;
             },
             rm: async () => {

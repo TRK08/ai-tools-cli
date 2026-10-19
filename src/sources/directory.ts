@@ -1,17 +1,30 @@
-import { constants, type BigIntStats } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import type { BigIntStats } from 'node:fs';
+import { openRegularFile, preserveFileMode } from '../regular-file.ts';
+import {
+  assertResourceNames,
+  childBufferPath as childPath,
+  hasBufferPathPrefix,
+  isBufferPathWithin as within,
+  nativePath,
+} from '../state/native-path.ts';
 import { hasErrorCode } from '../state/errors.ts';
 import { hashDirectory } from '../state/hash.ts';
 import { validatePathText } from '../state/paths.ts';
 import { INSTALLER_LOCK_NAME, LOCK_TEMP_PREFIX, WORKSPACE_PREFIX } from '../state/paths.ts';
 import { SourceError } from './errors.ts';
-import { directorySourceFileSystem, type DirectorySourceFileSystem } from './filesystem.ts';
+import {
+  directorySourceFileSystem,
+  OWNED_WORKSPACE_CLEANUP,
+  type DirectorySourceFileSystem,
+} from './filesystem.ts';
 import { readSkillMetadata } from './frontmatter.ts';
 import type { PreparedSource } from './types.ts';
 import { isCancellation } from '../cancellation.ts';
 
 export interface PrepareDirectoryOptions {
   readonly cwd: string;
+  /** Проверка всех ресурсов на переносимость; false сохраняет native POSIX-имена. Windows всегда строгий. */
+  readonly portableNames?: boolean | undefined;
   /** Существующая временная база вызывающего кода; не определяется через process.env. */
   readonly temporaryDirectory: string;
   /** Дополнительные файлы и корни каталогов CLI, например глобальное состояние. */
@@ -22,19 +35,10 @@ export interface PrepareDirectoryOptions {
   readonly signal?: AbortSignal | undefined;
 }
 
-const separator = Buffer.from('/');
-
-function childPath(parent: Buffer, name: Buffer): Buffer {
-  return Buffer.concat([parent, separator, name]);
-}
-
-function within(root: Buffer, path: Buffer): boolean {
-  const prefix = root[root.length - 1] === 47 ? root : Buffer.concat([root, separator]);
-  return path.equals(root) || path.subarray(0, prefix.length).equals(prefix);
-}
+const { basename, dirname, isAbsolute, join, resolve } = nativePath;
 
 /**
- * Копирует файл блоками, проверяя inode и размер, затем сохраняет его права. Между I/O проверяет отмену;
+ * Копирует файл блоками, проверяя identity и размер, затем сохраняет POSIX-права. Между I/O проверяет отмену;
  * оба дескриптора закрываются до завершения операции.
  */
 async function copyFile(
@@ -45,17 +49,13 @@ async function copyFile(
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted();
-  const input = await fs.open(
-    source,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-  );
+  const { handle: input, stats: opened } = await openRegularFile(source, {
+    fileSystem: fs,
+    expected,
+    signal,
+  });
   try {
     signal?.throwIfAborted();
-    const opened = await input.stat({ bigint: true });
-    signal?.throwIfAborted();
-    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino) {
-      throw new Error(`Объект источника изменился во время копирования: ${source.toString()}`);
-    }
     const output = await fs.open(destination, 'wx', 0o600);
     try {
       signal?.throwIfAborted();
@@ -81,7 +81,7 @@ async function copyFile(
       }
       if (total !== opened.size)
         throw new Error('Размер исходного файла изменился во время копирования.');
-      await output.chmod(Number(opened.mode & 0o777n));
+      await preserveFileMode(output, Number(opened.mode & 0o777n));
       signal?.throwIfAborted();
     } finally {
       await output.close();
@@ -93,7 +93,8 @@ async function copyFile(
 
 /**
  * Создаёт снимок локального скилла с разыменованными ссылками и исходными байтами/правами файлов.
- * Исключает состояние CLI и временные ресурсы, отклоняет циклы и специальные объекты.
+ * Исключает состояние CLI и временные ресурсы, проверяет имена до копирования детей,
+ * отклоняет циклы и специальные объекты. PortableNames по умолчанию включён.
  *
  * @returns PreparedSource внутри temporaryDirectory; самостоятельный потребитель обязан вызвать cleanup.
  * @remarks При ошибке/отмене очищает собственный workspace; сбой очистки сохраняется вместе с исходной
@@ -126,12 +127,12 @@ export async function prepareDirectory(
     validatePathText(options.cwd);
     validatePathText(options.temporaryDirectory);
     const excluded: Buffer[] = [];
-    for (const path of [
+    for (const path of new Set([
       join(options.cwd, '.agents', 'skills'),
       join(options.cwd, INSTALLER_LOCK_NAME),
       join(options.cwd, '.skills-installer-operation.lock'),
       ...(options.excludedPaths ?? []),
-    ]) {
+    ])) {
       signal?.throwIfAborted();
       validatePathText(path);
       const lexical = Buffer.from(resolve(path));
@@ -144,19 +145,17 @@ export async function prepareDirectory(
       }
     }
     const prefixes: Buffer[] = [];
-    for (const prefix of [
+    for (const prefix of new Set([
       join(options.cwd, '.agents', WORKSPACE_PREFIX),
       join(options.cwd, LOCK_TEMP_PREFIX),
       ...(options.excludedPrefixes ?? []),
-    ]) {
+    ])) {
       signal?.throwIfAborted();
       validatePathText(prefix);
       prefixes.push(Buffer.from(prefix));
       try {
         prefixes.push(
-          Buffer.from(
-            join((await fs.realpath(Buffer.from(dirname(prefix)))).toString(), basename(prefix)),
-          ),
+          childPath(await fs.realpath(Buffer.from(dirname(prefix))), Buffer.from(basename(prefix))),
         );
       } catch (cause) {
         if (!['ENOENT', 'ENOTDIR', 'ELOOP'].some((code) => hasErrorCode(cause, code))) throw cause;
@@ -165,7 +164,7 @@ export async function prepareDirectory(
     /** Исключает служебные корни целиком и зарезервированные префиксы временных путей CLI. */
     const isExcluded = (path: Buffer) =>
       excluded.some((root) => within(root, path)) ||
-      prefixes.some((prefix) => path.subarray(0, prefix.length).equals(prefix));
+      prefixes.some((prefix) => hasBufferPathPrefix(path, prefix));
     const sourceRoot = await fs.realpath(Buffer.from(identityPath));
     signal?.throwIfAborted();
     const rootStats = await fs.lstat(sourceRoot);
@@ -179,8 +178,13 @@ export async function prepareDirectory(
         'Состояние CLI нельзя использовать как локальный источник.',
       );
     }
-    // Проверяем наличие SKILL.md до временных файлов; ссылки проверяет обход дерева.
-    await fs.lstat(childPath(sourceRoot, Buffer.from('SKILL.md')));
+    // Проверяем точное имя до временных файлов, независимо от чувствительности ФС к регистру.
+    const rootNames = await fs.readdir(sourceRoot);
+    signal?.throwIfAborted();
+    assertResourceNames(rootNames, options.portableNames);
+    if (!rootNames.some((name) => name.equals(Buffer.from('SKILL.md')))) {
+      throw new SourceError('INVALID_SOURCE', 'В корне требуется точное имя SKILL.md.');
+    }
     signal?.throwIfAborted();
     const temporaryRoot = await fs.realpath(Buffer.from(resolve(options.temporaryDirectory)));
     signal?.throwIfAborted();
@@ -190,7 +194,7 @@ export async function prepareDirectory(
         'Локальный источник не может находиться внутри временного каталога CLI.',
       );
     }
-    workspace = await fs.mkdtemp(join(temporaryRoot.toString(), 'skills-installer-source-'));
+    workspace = await fs.mkdtemp(join(options.temporaryDirectory, 'skills-installer-source-'));
     signal?.throwIfAborted();
     const directory = join(workspace, 'skill');
     const destinationRoot = Buffer.from(directory);
@@ -225,22 +229,20 @@ export async function prepareDirectory(
             `Цикл ссылок на каталоги по пути ${path.toString()}.`,
           );
         }
-        await fs.mkdir(destination, { mode: 0o755 });
-        signal?.throwIfAborted();
         const nextAncestors = new Set(ancestors).add(key);
         const names = await fs.readdir(canonical);
         signal?.throwIfAborted();
+        assertResourceNames(names, options.portableNames);
+        if (
+          destination.equals(destinationRoot) &&
+          !names.some((name) => name.equals(Buffer.from('SKILL.md')))
+        ) {
+          throw new SourceError('INVALID_SOURCE', 'В корне требуется точное имя SKILL.md.');
+        }
+        await fs.mkdir(destination, { mode: 0o755 });
+        signal?.throwIfAborted();
         names.sort(Buffer.compare);
         for (const name of names) {
-          if (
-            name.length === 0 ||
-            name.equals(Buffer.from('.')) ||
-            name.equals(Buffer.from('..')) ||
-            name.includes(0) ||
-            name.includes(separator)
-          ) {
-            throw new SourceError('INVALID_SOURCE', 'Некорректное имя объекта в каталоге.');
-          }
           await visit(childPath(canonical, name), childPath(destination, name), nextAncestors);
         }
       } else if (stats.isFile()) {
@@ -268,7 +270,7 @@ export async function prepareDirectory(
       identity: { kind: 'directory' as const, path: identityPath },
       version: null,
       contentHash,
-      cleanup: () => fs.rm(ownedWorkspace, { recursive: true, force: true }),
+      cleanup: () => fs.rm(ownedWorkspace, OWNED_WORKSPACE_CLEANUP),
     });
   } catch (cause) {
     let error: unknown = isCancellation(cause, signal)
@@ -286,7 +288,7 @@ export async function prepareDirectory(
           );
     if (workspace !== undefined) {
       try {
-        await fs.rm(workspace, { recursive: true, force: true });
+        await fs.rm(workspace, OWNED_WORKSPACE_CLEANUP);
       } catch (cleanupError) {
         error = new SourceError(
           'PREPARATION_FAILED',

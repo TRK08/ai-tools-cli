@@ -2,8 +2,24 @@ import type { BigIntStats } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm } from 'node:fs/promises';
 
 /** Подменяемый I/O архива; тесты используют настоящий разбор tar/gzip. */
-export const archiveSourceFileSystem = { lstat, mkdir, mkdtemp, open, readFile, realpath, rm };
+export const archiveSourceFileSystem = {
+  lstat: (path: string | Buffer) => lstat(path, { bigint: true }),
+  mkdir,
+  mkdtemp: (prefix: string) => mkdtemp(prefix),
+  open,
+  readFile,
+  realpath,
+  rm,
+};
 export type ArchiveSourceFileSystem = typeof archiveSourceFileSystem;
+
+/** Ограниченные повторы разрешены только при удалении собственного workspace адаптера. */
+export const OWNED_WORKSPACE_CLEANUP = Object.freeze({
+  recursive: true,
+  force: true,
+  maxRetries: 3,
+  retryDelay: 100,
+});
 
 /** Узкий файловый I/O для воспроизводимых ошибок чтения/копирования с байтовыми именами. */
 export interface DirectorySourceFileSystem {
@@ -11,7 +27,7 @@ export interface DirectorySourceFileSystem {
   readonly realpath: (path: Buffer) => Promise<Buffer>;
   readonly readdir: (path: Buffer) => Promise<Buffer[]>;
   readonly mkdir: typeof mkdir;
-  readonly mkdtemp: typeof mkdtemp;
+  readonly mkdtemp: (prefix: string) => Promise<string>;
   readonly open: typeof open;
   readonly readFile: (
     path: string,

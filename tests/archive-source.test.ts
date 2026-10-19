@@ -309,8 +309,8 @@ describe('local gzip/tar preparation', () => {
             ...archiveSourceFileSystem,
             open: async (...args) => {
               const handle = await archiveSourceFileSystem.open(...args);
-              const stats = await handle.stat();
-              stats.size = 1;
+              const stats = await handle.stat({ bigint: true });
+              stats.size = 1n;
               vi.spyOn(handle, 'stat').mockResolvedValue(stats);
               return handle;
             },
@@ -430,7 +430,7 @@ describe('local gzip/tar preparation', () => {
                 if (args[1] === 'wx') {
                   if (failure === 'file-write') {
                     await handle.writeFile('partial');
-                    vi.spyOn(handle, 'writeFile').mockImplementation(async () => {
+                    vi.spyOn(handle, 'write').mockImplementation(async () => {
                       calls++;
                       throw new Error('write failed');
                     });

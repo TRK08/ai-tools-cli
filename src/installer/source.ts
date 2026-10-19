@@ -1,4 +1,6 @@
-import { join } from 'node:path';
+import { nativePath } from '../state/native-path.ts';
+import { AGENTS } from '../agents/catalog.ts';
+import { agentSkillsDirectory } from './agents.ts';
 import {
   localSourceIdentity,
   prepareLocalSource,
@@ -16,6 +18,8 @@ import {
   getSkillDirectory,
   getStatePaths,
   portableSourcePath,
+  resolveConnectionPath,
+  INSTALLER_LOCK_NAME,
   LOCK_TEMP_PREFIX,
   WORKSPACE_PREFIX,
   type StatePaths,
@@ -82,20 +86,39 @@ export async function resolveSelectedSource(
   };
 }
 
-/** Ограничивает временные ресурсы workspace операции и исключает собственное состояние CLI. */
+/** Задаёт политику имён области и исключает состояние/назначения обоих scopes, включая сохранённые. */
 export function preparationOptions(
   context: RuntimeContext,
   paths: StatePaths,
   workspace: string,
   signal?: AbortSignal,
+  records: readonly InstallationRecord[] = [],
 ): Omit<PrepareDirectoryOptions, 'fileSystem'> {
+  const { join } = nativePath;
   const global = getStatePaths(context.roots, 'global');
   return {
     signal,
+    portableNames: paths.scope === 'project',
     cwd: paths.cwd,
     temporaryDirectory: workspace,
-    excludedPaths: [global.skillsDirectory, global.lockPath, global.operationLockPath],
+    excludedPaths: [
+      ...AGENTS.flatMap((agent) => [
+        agentSkillsDirectory(context, 'project', agent.id),
+        agentSkillsDirectory(context, 'global', agent.id),
+      ]),
+      join(context.roots.home, '.claude', 'skills'),
+      join(context.roots.cwd, INSTALLER_LOCK_NAME),
+      join(context.roots.cwd, '.skills-installer-operation.lock'),
+      global.skillsDirectory,
+      global.lockPath,
+      global.operationLockPath,
+      ...records.flatMap((record) =>
+        record.connections.map((connection) => resolveConnectionPath(connection.path, paths)),
+      ),
+    ],
     excludedPrefixes: [
+      join(context.roots.cwd, '.agents', WORKSPACE_PREFIX),
+      join(context.roots.cwd, LOCK_TEMP_PREFIX),
       join(global.agentsDirectory, WORKSPACE_PREFIX),
       join(global.root, LOCK_TEMP_PREFIX),
     ],

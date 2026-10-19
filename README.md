@@ -154,8 +154,9 @@ npm run package:smoke
 нужен доступ к localhost. `npm run test` — watch, `npm run format` — форматирование.
 `npm run package:smoke` после build проверяет состав архива, установку без devDependencies
 и реальный bin во временных проекте/home/npm-prefix. Проверенный архив остаётся в `artifacts/npm/`.
-`npm run changeset` создаёт заметку об изменениях. CI выполняет проверки на Linux/macOS
-с Node 22.20 и 24; публикация запускается вручную через отдельный GitHub Actions workflow.
+`npm run changeset` создаёт заметку об изменениях. Матрица CI включает Linux/macOS/Windows
+с Node 22.20 и 24; Windows jobs добавлены для проверки ещё не завершённой адаптации.
+Публикация запускается вручную через отдельный GitHub Actions workflow.
 
 - [Архитектура и расширение](docs/architecture.md).
 - [CI и публикация пакета в npm](docs/releasing.md).

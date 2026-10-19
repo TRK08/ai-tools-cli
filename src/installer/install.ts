@@ -254,6 +254,7 @@ export class InstallOperation {
                 this.paths,
                 files.workspace,
                 !updating && !artifact ? this.options.signal : undefined,
+                Object.values(lock.skills),
               ),
               this.options.prepare,
               (download) => events.download(download),

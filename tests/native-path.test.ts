@@ -7,6 +7,10 @@ import { selectSource } from '../src/installer/source.ts';
 import { assertPortableName, assertPortableNames, portableNameKey } from '../src/state/names.ts';
 import {
   createPathOperations,
+  assertResourceNames,
+  childBufferPath,
+  hasBufferPathPrefix,
+  isBufferPathWithin,
   isPathWithin,
   pathIdentityKey,
   relativePathParts,
@@ -65,6 +69,69 @@ function windowsLock(): LockFile {
 }
 
 describe('native and portable paths', () => {
+  it('walks byte paths with Windows case, namespaces and component boundaries', () => {
+    expect(childBufferPath(Buffer.from('C:\\Work'), Buffer.from('Ресурс'))).toEqual(
+      Buffer.from('C:\\Work\\Ресурс'),
+    );
+    expect(isBufferPathWithin(Buffer.from('C:\\Work'), Buffer.from('\\\\?\\c:\\WORK\\child'))).toBe(
+      true,
+    );
+    expect(isBufferPathWithin(Buffer.from('C:\\Work'), Buffer.from('D:\\Work\\child'))).toBe(false);
+    expect(isBufferPathWithin(Buffer.from('C:\\Work'), Buffer.from('C:\\Work-other\\child'))).toBe(
+      false,
+    );
+    expect(isBufferPathWithin(Buffer.from('C:\\Work'), Buffer.from('C:\\Work\\..\\outside'))).toBe(
+      false,
+    );
+    expect(
+      hasBufferPathPrefix(
+        Buffer.from('\\\\?\\c:\\WORK\\.skills-installer-work-123\\file'),
+        Buffer.from('C:\\Work\\.skills-installer-work-'),
+      ),
+    ).toBe(true);
+    expect(
+      hasBufferPathPrefix(
+        Buffer.from('C:\\Work-other\\.skills-installer-work-123'),
+        Buffer.from('C:\\Work\\.skills-installer-work-'),
+      ),
+    ).toBe(false);
+  });
+
+  it('preserves non-UTF-8 POSIX bytes when joining and comparing realpath results', () => {
+    const api = createPathOperations(posix),
+      rawRoot = Buffer.from([47, 255, 254]);
+    const child = api.childBufferPath(rawRoot, Buffer.from([253]));
+    expect(child).toEqual(Buffer.from([47, 255, 254, 47, 253]));
+    expect(api.isBufferPathWithin(rawRoot, child)).toBe(true);
+    expect(api.isBufferPathWithin(rawRoot, Buffer.from([47, 255, 254, 253]))).toBe(false);
+    expect(
+      api.isBufferPathWithin(rawRoot, Buffer.concat([rawRoot, Buffer.from('/../outside')])),
+    ).toBe(false);
+    expect(api.isBufferPathWithin(Buffer.from('/'), child)).toBe(true);
+    expect(() => api.assertResourceNames([Buffer.from([253])], false)).not.toThrow();
+    expect(() => api.assertResourceNames([Buffer.from([253])])).toThrow();
+  });
+
+  it.each(['CON', 'nul.txt', 'COM1', 'file:stream', 'tail.', 'tail '])(
+    'cannot disable Windows name restrictions for global resources: %j',
+    (name) => {
+      expect(() => assertResourceNames([Buffer.from(name)], false)).toThrow();
+    },
+  );
+
+  it('cannot disable Windows collisions or invalid UTF-8 and uses the native UTF-16 limit', () => {
+    for (const names of [['A', 'a'], ['café', 'cafe\u0301'], [Buffer.from([255])]]) {
+      expect(() =>
+        assertResourceNames(
+          names.map((name) => Buffer.from(name)),
+          false,
+        ),
+      ).toThrow();
+    }
+    expect(() => assertResourceNames([Buffer.from('工具'.repeat(80))], false)).not.toThrow();
+    expect(() => assertResourceNames([Buffer.from('工具'.repeat(80))], true)).toThrow();
+  });
+
   it('uses native Windows roots and keeps project lock paths portable', () => {
     expect(project.skillsDirectory).toBe(roots.cwd + '\\.agents\\skills');
     const json = serializeLockFile(windowsLock(), project);

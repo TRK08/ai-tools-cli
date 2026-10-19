@@ -8,10 +8,11 @@ import { prepareDirectory, type PrepareDirectoryOptions } from './directory.ts';
 /**
  * Определяет registry-ссылку с приоритетом существующего локального пути, включая symlink.
  *
- * @returns null для локального/явного пути, архивного суффикса либо строки, не являющейся slug.
+ * @returns null для локального/явного пути, архивного суффикса (без учёта регистра) либо строки,
+ * не являющейся slug.
  */
 export async function registryReferenceForSource(source: string, cwd: string) {
-  if (/\.(?:tar\.gz|tgz)$/.test(source)) return null;
+  if (/\.(?:tar\.gz|tgz)$/i.test(source)) return null;
   try {
     await lstat(resolve(cwd, source));
     return null;
@@ -22,12 +23,12 @@ export async function registryReferenceForSource(source: string, cwd: string) {
 }
 
 /**
- * Возвращает тип локального источника и его абсолютный лексический путь. Папка с суффиксом .tgz остаётся
- * папкой; identity не заменяется разыменованным путём.
+ * Возвращает тип локального источника и его абсолютный лексический путь. Суффиксы архивов определяются
+ * без учёта регистра; папка с таким суффиксом остаётся папкой. Identity не заменяется realpath.
  */
 export async function localSourceIdentity(source: string, cwd: string) {
   const path = resolve(cwd, source);
-  let archive = /\.(?:tar\.gz|tgz)$/.test(source);
+  let archive = /\.(?:tar\.gz|tgz)$/i.test(source);
   if (archive) {
     try {
       archive = !(await stat(path)).isDirectory();
@@ -42,7 +43,7 @@ export async function localSourceIdentity(source: string, cwd: string) {
 }
 
 /**
- * Выбирает адаптер папки или архива и передаёт ему временную базу и сигнал отмены. Владение возвращённым
+ * Выбирает адаптер папки или архива и передаёт временную базу, portableNames и сигнал отмены. Владение
  * снимком определяется контрактом PreparedSource.
  */
 export async function prepareLocalSource(source: string, options: PrepareDirectoryOptions) {
@@ -52,6 +53,7 @@ export async function prepareLocalSource(source: string, options: PrepareDirecto
         cwd: options.cwd,
         temporaryDirectory: options.temporaryDirectory,
         signal: options.signal,
+        portableNames: options.portableNames,
       })
     : prepareDirectory(source, options);
 }

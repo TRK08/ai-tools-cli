@@ -1,6 +1,6 @@
 import path, { type PlatformPath } from 'node:path';
 import { StateError } from './errors.ts';
-import { assertWindowsName } from './names.ts';
+import { assertPortableNames, assertWindowsName } from './names.ts';
 
 /**
  * Создаёт операции путей с одной зависимостью node:path; в тестах подменяется только она.
@@ -73,6 +73,92 @@ export function createPathOperations(nativePath: PlatformPath = path) {
       .filter(Boolean);
   }
 
+  /** Проверяет имена до обхода; native POSIX сохраняет произвольные байты, Windows всегда строгий. */
+  function assertResourceNames(names: readonly Buffer[], portableNames = true): void {
+    if (portableNames) {
+      assertPortableNames(names);
+      return;
+    }
+    if (windows) {
+      const seen = new Set<string>();
+      for (const name of names) {
+        const decoded = name.toString('utf8');
+        if (!Buffer.from(decoded).equals(name))
+          throw new StateError('INVALID_PATH', 'Windows-имя должно содержать корректный UTF-8.');
+        assertWindowsName(decoded);
+        const key = decoded.normalize('NFC').toLowerCase();
+        if (seen.has(key)) throw new StateError('INVALID_PATH', 'Коллизия Windows-имён.');
+        seen.add(key);
+      }
+      return;
+    }
+    for (const name of names) {
+      if (
+        !name.length ||
+        name.includes(0) ||
+        name.includes(47) ||
+        name.equals(Buffer.from('.')) ||
+        name.equals(Buffer.from('..'))
+      ) {
+        throw new StateError('INVALID_PATH', 'Некорректное байтовое имя объекта.');
+      }
+    }
+  }
+
+  /** Добавляет один проверенный компонент, сохраняя POSIX-байты и нативный разделитель. */
+  function childBufferPath(parent: Buffer, name: Buffer): Buffer {
+    assertResourceNames([name], false);
+    const trailing = parent[parent.length - 1];
+    const separator =
+      trailing === 47 || (windows && trailing === 92)
+        ? Buffer.alloc(0)
+        : Buffer.from(nativePath.sep);
+    return Buffer.concat([parent, separator, name]);
+  }
+
+  /** Нормализует путь только для сравнения: POSIX-компоненты без декодирования, Windows с namespace. */
+  function comparisonBuffer(value: Buffer): Buffer {
+    if (windows) {
+      const decoded = value.toString('utf8');
+      if (!Buffer.from(decoded).equals(value))
+        throw new StateError('INVALID_PATH', 'Windows-путь должен содержать корректный UTF-8.');
+      return Buffer.from(pathIdentityKey(decoded));
+    }
+    if (value[0] !== 47 || value.includes(0))
+      throw new StateError('INVALID_PATH', 'Требуется абсолютный байтовый путь.');
+    const parts: Buffer[] = [];
+    let start = 1;
+    for (let end = 1; end <= value.length; end++) {
+      if (end !== value.length && value[end] !== 47) continue;
+      const part = value.subarray(start, end);
+      start = end + 1;
+      if (!part.length || part.equals(Buffer.from('.'))) continue;
+      if (part.equals(Buffer.from('..'))) parts.pop();
+      else parts.push(part);
+    }
+    return Buffer.concat([
+      Buffer.from('/'),
+      ...parts.flatMap((part, index) => (index ? [Buffer.from('/'), part] : [part])),
+    ]);
+  }
+
+  /** Проверяет вложенность байтовых путей по границам компонентов, без потерь UTF-8 на POSIX. */
+  function isBufferPathWithin(root: Buffer, candidate: Buffer): boolean {
+    const base = comparisonBuffer(root);
+    const target = comparisonBuffer(candidate);
+    const prefix =
+      base[base.length - 1] === nativePath.sep.charCodeAt(0)
+        ? base
+        : Buffer.concat([base, Buffer.from(nativePath.sep)]);
+    return target.equals(base) || target.subarray(0, prefix.length).equals(prefix);
+  }
+
+  /** Сопоставляет зарезервированный префикс имени в том же каталоге, включая Windows-регистр. */
+  function hasBufferPathPrefix(candidate: Buffer, prefix: Buffer): boolean {
+    const base = comparisonBuffer(prefix);
+    return comparisonBuffer(candidate).subarray(0, base.length).equals(base);
+  }
+
   return {
     nativePath,
     validateNativePath,
@@ -80,6 +166,10 @@ export function createPathOperations(nativePath: PlatformPath = path) {
     samePath,
     isPathWithin,
     relativePathParts,
+    assertResourceNames,
+    childBufferPath,
+    isBufferPathWithin,
+    hasBufferPathPrefix,
   };
 }
 
@@ -91,4 +181,8 @@ export const {
   samePath,
   isPathWithin,
   relativePathParts,
+  assertResourceNames,
+  childBufferPath,
+  isBufferPathWithin,
+  hasBufferPathPrefix,
 } = createPathOperations();

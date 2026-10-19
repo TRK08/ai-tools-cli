@@ -173,7 +173,10 @@ describe('local directory source', () => {
         await makeSkill(source);
         const suffix = Buffer.from([47, 0xff, 0xfe]);
         await writeFile(Buffer.concat([Buffer.from(source), suffix]), 'raw filename');
-        const prepared = await prepareDirectory(source, options(fixture));
+        const prepared = await prepareDirectory(source, {
+          ...options(fixture),
+          portableNames: false,
+        });
         try {
           expect(
             await readFile(Buffer.concat([Buffer.from(prepared.directory), suffix]), 'utf8'),

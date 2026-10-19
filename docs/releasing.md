@@ -6,12 +6,28 @@ Workflow не повышает версию, не создаёт коммиты,
 
 ## Проверки CI
 
-[ci.yml](../.github/workflows/ci.yml) запускается для pull request и push в `main`.
+[ci.yml](../.github/workflows/ci.yml) запускается для pull request и push в `main`
+или `codex/windows-support`; доступен также ручной `workflow_dispatch`.
 Он также вызывается workflow публикации и проверяет именно коммит выбранного запуска.
-Матрица: `ubuntu-latest` / `macos-latest` × Node `22.20.0` / `24`.
+Матрица: `ubuntu-latest` / `macos-latest` / `windows-latest` × Node `22.20.0` / `24`
+— шесть комбинаций, Windows runner — x64.
 Node 22 проверяется на минимальной поддерживаемой версии, Node 24 — на актуальном
 патче ветки. npm устанавливается из `packageManager` в `package.json`.
 При обновлении `packageManager` синхронизируйте закреплённую версию npm в `publish.yml`.
+На Windows используется PowerShell (`pwsh`), на Linux/macOS — стандартная Bash.
+Проверка версии из `RELEASE_VERSION` выполняется общим
+[Node-скриптом](../scripts/check-release-version.mjs), без shell heredoc.
+[.gitattributes](../.gitattributes) закрепляет LF для текстовых файлов репозитория,
+включая Windows checkout с `core.autocrlf=true`. Для `.agents/skills/**` и
+`.claude/skills/**` преобразование отключено: ресурсы скиллов сохраняют исходные байты.
+
+Для проверки Windows-доработок отправьте проверенный коммит в
+`codex/windows-support`: push запустит всю матрицу. После появления workflow
+в default branch его также можно запустить через **Actions → CI → Run workflow**,
+выбрав нужную ветку. Commit/push выполняются отдельным поручением.
+Windows jobs запускают полный набор ниже; пока адаптация CLI и тестов не завершена,
+их ошибки показывают оставшиеся несовместимости. Добавление runner не означает
+успешного Windows-прогона или завершения нативной приёмки.
 
 На каждой комбинации выполняются:
 
@@ -58,7 +74,8 @@ Home и npm-конфигурация временные, статистика о
    в `publish.yml` и настройки Trusted Publisher.
 3. В GitHub создайте environment **`npm`** и разрешите deployment только из `main`.
    Required reviewers можно добавить, если функция доступна в вашем тарифе.
-   В правилах защиты `main` включите обязательные проверки четырёх комбинаций CI.
+   В правилах защиты `main` включите обязательные проверки шести комбинаций CI
+   после подтверждения их успешных прогонов.
 4. В настройках npm-пакета выберите **Trusted Publisher → GitHub Actions**:
 
    | Поле                 | Значение       |

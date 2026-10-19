@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { devNull } from 'node:os';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { symlink } from './helpers/links.ts';
 import { dirname, join } from 'node:path';
@@ -9,14 +8,16 @@ import { withTestEnvironment } from './helpers/test-environment.ts';
 
 it('keeps shared lock, all skill resources and agent links in Git while ignoring only state work files', async () => {
   await withTestEnvironment(async (fixture) => {
-    const env = { ...fixture.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull };
+    const gitConfig = join(fixture.temporaryRoot, 'gitconfig');
+    await writeFile(gitConfig, '', { flag: 'wx' });
+    const env = { ...fixture.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: gitConfig };
     const initialized = spawnSync('git', ['init', '--quiet'], {
       cwd: fixture.roots.cwd,
       env,
       encoding: 'utf8',
     });
-    expect(initialized.error).toBeUndefined();
-    expect(initialized.status).toBe(0);
+    expect(initialized.error, `git init stderr:\n${initialized.stderr}`).toBeUndefined();
+    expect(initialized.status, `git init stderr:\n${initialized.stderr}`).toBe(0);
     await copyFile(
       fileURLToPath(new URL('../.gitignore', import.meta.url)),
       join(fixture.roots.cwd, '.gitignore'),

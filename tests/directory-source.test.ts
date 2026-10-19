@@ -401,7 +401,7 @@ describe('local directory source', () => {
         excludedPaths: [join(source, 'nested', '.agents')],
       });
       try {
-        expect(await readdir(prepared.directory)).toEqual([
+        expect((await readdir(prepared.directory)).sort()).toEqual([
           '.agents',
           'SKILL.md',
           'nested',

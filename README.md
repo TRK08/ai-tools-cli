@@ -167,6 +167,8 @@ npm run package:smoke
 и кириллицей. Дочерним процессам передаётся системный allowlist; npmrc/cache,
 Windows-профили, XDG и каталоги агентов изолированы. `NODE_OPTIONS` и пользовательская
 npm-конфигурация не наследуются. Проверенный архив остаётся в `artifacts/npm/`.
+Подготовка архива задаёт executable-биты `dist/cli.mjs` в tar без изменения исходника;
+проверки npm metadata и tar header не зависят от поддержки Unix-прав на ОС сборки.
 `npm run changeset` создаёт заметку об изменениях. Матрица CI включает Linux/macOS/Windows
 с Node 22.20 и 24; Windows jobs добавлены для проверки ещё не завершённой адаптации.
 Публикация запускается вручную через отдельный GitHub Actions workflow.

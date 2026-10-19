@@ -15,9 +15,11 @@ import { fileURLToPath } from 'node:url';
 import { list as listTar } from 'tar';
 import { withIsolatedRuntime } from './isolated-runtime.mjs';
 import { packageRunner } from './package-runner.mjs';
+import { preparePackageArchive } from './package-archive.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'));
+const binPath = manifest.bin['skills-installer'].replace(/^\.\//, '');
 const artifactDirectory = join(repositoryRoot, 'artifacts/npm');
 await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   const temporaryHome = roots.home;
@@ -38,7 +40,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
     return execFileSync(process.execPath, args, { cwd: roots.cwd, env, encoding: 'utf8' });
   }
 
-  /** Проверяет список файлов npm-архива: runtime, shebang, executable и отсутствие локальных данных. */
+  /** Проверяет allowlist, shebang и executable-mode объявленного npm bin в подготовленном архиве. */
   function checkContents(pack) {
     assert.equal(pack.name, manifest.name);
     assert.equal(pack.version, manifest.version);
@@ -60,12 +62,10 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
       );
     }
     assert.ok(
-      readFileSync(join(repositoryRoot, 'dist/cli.mjs'), 'utf8').startsWith(
-        '#!/usr/bin/env node\n',
-      ),
+      readFileSync(join(repositoryRoot, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'),
     );
     assert.ok(
-      pack.files.find((file) => file.path === 'dist/cli.mjs').mode & 0o111,
+      pack.files.find((file) => file.path === binPath).mode & 0o111,
       'CLI must be executable',
     );
   }
@@ -136,13 +136,14 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   }
 
   mkdirSync(artifactDirectory, { recursive: true });
+  const prepared = await preparePackageArchive(runner, repositoryRoot, env.TMPDIR, binPath);
   const [preview] = JSON.parse(
-    npm(['pack', '--dry-run', '--json', '--ignore-scripts'], repositoryRoot),
+    npm(['pack', prepared, '--dry-run', '--json', '--ignore-scripts'], repositoryRoot),
   );
   checkContents(preview);
   const [pack] = JSON.parse(
     npm(
-      ['pack', '--json', '--ignore-scripts', '--pack-destination', artifactDirectory],
+      ['pack', prepared, '--json', '--ignore-scripts', '--pack-destination', artifactDirectory],
       repositoryRoot,
     ),
   );
@@ -152,7 +153,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   await listTar({
     file: archive,
     onReadEntry(entry) {
-      if (entry.path === 'package/dist/cli.mjs') {
+      if (entry.path === `package/${binPath}`) {
         archivedBin = true;
         assert.ok(entry.mode & 0o111, 'Archive bin must retain executable mode on every OS');
       }
@@ -172,9 +173,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   npm(['install', archive, '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'], project);
   npm(['ls', '--omit=dev'], project);
   const localPackage = join(project, 'node_modules', manifest.name);
-  assert.ok(
-    readFileSync(join(localPackage, 'dist/cli.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'),
-  );
+  assert.ok(readFileSync(join(localPackage, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'));
   checkInstalledCli(
     join(
       project,
@@ -209,9 +208,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
     process.platform === 'win32' ? 'node_modules' : 'lib/node_modules',
   );
   const globalPackage = join(globalModules, manifest.name);
-  assert.ok(
-    readFileSync(join(globalPackage, 'dist/cli.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'),
-  );
+  assert.ok(readFileSync(join(globalPackage, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'));
   for (const name of Object.keys(manifest.devDependencies)) {
     for (const directory of [
       join(project, 'node_modules'),

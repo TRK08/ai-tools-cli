@@ -1,15 +1,12 @@
-import { spawnSync } from 'node:child_process';
 import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 import packageJson from '../package.json' with { type: 'json' };
 
 import { withTestEnvironment } from './helpers/test-environment.js';
 
-const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
-const tsxImport = import.meta.resolve('tsx');
+import { runCliSync } from './helpers/cli.ts';
 
 async function snapshotTree(root: string): Promise<Record<string, string>> {
   const entries: Record<string, string> = {};
@@ -120,17 +117,7 @@ describe('CLI in a separate process', () => {
         await writeFile(join(fixture.roots.home, 'existing-home-file'), 'keep home');
         const before = await snapshotTree(fixture.temporaryRoot);
 
-        const result = spawnSync(
-          process.execPath,
-          ['--import', tsxImport, cliPath, ...scenario.args],
-          {
-            cwd: fixture.roots.cwd,
-            env: fixture.env,
-            encoding: 'utf8',
-            timeout: 10_000,
-            stdio: ['pipe', 'pipe', 'pipe'],
-          },
-        );
+        const result = runCliSync(fixture, scenario.args);
 
         expect(result.error).toBeUndefined();
         expect(result.signal).toBeNull();

@@ -47,12 +47,31 @@ npm run package:smoke
 Разрешены только `dist/`, `package.json`, README и лицензии; исходники, тесты,
 настройки агентов и журналы задач в архив не попадают.
 
-Архив устанавливается без devDependencies в чистый временный проект и отдельный
+Архив устанавливается с `--omit=dev` в чистый временный проект и отдельный
 глобальный npm-prefix. Проверяются настоящий bin, help/version и цикл локального
-и глобального add/list/update/remove с прямым подключением Codex и ссылкой Claude Code.
-Home и npm-конфигурация временные, статистика отключена, настоящие установки агентов
-не затрагиваются. Для установки runtime-зависимостей нужен доступ к npm registry.
-Проверка освобождает временные каталоги и сохраняет архив в `artifacts/npm/`.
+и глобального add/list/update/remove с Codex и Claude Code. В проекте Claude —
+обычная копия, глобально — POSIX symlink / Windows junction. Сверяются bytes и
+SHA-256 дерева обеих копий с источником, изменение contentHash при update и удаление.
+Executable проверяется также в заголовке настоящего tar на каждой ОС.
+
+Npm вызывается через `process.execPath` и `npm_execpath`, полученный от `npm run`;
+проверку запускайте именно `npm run package:smoke`. Установленный POSIX executable
+вызывается напрямую, Windows `.cmd` — через `cmd.exe /d /s /v:off` с экранированием
+аргументов и второго разбора npm shim. Проверяются локальный `node_modules/.bin`
+и глобальный bin (на Windows — прямо в prefix), пробелы, кириллица и shell-символы.
+В PowerShell при запрете `.ps1` используйте `skills-installer.cmd` и `npm.cmd`;
+изменение ExecutionPolicy и повышенные права не требуются.
+
+Общий [helper окружения](../scripts/isolated-runtime.mjs) используется тестами и smoke.
+Из настоящего env берутся только PATH, SystemRoot/windir, ComSpec и PATHEXT;
+имена нормализуются без учёта регистра. HOME/USERPROFILE/HOMEDRIVE/HOMEPATH,
+AppData/LocalAppData, TEMP/TMP/TMPDIR, XDG и каталоги агентов принадлежат fixture.
+Npm prefix/cache и пустые user/global npmrc тоже временные; изолированные значения
+побеждают overrides. Секреты, NODE_OPTIONS/NODE_PATH и остальная npm-конфигурация
+не наследуются. Homedir/tmpdir проверяются настоящим дочерним Node, статистика отключена.
+Для runtime-зависимостей нужен доступ к npm registry. Собственные корни удаляются
+с maxRetries: 3, retryDelay: 100; проверенный архив сохраняется в `artifacts/npm/`.
+Эти проверки на macOS не заменяют нативную приёмку Windows/NTFS и PowerShell/cmd.
 
 Из комбинации Linux / Node 24 загружается артефакт `npm-package` со сроком хранения
 семь дней. Публикация скачивает его из своего запуска после успеха всей матрицы.

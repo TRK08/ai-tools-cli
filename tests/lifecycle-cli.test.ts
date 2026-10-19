@@ -1,28 +1,17 @@
-import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
+import { samePath } from '../src/state/native-path.ts';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.js';
 
-const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+import { runCliSync } from './helpers/cli.ts';
+
 const skillText = '---\nname: demo\ndescription: Demo\n---\nOriginal\n';
 
+/** Использует общий runner; прежние сценарии add явно подтверждают установку. */
 function cli(context: TestEnvironment, args: string[]) {
-  if (args[0] === 'add') args = [...args, '--yes'];
-  const result = spawnSync(
-    process.execPath,
-    ['--import', import.meta.resolve('tsx'), cliPath, ...args],
-    {
-      cwd: context.roots.cwd,
-      env: { ...context.env, TSX_DISABLE_CACHE: '1' },
-      encoding: 'utf8',
-      timeout: 10000,
-    },
-  );
-  expect(result.error).toBeUndefined();
-  expect(result.signal).toBeNull();
-  return result;
+  return runCliSync(context, args[0] === 'add' ? [...args, '--yes'] : args);
 }
 
 async function source(context: TestEnvironment) {
@@ -178,7 +167,7 @@ describe('lifecycle CLI', () => {
       const conflict = cli(context, ['add', './demo', '-a', 'codex', '--force']);
       expect(conflict.status).toBe(1);
       expect(conflict.stderr).toContain('Общий каталог занят чужим объектом');
-      expect(await readlink(link)).toBe(path);
+      expect(samePath(await readlink(link), path)).toBe(true);
       await rm(link);
     });
   });

@@ -7,11 +7,11 @@ import {
   readlink,
   rename,
   rm,
-  symlink,
   truncate,
   writeFile,
   type FileHandle,
 } from 'node:fs/promises';
+import { fileSymlinks, symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { hashDirectory } from '../src/state/hash.ts';
@@ -195,31 +195,34 @@ describe('portable content hash', () => {
     },
   );
 
-  it('rejects a link to the same opened inode installed during open', async () => {
-    await withTestEnvironment(async (f) => {
-      const path = join(f.roots.cwd, 'file'),
-        saved = join(f.roots.home, 'saved');
-      await writeFile(path, 'bytes');
-      let handle: FileHandle | undefined;
-      const read = vi.fn();
-      await expect(
-        hashDirectory(f.roots.cwd, {
-          fileSystem: {
-            ...io,
-            open: async (...args) => {
-              handle = await open(...args);
-              vi.spyOn(handle, 'read').mockImplementation(read);
-              await rename(path, saved);
-              await symlink(saved, path);
-              return handle;
+  it.skipIf(!fileSymlinks)(
+    'rejects a link to the same opened inode installed during open',
+    async () => {
+      await withTestEnvironment(async (f) => {
+        const path = join(f.roots.cwd, 'file'),
+          saved = join(f.roots.home, 'saved');
+        await writeFile(path, 'bytes');
+        let handle: FileHandle | undefined;
+        const read = vi.fn();
+        await expect(
+          hashDirectory(f.roots.cwd, {
+            fileSystem: {
+              ...io,
+              open: async (...args) => {
+                handle = await open(...args);
+                vi.spyOn(handle, 'read').mockImplementation(read);
+                await rename(path, saved);
+                await symlink(saved, path);
+                return handle;
+              },
             },
-          },
-        }),
-      ).rejects.toThrow(/изменился/);
-      expect(handle?.fd).toBe(-1);
-      expect(read).not.toHaveBeenCalled();
-    });
-  });
+          }),
+        ).rejects.toThrow(/изменился/);
+        expect(handle?.fd).toBe(-1);
+        expect(read).not.toHaveBeenCalled();
+      });
+    },
+  );
 
   it('preserves abort and close failure together without returning a digest', async () => {
     await withTestEnvironment(async (f) => {

@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { devNull } from 'node:os';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
@@ -7,7 +9,7 @@ import { withTestEnvironment } from './helpers/test-environment.ts';
 
 it('keeps shared lock, all skill resources and agent links in Git while ignoring only state work files', async () => {
   await withTestEnvironment(async (fixture) => {
-    const env = { ...fixture.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
+    const env = { ...fixture.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull };
     const initialized = spawnSync('git', ['init', '--quiet'], {
       cwd: fixture.roots.cwd,
       env,

@@ -1,5 +1,5 @@
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
@@ -86,7 +86,7 @@ describe('scope, agents and installation card', () => {
         const open = directorySourceFileSystem.open;
         vi.spyOn(directorySourceFileSystem, 'open').mockImplementation(async (...args) => {
           const handle = await open(...args);
-          if (String(args[0]).endsWith('/large') && args[1] !== 'wx') {
+          if (basename(String(args[0])) === 'large' && args[1] !== 'wx') {
             start();
             await release;
           }

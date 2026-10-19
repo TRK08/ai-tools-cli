@@ -1,135 +1,167 @@
-import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { list as listTar } from 'tar';
+import { withIsolatedRuntime } from './isolated-runtime.mjs';
+import { packageRunner } from './package-runner.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'));
 const artifactDirectory = join(repositoryRoot, 'artifacts/npm');
-const temporaryRoot = mkdtempSync(join(realpathSync(tmpdir()), 'skills-installer-package-'));
-const temporaryHome = join(temporaryRoot, 'home');
-mkdirSync(temporaryHome);
-const userConfig = join(temporaryRoot, 'user.npmrc');
-const globalConfig = join(temporaryRoot, 'global.npmrc');
-writeFileSync(userConfig, '');
-writeFileSync(globalConfig, '');
-const isolatedEnvironment = {
-  PATH: process.env.PATH,
-  TMPDIR: tmpdir(),
-  HOME: temporaryHome,
-  XDG_CONFIG_HOME: join(temporaryHome, '.config'),
-  CLAUDE_CONFIG_DIR: join(temporaryHome, '.claude'),
-  npm_config_userconfig: userConfig,
-  npm_config_globalconfig: globalConfig,
-  npm_config_cache: join(temporaryRoot, 'npm-cache'),
-  DO_NOT_TRACK: '1',
-  DISABLE_TELEMETRY: '1',
-};
-
-/** Запускает команду без shell, с временным home и npm-конфигурацией; ненулевой код прерывает проверку. */
-function run(command, args, cwd) {
-  return execFileSync(command, args, {
-    cwd,
-    env: isolatedEnvironment,
-    encoding: 'utf8',
-    timeout: 120_000,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-}
-
-/** Проверяет список файлов npm-архива: runtime, shebang, executable и отсутствие локальных данных. */
-function checkContents(pack) {
-  assert.equal(pack.name, manifest.name);
-  assert.equal(pack.version, manifest.version);
-  const paths = pack.files.map((file) => file.path);
-  for (const required of [
-    'package.json',
-    'dist/cli.mjs',
-    'README.md',
-    'LICENSE',
-    'ThirdPartyNoticeText.txt',
-  ]) {
-    assert.ok(paths.includes(required), `Missing package file: ${required}`);
+await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
+  const temporaryHome = roots.home;
+  const runner = packageRunner(env, process.env.npm_execpath);
+  const run = runner.bin;
+  const npm = runner.npm;
+  // Проверяется реальный homedir/tmpdir дочернего Node, а не только объект env.
+  const detected = JSON.parse(
+    execNode([
+      '--input-type=module',
+      '--eval',
+      'import {homedir,tmpdir} from "node:os";console.log(JSON.stringify([homedir(),tmpdir()]))',
+    ]),
+  );
+  assert.deepEqual(detected, [temporaryHome, env.TMPDIR]);
+  /** Проверяет runtime дочернего Node без обращения к пользовательскому env. */
+  function execNode(args) {
+    return execFileSync(process.execPath, args, { cwd: roots.cwd, env, encoding: 'utf8' });
   }
-  for (const path of paths) {
+
+  /** Проверяет список файлов npm-архива: runtime, shebang, executable и отсутствие локальных данных. */
+  function checkContents(pack) {
+    assert.equal(pack.name, manifest.name);
+    assert.equal(pack.version, manifest.version);
+    const paths = pack.files.map((file) => file.path);
+    for (const required of [
+      'package.json',
+      'dist/cli.mjs',
+      'README.md',
+      'LICENSE',
+      'ThirdPartyNoticeText.txt',
+    ]) {
+      assert.ok(paths.includes(required), `Missing package file: ${required}`);
+    }
+    for (const path of paths) {
+      assert.ok(
+        path.startsWith('dist/') ||
+          ['package.json', 'README.md', 'LICENSE', 'ThirdPartyNoticeText.txt'].includes(path),
+        `Unexpected package file: ${path}`,
+      );
+    }
     assert.ok(
-      path.startsWith('dist/') ||
-        ['package.json', 'README.md', 'LICENSE', 'ThirdPartyNoticeText.txt'].includes(path),
-      `Unexpected package file: ${path}`,
+      readFileSync(join(repositoryRoot, 'dist/cli.mjs'), 'utf8').startsWith(
+        '#!/usr/bin/env node\n',
+      ),
+    );
+    assert.ok(
+      pack.files.find((file) => file.path === 'dist/cli.mjs').mode & 0o111,
+      'CLI must be executable',
     );
   }
-  assert.ok(
-    readFileSync(join(repositoryRoot, 'dist/cli.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'),
-  );
-  assert.ok(
-    pack.files.find((file) => file.path === 'dist/cli.mjs').mode & 0o111,
-    'CLI must be executable',
-  );
-}
 
-/** Проверяет установленный bin и локальный/глобальный жизненный цикл; все установки ограничены временными корнями. */
-function checkInstalledCli(bin, cwd, source, global) {
-  const scope = global ? ['--global'] : [];
-  const installedRoot = global ? temporaryHome : cwd;
-  const skillPath = join(installedRoot, '.agents/skills/package-smoke');
-  const connectionPath = join(installedRoot, '.claude/skills/package-smoke');
-  assert.equal(run(bin, ['--version'], cwd).trim(), manifest.version);
-  assert.match(run(bin, ['--help'], cwd), /add/);
-  run(bin, ['list', ...scope], cwd);
-  run(
-    bin,
-    ['add', source, ...scope, '-a', 'codex', '-a', 'claude-code', '--yes', '--without-stat'],
-    cwd,
-  );
-  assert.equal(
-    readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
-    readFileSync(join(source, 'SKILL.md'), 'utf8'),
-  );
-  assert.equal(lstatSync(connectionPath).isSymbolicLink(), global);
-  assert.equal(lstatSync(connectionPath).isDirectory(), !global);
-  if (global) assert.equal(realpathSync(connectionPath), realpathSync(skillPath));
-  else assert.notEqual(realpathSync(connectionPath), realpathSync(skillPath));
-  assert.equal(
-    readFileSync(join(connectionPath, 'SKILL.md'), 'utf8'),
-    readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
-  );
-  assert.match(run(bin, ['list', ...scope], cwd), /package-smoke/);
-  run(bin, ['update', 'package-smoke', ...scope, '--yes', '--without-stat'], cwd);
-  run(bin, ['remove', 'package-smoke', ...scope, '--yes'], cwd);
-  assert.ok(!existsSync(skillPath));
-  assert.ok(!existsSync(connectionPath));
-  assert.doesNotMatch(run(bin, ['list', ...scope], cwd), /package-smoke/);
-}
+  /** Сверяет bytes всех ресурсов через SHA-256, независимо от прав/времени файлов. */
+  function treeHash(root) {
+    const hash = createHash('sha256');
+    function visit(path, name) {
+      if (lstatSync(path).isDirectory()) {
+        for (const entry of readdirSync(path).sort()) visit(join(path, entry), name + '/' + entry);
+      } else {
+        const bytes = readFileSync(path);
+        hash.update(JSON.stringify([name, bytes.length]));
+        hash.update(bytes);
+      }
+    }
+    visit(realpathSync(root), '');
+    return hash.digest('hex');
+  }
 
-try {
+  /** Проверяет установленный bin и локальный/глобальный жизненный цикл; все установки ограничены временными корнями. */
+  function checkInstalledCli(bin, cwd, source, global) {
+    writeFileSync(join(source, 'ресурс.bin'), Buffer.from([0, 255, 128]));
+    const scope = global ? ['--global'] : [];
+    const installedRoot = global ? temporaryHome : cwd;
+    const skillPath = join(installedRoot, '.agents/skills/package-smoke');
+    const connectionPath = join(installedRoot, '.claude/skills/package-smoke');
+    assert.equal(run(bin, ['--version'], cwd).trim(), manifest.version);
+    assert.match(run(bin, ['--help'], cwd), /add/);
+    run(bin, ['list', ...scope], cwd);
+    run(
+      bin,
+      ['add', source, ...scope, '-a', 'codex', '-a', 'claude-code', '--yes', '--without-stat'],
+      cwd,
+    );
+    assert.equal(
+      readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
+      readFileSync(join(source, 'SKILL.md'), 'utf8'),
+    );
+    assert.equal(lstatSync(connectionPath).isSymbolicLink(), global);
+    assert.equal(lstatSync(connectionPath).isDirectory(), !global);
+    if (global) assert.equal(realpathSync(connectionPath), realpathSync(skillPath));
+    else assert.notEqual(realpathSync(connectionPath), realpathSync(skillPath));
+    assert.equal(
+      readFileSync(join(connectionPath, 'SKILL.md'), 'utf8'),
+      readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
+    );
+    assert.equal(treeHash(skillPath), treeHash(source));
+    assert.equal(treeHash(connectionPath), treeHash(source));
+    const lockPath = global
+      ? join(temporaryHome, '.agents/skills-installer-lock.json')
+      : join(cwd, 'skills-installer-lock.json');
+    const record = JSON.parse(readFileSync(lockPath, 'utf8')).skills['package-smoke'];
+    assert.match(record.contentHash, /^[a-f0-9]{64}$/);
+    assert.match(run(bin, ['list', ...scope], cwd), /package-smoke/);
+    writeFileSync(join(source, 'ресурс.bin'), Buffer.from([0, 255, 128, 1]));
+    run(bin, ['update', 'package-smoke', ...scope, '--yes', '--without-stat'], cwd);
+    assert.equal(treeHash(skillPath), treeHash(source));
+    assert.equal(treeHash(connectionPath), treeHash(source));
+    assert.notEqual(
+      JSON.parse(readFileSync(lockPath, 'utf8')).skills['package-smoke'].contentHash,
+      record.contentHash,
+    );
+    run(bin, ['remove', 'package-smoke', ...scope, '--yes'], cwd);
+    assert.ok(!existsSync(skillPath));
+    assert.ok(!existsSync(connectionPath));
+    assert.doesNotMatch(run(bin, ['list', ...scope], cwd), /package-smoke/);
+  }
+
   mkdirSync(artifactDirectory, { recursive: true });
   const [preview] = JSON.parse(
-    run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], repositoryRoot),
+    npm(['pack', '--dry-run', '--json', '--ignore-scripts'], repositoryRoot),
   );
   checkContents(preview);
   const [pack] = JSON.parse(
-    run(
-      'npm',
+    npm(
       ['pack', '--json', '--ignore-scripts', '--pack-destination', artifactDirectory],
       repositoryRoot,
     ),
   );
   checkContents(pack);
   const archive = join(artifactDirectory, pack.filename);
-  const project = join(temporaryRoot, 'project');
-  const prefix = join(temporaryRoot, 'prefix');
-  const source = join(temporaryRoot, 'source');
+  let archivedBin = false;
+  await listTar({
+    file: archive,
+    onReadEntry(entry) {
+      if (entry.path === 'package/dist/cli.mjs') {
+        archivedBin = true;
+        assert.ok(entry.mode & 0o111, 'Archive bin must retain executable mode on every OS');
+      }
+    },
+  });
+  assert.ok(archivedBin, 'Missing bin in actual tar headers');
+  const project = join(temporaryRoot, 'Проект & (проверка) %PATH% ! ^');
+  const prefix = join(temporaryRoot, 'Глобальный npm prefix & (проверка) %PATH% ! ^');
+  const source = join(temporaryRoot, 'Источник & (скилл) %PATH% ! ^');
   mkdirSync(project);
   mkdirSync(source);
   writeFileSync(join(project, 'package.json'), '{"private":true,"type":"module"}\n');
@@ -137,15 +169,22 @@ try {
     join(source, 'SKILL.md'),
     '---\nname: package-smoke\ndescription: Проверка npm-архива\n---\n\n# Smoke\n',
   );
-  run(
-    'npm',
-    ['install', archive, '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'],
-    project,
+  npm(['install', archive, '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'], project);
+  npm(['ls', '--omit=dev'], project);
+  const localPackage = join(project, 'node_modules', manifest.name);
+  assert.ok(
+    readFileSync(join(localPackage, 'dist/cli.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'),
   );
-  run('npm', ['ls', '--omit=dev'], project);
-  checkInstalledCli(join(project, 'node_modules/.bin/skills-installer'), project, source, false);
-  run(
-    'npm',
+  checkInstalledCli(
+    join(
+      project,
+      'node_modules/.bin/skills-installer' + (process.platform === 'win32' ? '.cmd' : ''),
+    ),
+    project,
+    source,
+    false,
+  );
+  npm(
     [
       'install',
       '--global',
@@ -159,14 +198,32 @@ try {
     ],
     project,
   );
-  checkInstalledCli(join(prefix, 'bin/skills-installer'), project, source, true);
-  assert.ok(
-    !existsSync(join(project, 'node_modules/vitest')),
-    'Dev dependencies must not be installed',
+  checkInstalledCli(
+    join(prefix, process.platform === 'win32' ? 'skills-installer.cmd' : 'bin/skills-installer'),
+    project,
+    source,
+    true,
   );
+  const globalModules = join(
+    prefix,
+    process.platform === 'win32' ? 'node_modules' : 'lib/node_modules',
+  );
+  const globalPackage = join(globalModules, manifest.name);
+  assert.ok(
+    readFileSync(join(globalPackage, 'dist/cli.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'),
+  );
+  for (const name of Object.keys(manifest.devDependencies)) {
+    for (const directory of [
+      join(project, 'node_modules'),
+      join(localPackage, 'node_modules'),
+      globalModules,
+      join(globalPackage, 'node_modules'),
+    ])
+      assert.ok(
+        !existsSync(join(directory, name)),
+        `Dev dependency must not be installed: ${name}`,
+      );
+  }
   console.log(`Package smoke passed: ${manifest.name}@${manifest.version}`);
   console.log(`Verified archive: ${archive}`);
-} finally {
-  // Временными home, проектом и npm-prefix владеет эта проверка; архив сохраняется для CI/публикации.
-  rmSync(temporaryRoot, { recursive: true, force: true });
-}
+});

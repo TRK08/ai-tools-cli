@@ -7,10 +7,10 @@ import {
   readFile,
   readdir,
   rm,
-  symlink,
   writeFile,
   type FileHandle,
 } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentConnectionKind } from '../src/agents/catalog.ts';
@@ -572,7 +572,7 @@ describe('strict lock reading', () => {
       expect(await readFile(sentinel, 'utf8')).toBe('keep');
       await rm(paths.root);
       await mkdir(paths.root, { recursive: true });
-      await symlink(sentinel, paths.lockPath);
+      await symlink(outside, paths.lockPath);
       await expect(store.read()).rejects.toMatchObject({ code: 'INVALID_LOCK' });
       await expect(store.write(createEmptyLock())).rejects.toMatchObject({ code: 'INVALID_LOCK' });
       expect(await readFile(sentinel, 'utf8')).toBe('keep');

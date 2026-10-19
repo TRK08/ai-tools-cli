@@ -1,8 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { chmod, lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
 import { Installer } from '../src/installer/installer.ts';
@@ -11,26 +9,11 @@ import { getStatePaths } from '../src/state/paths.ts';
 import { archiveBytes, skillText } from './helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.ts';
 
+import { runCliSync } from './helpers/cli.ts';
+
+/** Использует общий runner; прежние сценарии add явно подтверждают установку. */
 function cli(f: TestEnvironment, args: string[]) {
-  if (args[0] === 'add') args = [...args, '--yes'];
-  const result = spawnSync(
-    process.execPath,
-    [
-      '--import',
-      import.meta.resolve('tsx'),
-      fileURLToPath(new URL('../src/cli.ts', import.meta.url)),
-      ...args,
-    ],
-    {
-      cwd: f.roots.cwd,
-      env: { ...f.env, TSX_DISABLE_CACHE: '1' },
-      encoding: 'utf8',
-      timeout: 10000,
-    },
-  );
-  expect(result.error).toBeUndefined();
-  expect(result.signal).toBeNull();
-  return result;
+  return runCliSync(f, args[0] === 'add' ? [...args, '--yes'] : args);
 }
 
 describe('archive CLI', () => {
@@ -74,7 +57,7 @@ describe('archive CLI', () => {
             code: 'ENOENT',
           });
         }
-        expect((await lstat(path)).mode & 0o777).toBe(0o444);
+        if (process.platform !== 'win32') expect((await lstat(path)).mode & 0o777).toBe(0o444);
       });
     },
   );

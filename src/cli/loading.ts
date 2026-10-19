@@ -9,12 +9,19 @@ import { truncateTerminalText } from './table.ts';
  *
  * @param render - Встраивает кадр в существующий экран (find); null удаляет индикатор. Такой экран сам
  * управляет курсором и шириной. Без callback индикатор занимает одну строку с запасом в колонку.
+ * @param onError - Передаёт ошибку отложенной отрисовки владельцу после снятия таймеров;
+ * run без callback возвращает её после завершения операции, сохраняя исходную ошибку операции.
  */
-export function createLoading(streams: PromptStreams, render?: (line: string | null) => void) {
+export function createLoading(
+  streams: PromptStreams,
+  render?: (line: string | null) => void,
+  onError?: (cause: unknown) => void,
+) {
   const frames = ['◒', '◐', '◓', '◑'];
   let pending: ReturnType<typeof setTimeout> | undefined;
   let animation: ReturnType<typeof setInterval> | undefined;
   let visible = false;
+  let failure: unknown;
 
   /** Снимает оба таймера и очищает показанный кадр; повторный вызов не пишет в терминал. */
   const stop = () => {
@@ -37,34 +44,65 @@ export function createLoading(streams: PromptStreams, render?: (line: string | n
       visible = true;
       let frame = 0;
       const draw = () => {
-        const line = `${frames[frame++ % frames.length]} ${message}`;
-        if (render) render(line);
-        else
-          streams.output.write(
-            '\r\u001b[2K' +
-              styleText(
-                'cyan',
-                truncateTerminalText(
-                  `${S_BAR} ${line}`,
-                  Math.max(0, (streams.output.columns ?? 80) - 1),
+        try {
+          const line = `${frames[frame++ % frames.length]} ${message}`;
+          if (render) render(line);
+          else
+            streams.output.write(
+              '\r\u001b[2K' +
+                styleText(
+                  'cyan',
+                  truncateTerminalText(
+                    `${S_BAR} ${line}`,
+                    Math.max(0, (streams.output.columns ?? 80) - 1),
+                  ),
                 ),
-              ),
-          );
+            );
+        } catch (cause) {
+          failure ??= cause;
+          try {
+            stop();
+          } catch {
+            /* Первичная ошибка отрисовки сохраняется. */
+          }
+          onError?.(cause);
+        }
       };
-      if (!render) streams.output.write('\u001b[?25l');
       animation = setInterval(draw, 80);
+      try {
+        if (!render) streams.output.write('\u001b[?25l');
+      } catch (cause) {
+        failure ??= cause;
+        try {
+          stop();
+        } catch {
+          /* Первичная ошибка отрисовки сохраняется. */
+        }
+        onError?.(cause);
+        return;
+      }
       draw();
     }, 200);
   };
 
   /** Показывает этап ожидания и освобождает индикатор при успехе, ошибке или отмене операции. */
   const run = async <T>(message: string, operation: () => Promise<T>): Promise<T> => {
-    start(message);
+    let error: unknown;
+    let result!: T;
     try {
-      return await operation();
-    } finally {
-      stop();
+      start(message);
+      result = await operation();
+      if (failure !== undefined) throw failure;
+    } catch (cause) {
+      error = cause;
     }
+    try {
+      stop();
+    } catch (cause) {
+      error ??= cause;
+    }
+    if (error !== undefined) throw error;
+    return result;
   };
   return { start, stop, run };
 }

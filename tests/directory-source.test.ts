@@ -8,13 +8,14 @@ import {
   readdir,
   realpath,
   rm,
-  symlink,
   writeFile,
 } from 'node:fs/promises';
+import { fileSymlinks, symlink } from './helpers/links.ts';
 import { basename, dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { prepareDirectory, type PrepareDirectoryOptions } from '../src/sources/directory.ts';
 import { directorySourceFileSystem } from '../src/sources/filesystem.ts';
+import * as hashing from '../src/state/hash.ts';
 import { hashDirectory } from '../src/state/hash.ts';
 import { getStatePaths, portableSourcePath } from '../src/state/paths.ts';
 import { withTestEnvironment, type TestEnvironment } from './helpers/test-environment.js';
@@ -39,6 +40,47 @@ async function assertNoLinks(path: string): Promise<void> {
 }
 
 describe('local directory source', () => {
+  it('dereferences directory aliases and rejects modeled special entries without symlink privileges', async () => {
+    await withTestEnvironment(async (f) => {
+      const source = join(f.roots.cwd, 'source');
+      const target = join(f.roots.home, 'resources');
+      await makeSkill(source);
+      await mkdir(target);
+      await writeFile(join(target, 'resource'), 'bytes');
+      await symlink(target, join(source, 'alias'));
+      const prepared = await prepareDirectory(source, options(f));
+      try {
+        expect((await lstat(join(prepared.directory, 'alias'))).isSymbolicLink()).toBe(false);
+        expect(await readFile(join(prepared.directory, 'alias', 'resource'), 'utf8')).toBe('bytes');
+      } finally {
+        await prepared.cleanup();
+      }
+      const resource = join(source, 'special');
+      await writeFile(resource, 'must not open');
+      const openSpy = vi.fn(open);
+      await expect(
+        prepareDirectory(source, {
+          ...options(f),
+          fileSystem: {
+            ...directorySourceFileSystem,
+            open: openSpy,
+            lstat: async (path) => {
+              const stats = await directorySourceFileSystem.lstat(path);
+              return String(path) === resource
+                ? Object.assign(Object.create(stats), {
+                    isFile: () => false,
+                    isDirectory: () => false,
+                    isSymbolicLink: () => false,
+                  })
+                : stats;
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'UNSUPPORTED_ENTRY' });
+      expect(openSpy.mock.calls.some(([path]) => String(path) === resource)).toBe(false);
+      expect(await readdir(f.env.TMPDIR!)).toEqual([]);
+    });
+  });
   it('excludes new state files, installed copies and stale operation work without excluding cwd or resources', async () => {
     await withTestEnvironment(async (fixture) => {
       const source = fixture.roots.cwd;
@@ -57,7 +99,7 @@ describe('local directory source', () => {
         'retained snapshot',
       );
       await symlink('.agents/skills', join(source, 'installed-alias'));
-      await symlink('skills-installer-lock.json', join(source, 'lock-alias'));
+      if (fileSymlinks) await symlink('skills-installer-lock.json', join(source, 'lock-alias'));
       await mkdir(join(source, 'resources'), { recursive: true });
       await writeFile(join(source, 'resources', 'skills-installer-lock.json'), 'resource');
       await writeFile(
@@ -152,9 +194,10 @@ describe('local directory source', () => {
       try {
         expect(await readFile(join(prepared.directory, '.binary'))).toEqual(binary);
         expect(await readFile(join(prepared.directory, 'scripts', 'run.sh'), 'utf8')).toBe(script);
-        expect((await lstat(join(prepared.directory, 'scripts', 'run.sh'))).mode & 0o777).toBe(
-          0o751,
-        );
+        if (process.platform !== 'win32')
+          expect((await lstat(join(prepared.directory, 'scripts', 'run.sh'))).mode & 0o777).toBe(
+            0o751,
+          );
         expect(await readdir(join(prepared.directory, 'scripts', 'empty'))).toEqual([]);
         expect(prepared.contentHash).toBe(original);
         expect(await hashDirectory(source)).toBe(original);
@@ -189,68 +232,77 @@ describe('local directory source', () => {
     },
   );
 
-  it('dereferences internal/external files and folders, nested links and repeated directory aliases', async () => {
-    await withTestEnvironment(async (fixture) => {
-      const source = join(fixture.roots.cwd, 'demo');
-      const shared = join(fixture.roots.cwd, 'shared-scripts');
-      await makeSkill(source);
-      await mkdir(shared);
-      await mkdir(join(source, 'resources'));
-      await writeFile(join(source, 'resources', 'internal'), 'internal bytes');
-      await writeFile(join(shared, 'run.sh'), '#!/bin/sh\ncat ../resources/internal\n');
-      await chmod(join(shared, 'run.sh'), 0o711);
-      await symlink('../shared-scripts', join(source, 'scripts'));
-      await symlink('resources', join(source, 'resources-alias'));
-      await symlink('resources', join(source, 'resources-alias-2'));
-      await symlink('resources/internal', join(source, 'internal-file'));
-      await symlink(join(shared, 'run.sh'), join(source, 'external-file'));
-      await symlink('internal', join(source, 'resources', 'nested-link'));
-      await symlink('external-file', join(source, 'chain'));
-      const original = await hashDirectory(source);
-      const prepared = await prepareDirectory(source, options(fixture));
-      try {
-        await assertNoLinks(prepared.directory);
-        expect(
-          await readFile(join(prepared.directory, 'resources-alias', 'nested-link'), 'utf8'),
-        ).toBe('internal bytes');
-        const copiedScript = await readFile(join(prepared.directory, 'scripts', 'run.sh'));
-        expect((await lstat(join(prepared.directory, 'scripts', 'run.sh'))).mode & 0o777).toBe(
-          0o711,
-        );
-        expect(await readFile(join(prepared.directory, 'chain'))).toEqual(copiedScript);
-        expect(await hashDirectory(source)).toBe(original);
-        await writeFile(join(shared, 'run.sh'), 'changed externally');
-        await rm(join(source, 'resources', 'internal'));
-        expect(await readFile(join(prepared.directory, 'scripts', 'run.sh'))).toEqual(copiedScript);
-        expect(await hashDirectory(prepared.directory)).toBe(prepared.contentHash);
-        // The only changes to the original tree are the explicit edits above.
-        expect(original).not.toBe(await hashDirectory(source));
-      } finally {
-        await prepared.cleanup();
-      }
-    });
-  });
+  it.skipIf(!fileSymlinks)(
+    'dereferences internal/external files and folders, nested links and repeated directory aliases',
+    async () => {
+      await withTestEnvironment(async (fixture) => {
+        const source = join(fixture.roots.cwd, 'demo');
+        const shared = join(fixture.roots.cwd, 'shared-scripts');
+        await makeSkill(source);
+        await mkdir(shared);
+        await mkdir(join(source, 'resources'));
+        await writeFile(join(source, 'resources', 'internal'), 'internal bytes');
+        await writeFile(join(shared, 'run.sh'), '#!/bin/sh\ncat ../resources/internal\n');
+        await chmod(join(shared, 'run.sh'), 0o711);
+        await symlink('../shared-scripts', join(source, 'scripts'));
+        await symlink('resources', join(source, 'resources-alias'));
+        await symlink('resources', join(source, 'resources-alias-2'));
+        await symlink('resources/internal', join(source, 'internal-file'));
+        await symlink(join(shared, 'run.sh'), join(source, 'external-file'));
+        await symlink('internal', join(source, 'resources', 'nested-link'));
+        await symlink('external-file', join(source, 'chain'));
+        const original = await hashDirectory(source);
+        const prepared = await prepareDirectory(source, options(fixture));
+        try {
+          await assertNoLinks(prepared.directory);
+          expect(
+            await readFile(join(prepared.directory, 'resources-alias', 'nested-link'), 'utf8'),
+          ).toBe('internal bytes');
+          const copiedScript = await readFile(join(prepared.directory, 'scripts', 'run.sh'));
+          if (process.platform !== 'win32')
+            expect((await lstat(join(prepared.directory, 'scripts', 'run.sh'))).mode & 0o777).toBe(
+              0o711,
+            );
+          expect(await readFile(join(prepared.directory, 'chain'))).toEqual(copiedScript);
+          expect(await hashDirectory(source)).toBe(original);
+          await writeFile(join(shared, 'run.sh'), 'changed externally');
+          await rm(join(source, 'resources', 'internal'));
+          expect(await readFile(join(prepared.directory, 'scripts', 'run.sh'))).toEqual(
+            copiedScript,
+          );
+          expect(await hashDirectory(prepared.directory)).toBe(prepared.contentHash);
+          // The only changes to the original tree are the explicit edits above.
+          expect(original).not.toBe(await hashDirectory(source));
+        } finally {
+          await prepared.cleanup();
+        }
+      });
+    },
+  );
 
-  it('accepts a root and SKILL.md symlink while keeping the original source identity', async () => {
-    await withTestEnvironment(async (fixture) => {
-      const target = join(fixture.roots.home, 'skill');
-      await mkdir(target);
-      await writeFile(join(fixture.roots.home, 'instructions'), skillText);
-      await symlink('../instructions', join(target, 'SKILL.md'));
-      await symlink(target, join(fixture.roots.cwd, 'alias'));
-      const prepared = await prepareDirectory('./alias', options(fixture));
-      try {
-        expect(prepared.identity).toEqual({
-          kind: 'directory',
-          path: join(fixture.roots.cwd, 'alias'),
-        });
-        expect(await readFile(join(prepared.directory, 'SKILL.md'), 'utf8')).toBe(skillText);
-        await assertNoLinks(prepared.directory);
-      } finally {
-        await prepared.cleanup();
-      }
-    });
-  });
+  it.skipIf(!fileSymlinks)(
+    'accepts a root and SKILL.md symlink while keeping the original source identity',
+    async () => {
+      await withTestEnvironment(async (fixture) => {
+        const target = join(fixture.roots.home, 'skill');
+        await mkdir(target);
+        await writeFile(join(fixture.roots.home, 'instructions'), skillText);
+        await symlink('../instructions', join(target, 'SKILL.md'));
+        await symlink(target, join(fixture.roots.cwd, 'alias'));
+        const prepared = await prepareDirectory('./alias', options(fixture));
+        try {
+          expect(prepared.identity).toEqual({
+            kind: 'directory',
+            path: join(fixture.roots.cwd, 'alias'),
+          });
+          expect(await readFile(join(prepared.directory, 'SKILL.md'), 'utf8')).toBe(skillText);
+          await assertNoLinks(prepared.directory);
+        } finally {
+          await prepared.cleanup();
+        }
+      });
+    },
+  );
 
   it.each(['self', 'file-chain', 'ancestor', 'external-back-edge', 'broken'])(
     'rejects %s links and removes partial output',
@@ -261,8 +313,8 @@ describe('local directory source', () => {
         await writeFile(join(source, 'a-copied-first'), 'keep original');
         if (kind === 'self') await symlink('z-link', join(source, 'z-link'));
         if (kind === 'file-chain') {
-          await symlink('z-second', join(source, 'z-link'));
-          await symlink('z-link', join(source, 'z-second'));
+          await symlink('z-second', join(source, 'z-link'), 'dir');
+          await symlink('z-link', join(source, 'z-second'), 'dir');
         }
         if (kind === 'ancestor') {
           await mkdir(join(source, 'z-nested'));
@@ -284,14 +336,14 @@ describe('local directory source', () => {
     },
   );
 
-  it.each(['direct', 'symlink'])(
+  it.skipIf(process.platform === 'win32').each(['direct', 'symlink'])(
     'rejects a %s special file without opening a FIFO',
     async (kind) => {
       await withTestEnvironment(async (fixture) => {
         const source = join(fixture.roots.cwd, 'demo');
         await makeSkill(source);
         const fifo = join(kind === 'direct' ? source : fixture.roots.home, 'fifo');
-        execFileSync('mkfifo', [fifo]);
+        execFileSync('mkfifo', [fifo], { env: fixture.env });
         if (kind === 'symlink') await symlink(fifo, join(source, 'fifo-link'));
         await expect(prepareDirectory(source, options(fixture))).rejects.toMatchObject({
           code: 'UNSUPPORTED_ENTRY',
@@ -521,8 +573,9 @@ describe('local directory source', () => {
           fileSystem: {
             ...directorySourceFileSystem,
             readFile: async (path: string) => {
-              // A special entry in the owned output exercises failure after copying/metadata.
-              execFileSync('mkfifo', [join(dirname(path), 'fifo')]);
+              vi.spyOn(hashing, 'hashDirectory').mockRejectedValueOnce(
+                new Error('snapshot hash failure'),
+              );
               return readFile(path, 'utf8');
             },
           },
@@ -533,7 +586,7 @@ describe('local directory source', () => {
     });
   });
 
-  it.each([
+  it.for([
     'directory-read',
     'file-read',
     'file-write',
@@ -543,7 +596,9 @@ describe('local directory source', () => {
     'destination-escape',
   ])(
     'cleans up after injected %s failure and preserves the source and existing state',
-    async (failure) => {
+    async (failure, context) => {
+      if (failure === 'file-chmod' && process.platform === 'win32')
+        context.skip('POSIX chmod; portable write/stat failures проверяются рядом.');
       await withTestEnvironment(async (fixture) => {
         const source = join(fixture.roots.cwd, 'demo');
         await makeSkill(source);
@@ -656,7 +711,7 @@ describe('local directory source', () => {
     });
   });
 
-  it('rejects a file replaced by a symlink just before open', async () => {
+  it.skipIf(!fileSymlinks)('rejects a file replaced by a symlink just before open', async () => {
     await withTestEnvironment(async (fixture) => {
       const source = join(fixture.roots.cwd, 'demo');
       await makeSkill(source);

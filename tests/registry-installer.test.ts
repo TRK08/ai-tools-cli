@@ -1,14 +1,7 @@
 import { createHash } from 'node:crypto';
-import {
-  lstat,
-  rename,
-  mkdir,
-  readFile,
-  readdir,
-  readlink,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { lstat, rename, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
+import { samePath } from '../src/state/native-path.ts';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
@@ -52,9 +45,10 @@ describe.each(['project', 'global'] as const)('%s registry lifecycle', (scope) =
             for (const agent of ids) {
               const path = join(agentSkillsDirectory(f, scope, agent), 'demo');
               expect(await readFile(join(path, 'resource'))).toEqual(Buffer.from([0, 255, 128]));
-              expect((await lstat(join(path, 'run.sh'))).mode & 0o777).toBe(0o711);
+              if (process.platform !== 'win32')
+                expect((await lstat(join(path, 'run.sh'))).mode & 0o777).toBe(0o711);
               if (path !== copy && scope === 'global')
-                expect(resolve(dirname(path), await readlink(path))).toBe(copy);
+                expect(samePath(resolve(dirname(path), await readlink(path)), copy)).toBe(true);
               else expect((await lstat(path)).isSymbolicLink()).toBe(false);
             }
             expect(requests[0]).toBe(

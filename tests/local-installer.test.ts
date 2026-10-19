@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { writeFileSync } from 'node:fs';
-import { chmod, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { Installer } from '../src/installer/installer.ts';
@@ -542,7 +544,7 @@ describe('handled failures and rollback', () => {
           [
             '--import',
             import.meta.resolve('tsx'),
-            cli.pathname,
+            fileURLToPath(cli),
             'add',
             './demo',
             '-a',

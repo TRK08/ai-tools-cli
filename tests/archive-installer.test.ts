@@ -1,3 +1,4 @@
+import { samePath } from '../src/state/native-path.ts';
 import { lstat, rename, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -44,10 +45,14 @@ describe.each(['project', 'global'] as const)('%s archive lifecycle', (scope) =>
         for (const agent of ids) {
           const destination = join(agentSkillsDirectory(f, scope, agent), 'demo');
           expect(await readFile(join(destination, 'resource'))).toEqual(Buffer.from([0, 255, 128]));
-          expect((await lstat(join(destination, 'run.sh'))).mode & 0o777).toBe(0o755);
+          if (process.platform !== 'win32')
+            expect((await lstat(join(destination, 'run.sh'))).mode & 0o777).toBe(0o755);
           if (destination === copy || scope === 'project')
             expect((await lstat(destination)).isSymbolicLink()).toBe(false);
-          else expect(resolve(dirname(destination), await readlink(destination))).toBe(copy);
+          else
+            expect(samePath(resolve(dirname(destination), await readlink(destination)), copy)).toBe(
+              true,
+            );
         }
         const lock = await readFile(paths.lockPath);
         expect((await installer.add(`./demo.${extension}`, false, ['pi'])).status).toBe(

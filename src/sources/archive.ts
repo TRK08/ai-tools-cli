@@ -171,7 +171,10 @@ async function unpack(
     metadataChunks = [];
   }
 
-  /** Различает заголовки и metadata-тела; обычное содержимое никогда не трактуется как имя. */
+  /**
+   * Различает заголовки и metadata-тела; обычное содержимое никогда не трактуется как имя.
+   * Полное PAX/GNU-имя заменяет поля name/prefix только следующей файловой записи.
+   */
   function inspectRawBlock(block: Buffer, body: boolean): void {
     if (metadataRemaining > 0) {
       const length = Math.min(metadataRemaining, block.length);
@@ -192,11 +195,14 @@ async function unpack(
       return;
     }
     rawEntryPath = extendedPath ?? rawField(block, 0, 100);
-    extendedPath = undefined;
-    if (block.subarray(257, 265).equals(Buffer.from('ustar\0' + '00'))) {
+    if (
+      extendedPath === undefined &&
+      block.subarray(257, 265).equals(Buffer.from('ustar\0' + '00'))
+    ) {
       const prefix = rawField(block, 345, block[475] ? 155 : 130);
       if (prefix.length) rawEntryPath = Buffer.concat([prefix, Buffer.from('/'), rawEntryPath]);
     }
+    extendedPath = undefined;
   }
 
   let count = 0;

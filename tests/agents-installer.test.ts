@@ -1,13 +1,6 @@
-import {
-  lstat,
-  mkdir,
-  readFile,
-  readlink,
-  readdir,
-  rm,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { lstat, mkdir, readFile, readlink, readdir, rm, writeFile } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
+import { samePath } from '../src/state/native-path.ts';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
@@ -58,7 +51,7 @@ describe.each(['project', 'global'] as const)('%s agent lifecycle', (scope) => {
         expect((await lstat(destination)).isSymbolicLink()).toBe(false);
       else {
         const link = await readlink(destination);
-        expect(resolve(dirname(destination), link)).toBe(f.copy);
+        expect(samePath(resolve(dirname(destination), link), f.copy)).toBe(true);
       }
       expect(await readFile(join(destination, 'SKILL.md'), 'utf8')).toBe(text);
       const record = (await f.store.read())!.skills.demo!;
@@ -148,11 +141,12 @@ describe('connection failures and isolation', () => {
       const claude = join(context.roots.cwd, '.claude/skills/demo');
       await mkdir(dirname(claude), { recursive: true });
       await symlink('../../.agents/skills/demo', claude);
+      const previousTarget = await readlink(claude);
       const before = await snapshot(f.copy, f.paths.lockPath);
       expect(await f.installer.add('./demo', true, ['claude-code'])).toMatchObject({
         status: 'failed',
       });
-      expect(await readlink(claude)).toBe('../../.agents/skills/demo');
+      expect(await readlink(claude)).toBe(previousTarget);
       expect(await snapshot(f.copy, f.paths.lockPath)).toEqual(before);
     });
   });

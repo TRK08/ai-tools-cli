@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS, agentSkillsDirectory } from '../src/installer/agents.ts';
@@ -220,7 +221,7 @@ describe.each(['project', 'global'] as const)('%s updates', (scope) => {
           const expected = await hashDirectory(copy);
           if (change === 'missing') await rm(copy, { recursive: true });
           else if (change === 'edited') await writeFile(join(copy, 'manual'), 'edits');
-          else await symlink('SKILL.md', join(copy, 'manual'));
+          else await symlink(f.roots.cwd, join(copy, 'manual'));
           backend.requests.length = 0;
           if (change !== 'missing') {
             expect((await installer.update('demo')).status).toBe('failed');

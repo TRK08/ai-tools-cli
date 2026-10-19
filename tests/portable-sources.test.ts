@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, open, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, writeFile } from 'node:fs/promises';
+import { symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';

@@ -1,5 +1,5 @@
 import { lstat, mkdir, open, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { Parser } from 'tar';
 import { prepareDirectory } from '../src/sources/directory.ts';
@@ -75,7 +75,7 @@ describe('cooperative preparation cancellation', () => {
             closed++;
             await close();
           });
-          if (String(args[0]).endsWith('/large') && args[1] !== 'wx') {
+          if (basename(String(args[0])) === 'large' && args[1] !== 'wx') {
             const read = handle.read.bind(handle);
             vi.spyOn(handle, 'read').mockImplementation(
               async (...readArgs: Parameters<typeof read>) => {
@@ -192,7 +192,7 @@ describe('cooperative preparation cancellation', () => {
         readlink,
         open: async (...args: Parameters<typeof open>) => {
           const handle = await open(...args);
-          if (String(args[0]).endsWith('/large')) {
+          if (basename(String(args[0])) === 'large') {
             const read = handle.read.bind(handle),
               close = handle.close.bind(handle);
             vi.spyOn(handle, 'read').mockImplementation(
@@ -331,7 +331,7 @@ describe('cooperative preparation cancellation', () => {
               readlink,
               open: async (...args) => {
                 const handle = await open(...args);
-                if (String(args[0]).endsWith('/large')) {
+                if (basename(String(args[0])) === 'large') {
                   const read = handle.read.bind(handle);
                   vi.spyOn(handle, 'read').mockImplementation(
                     async (...args: Parameters<typeof read>) => {
@@ -370,7 +370,7 @@ describe('cooperative preparation cancellation', () => {
             ...directorySourceFileSystem,
             open: async (...args) => {
               const handle = await open(...args);
-              if (String(args[0]).endsWith('/large') && args[1] !== 'wx') {
+              if (basename(String(args[0])) === 'large' && args[1] !== 'wx') {
                 const read = handle.read.bind(handle),
                   close = handle.close.bind(handle);
                 vi.spyOn(handle, 'read').mockImplementation(

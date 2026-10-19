@@ -4,6 +4,7 @@ import { isAbsolute, join, relative } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { isolatedEnvironment } from '../scripts/isolated-runtime.mjs';
 import type { HttpTransport } from '../src/runtime.js';
 import { withTestEnvironment } from './helpers/test-environment.js';
 
@@ -50,31 +51,60 @@ describe('isolated test environment', () => {
     expect(process.cwd()).toBe(originalCwd);
   });
 
-  it('inherits only PATH from the ambient environment', async () => {
-    await withTestEnvironment(async (fixture) => {
-      const isolatedKeys = new Set([
-        'HOME',
-        'USERPROFILE',
-        'CLAUDE_CONFIG_DIR',
-        'XDG_CONFIG_HOME',
-        'XDG_DATA_HOME',
-        'XDG_STATE_HOME',
-        'XDG_CACHE_HOME',
-        'CODEX_HOME',
-        'TMPDIR',
-        'DISABLE_TELEMETRY',
-        'DO_NOT_TRACK',
-      ]);
+  it('inherits only the case-insensitive system allowlist', async () => {
+    const env = isolatedEnvironment(
+      '/fixture',
+      {},
+      {
+        Path: 'first',
+        PATH: 'second',
+        SystemRoot: 'C:\\Windows',
+        windir: 'C:\\Windows',
+        ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+        PATHEXT: '.COM;.EXE;.CMD',
+        NODE_OPTIONS: '--inspect',
+        SKILLS_API_TOKEN: 'secret',
+        npm_config_registry: 'private',
+      },
+    );
+    expect(env.PATH).toBe('second');
+    expect(env.Path).toBeUndefined();
+    expect(env.SystemRoot).toBe('C:\\Windows');
+    expect(env.ComSpec).toContain('cmd.exe');
+    expect(env.NODE_OPTIONS).toBeUndefined();
+    expect(env.SKILLS_API_TOKEN).toBeUndefined();
+    expect(env.npm_config_registry).toBeUndefined();
+    expect(new Set(Object.keys(env).map((key) => key.toUpperCase())).size).toBe(
+      Object.keys(env).length,
+    );
+  });
 
-      expect(fixture.env.PATH).toBe(process.env.PATH);
-      for (const name of Object.keys(process.env)) {
-        if (name !== 'PATH' && !isolatedKeys.has(name)) {
-          expect(fixture.env[name]).toBeUndefined();
-        }
-      }
-      expect(fixture.env.DISABLE_TELEMETRY).toBe('1');
-      expect(fixture.env.DO_NOT_TRACK).toBe('1');
-    });
+  it('protects case variants and removes dangerous explicit runtime overrides', async () => {
+    await withTestEnvironment(
+      async (f) => {
+        expect(f.env.HOME).toBe(f.roots.home);
+        expect(f.env.USERPROFILE).toBe(f.roots.home);
+        expect(f.env.npm_config_prefix).toBe(join(f.temporaryRoot, 'npm-prefix'));
+        expect(f.env.npm_config_userconfig).toBe(join(f.temporaryRoot, 'user.npmrc'));
+        expect(f.env.NODE_OPTIONS).toBeUndefined();
+        expect(f.env.NODE_PATH).toBeUndefined();
+        expect(f.env.DO_NOT_TRACK).toBe('1');
+        expect(new Set(Object.keys(f.env).map((key) => key.toUpperCase())).size).toBe(
+          Object.keys(f.env).length,
+        );
+      },
+      {
+        env: {
+          home: '/outside',
+          userprofile: '/outside',
+          NPM_CONFIG_PREFIX: '/outside',
+          npm_config_userconfig: '/outside',
+          Node_Options: '--require=/outside',
+          NODE_PATH: '/outside',
+          do_not_track: '0',
+        },
+      },
+    );
   });
 
   it('keeps protected paths and telemetry isolated despite environment overrides', async () => {
@@ -88,6 +118,12 @@ describe('isolated test environment', () => {
       'XDG_CACHE_HOME',
       'CODEX_HOME',
       'TMPDIR',
+      'TMP',
+      'TEMP',
+      'APPDATA',
+      'LOCALAPPDATA',
+      'npm_config_cache',
+      'npm_config_prefix',
     ];
 
     await withTestEnvironment(
@@ -147,7 +183,7 @@ describe('isolated test environment', () => {
         [
           '--input-type=module',
           '--eval',
-          'console.log(JSON.stringify({ cwd: process.cwd(), env: process.env }))',
+          'import {homedir,tmpdir} from "node:os";console.log(JSON.stringify({ cwd: process.cwd(), env: process.env, home: homedir(), tmp: tmpdir() }))',
         ],
         {
           cwd: fixture.roots.cwd,
@@ -156,9 +192,17 @@ describe('isolated test environment', () => {
           timeout: 10_000,
         },
       );
-      const child = JSON.parse(stdout) as { cwd: string; env: Record<string, string> };
+      const child = JSON.parse(stdout) as {
+        cwd: string;
+        env: Record<string, string>;
+        home: string;
+        tmp: string;
+      };
 
       expect(child.cwd).toBe(fixture.roots.cwd);
+      expect(child.home).toBe(fixture.roots.home);
+      expect(child.tmp).toBe(fixture.env.TMPDIR);
+      expect(fixture.env.HOMEDRIVE! + fixture.env.HOMEPATH!).toBe(fixture.roots.home);
       expect(child.env).toMatchObject(fixture.env);
       expect(child.env.SKILLS_API_TOKEN).toBeUndefined();
       expect(child.env.NODE_OPTIONS).toBeUndefined();

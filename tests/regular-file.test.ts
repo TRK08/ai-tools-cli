@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
-import { lstat, open, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { fileSymlinks, symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createRegularFileReader } from '../src/regular-file.ts';
@@ -33,7 +34,7 @@ describe.each(['linux', 'win32'] as const)('regular-file reader with %s flags', 
     });
   });
 
-  it('refuses a symlink before opening it', async () => {
+  it.skipIf(!fileSymlinks)('refuses a symlink before opening it', async () => {
     await withTestEnvironment(async (f) => {
       const target = join(f.roots.cwd, 'target'),
         alias = join(f.roots.cwd, 'alias');
@@ -47,37 +48,40 @@ describe.each(['linux', 'win32'] as const)('regular-file reader with %s flags', 
     });
   });
 
-  it('rejects a symlink to the same inode installed after open and closes without reading', async () => {
-    await withTestEnvironment(async (f) => {
-      const path = join(f.roots.cwd, 'resource'),
-        target = join(f.roots.cwd, 'saved');
-      await writeFile(path, 'original');
-      // Keep the opened inode alive through another hard link: post-open lstat must reject a symlink.
-      const { link } = await import('node:fs/promises');
-      await link(path, target);
-      let closed = false;
-      const fs = {
-        ...io,
-        open: async (...args: Parameters<typeof open>) => {
-          const handle = await open(...args),
-            close = handle.close.bind(handle);
-          vi.spyOn(handle, 'close').mockImplementation(async () => {
-            closed = true;
-            await close();
-          });
-          vi.spyOn(handle, 'read').mockImplementation(async () => {
-            throw new Error('must not read');
-          });
-          await rm(path);
-          await symlink(target, path);
-          return handle;
-        },
-      };
-      await expect(read(path, { fileSystem: fs })).rejects.toThrow('изменился');
-      expect(closed).toBe(true);
-      expect(await readFile(target, 'utf8')).toBe('original');
-    });
-  });
+  it.skipIf(!fileSymlinks)(
+    'rejects a symlink to the same inode installed after open and closes without reading',
+    async () => {
+      await withTestEnvironment(async (f) => {
+        const path = join(f.roots.cwd, 'resource'),
+          target = join(f.roots.cwd, 'saved');
+        await writeFile(path, 'original');
+        // Keep the opened inode alive through another hard link: post-open lstat must reject a symlink.
+        const { link } = await import('node:fs/promises');
+        await link(path, target);
+        let closed = false;
+        const fs = {
+          ...io,
+          open: async (...args: Parameters<typeof open>) => {
+            const handle = await open(...args),
+              close = handle.close.bind(handle);
+            vi.spyOn(handle, 'close').mockImplementation(async () => {
+              closed = true;
+              await close();
+            });
+            vi.spyOn(handle, 'read').mockImplementation(async () => {
+              throw new Error('must not read');
+            });
+            await rm(path);
+            await symlink(target, path);
+            return handle;
+          },
+        };
+        await expect(read(path, { fileSystem: fs })).rejects.toThrow('изменился');
+        expect(closed).toBe(true);
+        expect(await readFile(target, 'utf8')).toBe('original');
+      });
+    },
+  );
 
   it('closes after fstat cancellation and preserves a close failure with its cause', async () => {
     await withTestEnvironment(async (f) => {
@@ -121,6 +125,62 @@ describe.each(['linux', 'win32'] as const)('regular-file reader with %s flags', 
         read(path, { expected: await io.lstat(other), fileSystem: { ...io, open: openSpy } }),
       ).rejects.toThrow('неизменённый');
       expect(openSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(['symlink', 'fifo', 'directory'])(
+    'rejects a modeled %s before open on every host',
+    async (kind) => {
+      await withTestEnvironment(async (f) => {
+        const path = join(f.roots.cwd, 'modeled');
+        await writeFile(path, 'unchanged');
+        const stats = await io.lstat(path);
+        const openSpy = vi.fn(open);
+        await expect(
+          read(path, {
+            fileSystem: {
+              open: openSpy,
+              lstat: async () =>
+                Object.assign(Object.create(stats), {
+                  isFile: () => false,
+                  isSymbolicLink: () => kind === 'symlink',
+                  isFIFO: () => kind === 'fifo',
+                  isDirectory: () => kind === 'directory',
+                }),
+            },
+          }),
+        ).rejects.toThrow('обычный файл');
+        expect(openSpy).not.toHaveBeenCalled();
+      });
+    },
+  );
+
+  it('rejects a modeled post-open symlink with the same inode and closes its handle', async () => {
+    await withTestEnvironment(async (f) => {
+      const path = join(f.roots.cwd, 'modeled');
+      await writeFile(path, 'unchanged');
+      const stats = await io.lstat(path);
+      let opened = false;
+      let handle: Awaited<ReturnType<typeof open>> | undefined;
+      await expect(
+        read(path, {
+          fileSystem: {
+            open: async (...args) => {
+              handle = await open(...args);
+              opened = true;
+              return handle;
+            },
+            lstat: async () =>
+              opened
+                ? Object.assign(Object.create(stats), {
+                    isFile: () => false,
+                    isSymbolicLink: () => true,
+                  })
+                : stats,
+          },
+        }),
+      ).rejects.toThrow('изменился');
+      expect(handle?.fd).toBe(-1);
     });
   });
 });

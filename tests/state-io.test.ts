@@ -7,10 +7,10 @@ import {
   readFile,
   readdir,
   rename,
-  symlink,
   writeFile,
   type FileHandle,
 } from 'node:fs/promises';
+import { fileSymlinks, symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { withScopeLock, scopeLockFileSystem } from '../src/state/mutex.ts';
@@ -184,9 +184,11 @@ describe('verified state reads and atomic writes', () => {
     });
   });
 
-  it.each(['file', 'symlink', 'missing'] as const)(
+  it.for(['file', 'symlink', 'missing'] as const)(
     'refuses a %s replacement during open without returning empty state',
-    async (replacement) => {
+    async (replacement, context) => {
+      if (replacement === 'symlink' && !fileSymlinks)
+        context.skip('Файловый symlink недоступен; modeled I/O проверяется отдельно.');
       await withTestEnvironment(async (f) => {
         const paths = getStatePaths(f.roots, 'project');
         await new StateStore(paths).write(createEmptyLock());

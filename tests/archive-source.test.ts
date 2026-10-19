@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { chmod, lstat, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { fileSymlinks, symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { create, Pax } from 'tar';
@@ -64,7 +65,8 @@ describe('local gzip/tar preparation', () => {
               expect(await readFile(join(prepared.directory, 'resources', 'binary'))).toEqual(
                 binary,
               );
-              expect((await lstat(join(prepared.directory, 'run.sh'))).mode & 0o777).toBe(0o711);
+              if (process.platform !== 'win32')
+                expect((await lstat(join(prepared.directory, 'run.sh'))).mode & 0o777).toBe(0o711);
               expect(await readdir(join(prepared.directory, 'empty'))).toEqual([]);
             } finally {
               await prepared.cleanup();
@@ -101,7 +103,7 @@ describe('local gzip/tar preparation', () => {
     });
   });
 
-  it('keeps an archive symlink pathname as permanent identity', async () => {
+  it.skipIf(!fileSymlinks)('keeps an archive symlink pathname as permanent identity', async () => {
     await withTestEnvironment(async (f) => {
       const target = join(f.roots.home, 'original.tgz');
       await writeFile(target, archiveBytes([{ path: 'SKILL.md', contents: skillText }]));
@@ -215,6 +217,48 @@ describe('local gzip/tar preparation', () => {
         const prepared = await prepareArchive(path, options(f));
         try {
           expect(await readFile(join(prepared.directory, long), 'utf8')).toBe('long-name bytes');
+        } finally {
+          await prepared.cleanup();
+        }
+      });
+    },
+  );
+
+  it.each(['pax', 'gnu'] as const)(
+    'uses the full %s path once when the file header also contains a USTAR prefix',
+    async (kind) => {
+      await withTestEnvironment(async (f) => {
+        const long = 'nested/'.repeat(16) + 'файл.txt';
+        const following = 'following/'.repeat(12) + 'resource.txt';
+        const metadata =
+          kind === 'pax'
+            ? new Pax({ path: long }).encode()
+            : rawTar(
+                [{ path: '././@LongLink', type: 'NextFileHasLongPath', contents: `${long}\0` }],
+                0,
+              );
+        const file = rawTar([{ path: long, contents: 'extended-path bytes' }], 0);
+        expect(file.subarray(345, 475).includes(Buffer.from('nested/'))).toBe(true);
+        const archive = join(f.roots.cwd, 'demo.tgz');
+        await writeFile(
+          archive,
+          gzipSync(
+            Buffer.concat([
+              rawTar([{ path: 'SKILL.md', contents: skillText }], 0),
+              metadata,
+              file,
+              rawTar([{ path: following, contents: 'ordinary USTAR bytes' }]),
+            ]),
+          ),
+        );
+        const prepared = await prepareArchive(archive, options(f));
+        try {
+          expect(await readFile(join(prepared.directory, long), 'utf8')).toBe(
+            'extended-path bytes',
+          );
+          expect(await readFile(join(prepared.directory, following), 'utf8')).toBe(
+            'ordinary USTAR bytes',
+          );
         } finally {
           await prepared.cleanup();
         }
@@ -405,9 +449,11 @@ describe('local gzip/tar preparation', () => {
     });
   });
 
-  it.each(['file-write', 'file-chmod', 'metadata-read'])(
+  it.for(['file-write', 'file-chmod', 'metadata-read'])(
     'cleans partial extraction after injected %s failure',
-    async (failure) => {
+    async (failure, context) => {
+      if (failure === 'file-chmod' && process.platform === 'win32')
+        context.skip('POSIX chmod; portable write failures проверяются рядом.');
       await withTestEnvironment(async (f) => {
         const path = join(f.roots.cwd, 'demo.tgz');
         const bytes = archiveBytes([{ path: 'SKILL.md', contents: skillText }]);

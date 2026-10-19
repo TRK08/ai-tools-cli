@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { truncateTerminalText } from '../src/cli/table.ts';
+import { truncateTerminalText, wrapTerminalText } from '../src/cli/table.ts';
 
 describe('terminal truncation', () => {
+  it('preserves spaces and graphemes while wrapping paths', () => {
+    const path =
+      'C:' +
+      String.fromCharCode(92) +
+      'Каталог с пробелами 👩‍💻' +
+      String.fromCharCode(92) +
+      'ресурс';
+    expect(wrapTerminalText(path, 9).join('')).toBe(path);
+  });
+  it.each(['/', String.fromCharCode(92)])(
+    'prefers path separator %j without changing path bytes',
+    (separator) => {
+      const path = ['C:', 'длинный', 'путь', 'ресурс'].join(separator);
+      const lines = wrapTerminalText(path, 12);
+      expect(lines.join('')).toBe(path);
+      expect(lines[0]).toBe('C:' + separator + 'длинный' + separator);
+    },
+  );
   it.each([
     ['abc', 3, 'abc'],
     ['abcd', 3, 'ab…'],

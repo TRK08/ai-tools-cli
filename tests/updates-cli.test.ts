@@ -1,8 +1,6 @@
-import { spawn } from 'node:child_process';
 import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/cli/program.ts';
 import { Installer } from '../src/installer/installer.ts';
@@ -13,38 +11,11 @@ import { withTestEnvironment, type TestEnvironment } from './helpers/test-enviro
 import { versionArtifact, versionBytes, versionRegistry } from './helpers/versions.ts';
 import { skillDetail } from './helpers/discovery.ts';
 
+import { runCli } from './helpers/cli.ts';
+
+/** Использует общий runner; прежние сценарии add явно подтверждают установку. */
 function cli(f: TestEnvironment, args: string[]) {
-  if (args[0] === 'add') args = [...args, '--yes'];
-  return new Promise<{ status: number | null; stdout: string; stderr: string }>((done, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        '--import',
-        import.meta.resolve('tsx'),
-        fileURLToPath(new URL('../src/cli.ts', import.meta.url)),
-        ...args,
-      ],
-      {
-        cwd: f.roots.cwd,
-        env: { ...f.env, TSX_DISABLE_CACHE: '1' },
-        timeout: 10_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    );
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (data) => {
-      stdout += data;
-    });
-    child.stderr.on('data', (data) => {
-      stderr += data;
-    });
-    child.on('error', reject);
-    child.on('close', (status, signal) =>
-      signal ? reject(new Error(`CLI terminated by ${signal}`)) : done({ status, stdout, stderr }),
-    );
-    child.stdin.end();
-  });
+  return runCli(f, args[0] === 'add' ? [...args, '--yes'] : args);
 }
 
 describe('update CLI', () => {

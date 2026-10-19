@@ -99,6 +99,7 @@ describe('registry discovery', () => {
         withTestEnvironment(
           async (f) => {
             const before = await readdir(f.roots.cwd);
+            const homeBefore = await readdir(f.roots.home);
             const found = await runCli(f, ['find', 'dem', '--registry', url]);
             expect(found).toMatchObject({ status: 0, stderr: '' });
             expect(found.stdout).toContain('demo');
@@ -118,13 +119,7 @@ describe('registry discovery', () => {
             expect(removed.stdout).toBe('');
             expect(removed.stderr).toMatch(/Ошибка: .*info/);
             expect(await readdir(f.roots.cwd)).toEqual(before);
-            expect(await readdir(f.roots.home)).toEqual([
-              '.cache',
-              '.claude',
-              '.codex',
-              '.config',
-              '.local',
-            ]);
+            expect(await readdir(f.roots.home)).toEqual(homeBefore);
             expect(requests).toEqual([
               '/api/v1/skills?slugPrefix=dem',
               '/api/v1/skills?slugPrefix=dem',

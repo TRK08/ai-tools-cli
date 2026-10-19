@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, rename, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rename, rm, unlink, utimes, writeFile } from 'node:fs/promises';
+import { fileSymlinks, symlink } from './helpers/links.ts';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -175,53 +176,62 @@ describe('content hash', () => {
     });
   });
 
-  it('distinguishes an internal symlink from a file with identical contents', async () => {
-    await withTestEnvironment(async ({ roots }) => {
-      await writeFile(join(roots.cwd, 'target'), 'same bytes');
-      const link = join(roots.cwd, 'entry');
-      await writeFile(link, 'same bytes');
-      const withFile = await hashDirectory(roots.cwd);
+  it.skipIf(!fileSymlinks)(
+    'distinguishes an internal symlink from a file with identical contents',
+    async () => {
+      await withTestEnvironment(async ({ roots }) => {
+        await writeFile(join(roots.cwd, 'target'), 'same bytes');
+        const link = join(roots.cwd, 'entry');
+        await writeFile(link, 'same bytes');
+        const withFile = await hashDirectory(roots.cwd);
 
-      await unlink(link);
-      await symlink('target', link);
-      expect(await hashDirectory(roots.cwd)).not.toBe(withFile);
-    });
-  });
+        await unlink(link);
+        await symlink('target', link);
+        expect(await hashDirectory(roots.cwd)).not.toBe(withFile);
+      });
+    },
+  );
 
-  it('notices changes to internal link targets even when their contents are identical', async () => {
-    await withTestEnvironment(async ({ roots }) => {
-      await writeFile(join(roots.cwd, 'first'), 'same bytes');
-      await writeFile(join(roots.cwd, 'second'), 'same bytes');
-      const link = join(roots.cwd, 'entry');
-      await symlink('first', link);
-      const original = await hashDirectory(roots.cwd);
+  it.skipIf(!fileSymlinks)(
+    'notices changes to internal link targets even when their contents are identical',
+    async () => {
+      await withTestEnvironment(async ({ roots }) => {
+        await writeFile(join(roots.cwd, 'first'), 'same bytes');
+        await writeFile(join(roots.cwd, 'second'), 'same bytes');
+        const link = join(roots.cwd, 'entry');
+        await symlink('first', link);
+        const original = await hashDirectory(roots.cwd);
 
-      await unlink(link);
-      await symlink('second', link);
-      expect(await hashDirectory(roots.cwd)).not.toBe(original);
-    });
-  });
+        await unlink(link);
+        await symlink('second', link);
+        expect(await hashDirectory(roots.cwd)).not.toBe(original);
+      });
+    },
+  );
 
-  it('hashes an external link target text without reading the target contents', async () => {
-    await withTestEnvironment(async ({ roots }) => {
-      const target = join(roots.home, 'external-target');
-      const alternative = join(roots.home, 'alternative-target');
-      await writeFile(target, 'outside the hashed tree');
-      await writeFile(alternative, 'different outside contents');
-      const link = join(roots.cwd, 'entry');
-      await symlink(target, link);
-      const original = await hashDirectory(roots.cwd);
+  it.skipIf(!fileSymlinks)(
+    'hashes an external link target text without reading the target contents',
+    async () => {
+      await withTestEnvironment(async ({ roots }) => {
+        const target = join(roots.home, 'external-target');
+        const alternative = join(roots.home, 'alternative-target');
+        await writeFile(target, 'outside the hashed tree');
+        await writeFile(alternative, 'different outside contents');
+        const link = join(roots.cwd, 'entry');
+        await symlink(target, link);
+        const original = await hashDirectory(roots.cwd);
 
-      await writeFile(target, 'modified outside contents');
-      expect(await hashDirectory(roots.cwd)).toBe(original);
-      await unlink(target);
-      expect(await hashDirectory(roots.cwd)).toBe(original);
+        await writeFile(target, 'modified outside contents');
+        expect(await hashDirectory(roots.cwd)).toBe(original);
+        await unlink(target);
+        expect(await hashDirectory(roots.cwd)).toBe(original);
 
-      await unlink(link);
-      await symlink(alternative, link);
-      expect(await hashDirectory(roots.cwd)).not.toBe(original);
-    });
-  });
+        await unlink(link);
+        await symlink(alternative, link);
+        expect(await hashDirectory(roots.cwd)).not.toBe(original);
+      });
+    },
+  );
 
   it('handles broken links, self-links and link cycles without following them', async () => {
     await withTestEnvironment(async ({ roots }) => {

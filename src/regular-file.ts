@@ -1,6 +1,32 @@
 import { constants, type BigIntStats } from 'node:fs';
 import { lstat, open, type FileHandle } from 'node:fs/promises';
 
+/**
+ * Передаёт открытый handle операции и закрывает его до возврата результата или ошибки.
+ * Владение handle переходит сюда; одновременные ошибки операции и close сохраняются в AggregateError.
+ */
+export async function withFileHandle<T>(
+  handle: FileHandle,
+  run: (handle: FileHandle) => Promise<T>,
+): Promise<T> {
+  let result!: T;
+  const errors: unknown[] = [];
+  try {
+    result = await run(handle);
+  } catch (cause) {
+    errors.push(cause);
+  }
+  try {
+    await handle.close();
+  } catch (cause) {
+    errors.push(cause);
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1)
+    throw new AggregateError(errors, 'Операция и закрытие файла завершились ошибками.');
+  return result;
+}
+
 /** Сохраняет POSIX-права подготовленного файла; Unix chmod на Windows не требуется. */
 export async function preserveFileMode(handle: FileHandle, mode: number): Promise<void> {
   if (process.platform !== 'win32') await handle.chmod(mode);

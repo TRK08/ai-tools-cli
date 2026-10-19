@@ -1,7 +1,7 @@
 import { errorMessage } from '../errors.ts';
 import { isCancellation } from '../cancellation.ts';
 import type { RuntimeContext } from '../runtime.ts';
-import { isDirectAgent } from '../agents/catalog.ts';
+import { agentConnectionKind, isDirectAgent } from '../agents/catalog.ts';
 import { hashDirectory } from '../state/hash.ts';
 import {
   getSkillDirectory,
@@ -74,7 +74,7 @@ export class InstallationInspection {
     return true;
   }
 
-  /** Проверяет хеш и защиту ручных правок; force не поглощает отмену. */
+  /** Проверяет хеш с политикой области; force не поглощает отмену и её ошибки закрытия ресурсов. */
   async checkCopy(
     name: string,
     record: InstallationRecord | undefined,
@@ -85,9 +85,12 @@ export class InstallationInspection {
     const path = getSkillDirectory(this.paths, name);
     let contentHash: string;
     try {
-      contentHash = await hashDirectory(path, { signal });
+      contentHash = await hashDirectory(path, {
+        signal,
+        portableNames: this.paths.scope === 'project',
+      });
     } catch (cause) {
-      if (isCancellation(cause, signal)) throw cause;
+      if (isCancellation(cause, signal) || signal?.aborted) throw cause;
       if (force) return null;
       throw new Error(
         `Не удалось проверить установленный скилл ${name}; используйте --force для замены его содержимого.`,
@@ -109,6 +112,7 @@ export class InstallationInspection {
     const { join } = nativePath;
     const connection = previous?.connections.find((item) => item.agent === agent) ?? {
       agent,
+      kind: agentConnectionKind(agent, this.paths.scope),
       path: portableConnectionPath(
         join(agentSkillsDirectory(this.context, this.paths.scope, agent), name),
         this.paths,

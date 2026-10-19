@@ -1,4 +1,4 @@
-import { isAgentId, isDirectAgent } from '../agents/catalog.ts';
+import { agentConnectionKind, isAgentId, isDirectAgent } from '../agents/catalog.ts';
 import type { AgentId } from '../installer/types.ts';
 import type { SourceIdentity } from '../sources/types.ts';
 import { isFullSemVer, isRegistrySlug } from '../registry/reference.ts';
@@ -98,10 +98,13 @@ function source(value: unknown, paths: StatePaths, storageInput: boolean): Sourc
   return { kind: entry.kind, path: portableSourcePath(path, paths) };
 }
 
-/** Проверяет агент/путь управляемого подключения и кодирует путь по правилам области. */
+/** Проверяет агент/вид по единому каталогу и кодирует путь подключения по правилам области. */
 function connection(value: unknown, paths: StatePaths, storageInput: boolean): ManagedConnection {
   const entry = object(value, 'connection');
-  keys(entry, ['agent', 'path']);
+  keys(entry, ['agent', 'path', 'kind']);
+  const id = agent(entry.agent);
+  const kind = agentConnectionKind(id, paths.scope);
+  if (entry.kind !== kind) invalid('Вид подключения не соответствует агенту и области.');
   const path = text(entry.path, 'connection.path');
   if (!storageInput && paths.scope === 'project') validatePortablePathText(path);
   else validatePathText(path);
@@ -109,7 +112,7 @@ function connection(value: unknown, paths: StatePaths, storageInput: boolean): M
     invalid(
       'Сохранённый путь подключения должен быть относительным в проекте и абсолютным в глобальной области.',
     );
-  return { agent: agent(entry.agent), path: portableConnectionPath(path, paths) };
+  return { agent: id, path: portableConnectionPath(path, paths), kind };
 }
 
 /** Строит ключ владения назначением, сохраняя исходную строку пути в записи lock. */
@@ -198,15 +201,8 @@ function record(
 function normalize(value: unknown, paths: StatePaths, storageInput: boolean): LockFile {
   try {
     const lock = object(value, 'lock');
-    if (Object.hasOwn(lock, 'version') && lock.version !== LOCK_VERSION) {
-      if (typeof lock.version === 'number' && Number.isInteger(lock.version))
-        throw new StateError(
-          'UNSUPPORTED_LOCK_VERSION',
-          `Неподдерживаемая версия файла состояния: ${lock.version}.`,
-        );
-      invalid('Версия файла состояния должна быть целым числом.');
-    }
     keys(lock, ['version', 'skills']);
+    if (lock.version !== LOCK_VERSION) invalid('Некорректная версия файла состояния.');
     const skills = object(lock.skills, 'skills');
     assertPortableNames(Object.keys(skills));
     const records = Object.fromEntries(

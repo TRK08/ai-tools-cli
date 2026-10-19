@@ -75,7 +75,7 @@ describe('direct project Codex lifecycle', () => {
           policy: 'local',
           contentHash: await hashDirectory(fixture.source),
           agents: ['codex'],
-          connections: [{ agent: 'codex', path: '.agents/skills/demo' }],
+          connections: [{ agent: 'codex', kind: 'direct' as const, path: '.agents/skills/demo' }],
         },
       ]);
       const before = await snapshot(fixture);
@@ -110,7 +110,19 @@ describe('direct project Codex lifecycle', () => {
       await cleanWork(fixture.paths);
     });
   });
-  it.each(['edit', 'generated file', 'missing file', 'symlink', 'executable'])(
+  it('ignores executable changes and empty subtrees in managed content', async () => {
+    await withTestEnvironment(async (context) => {
+      const fixture = await setup(context);
+      await fixture.installer.add('./demo');
+      const before = await snapshot(fixture);
+      await chmod(join(fixture.copy, 'SKILL.md'), 0o755);
+      await mkdir(join(fixture.copy, 'empty', 'nested'), { recursive: true });
+      expect((await fixture.installer.add('./demo')).status).toBe('unchanged');
+      expect(await snapshot(fixture)).toEqual(before);
+      await cleanWork(fixture.paths);
+    });
+  });
+  it.each(['edit', 'generated file', 'missing file', 'symlink'])(
     'protects %s until force',
     async (change) => {
       await withTestEnvironment(async (context) => {
@@ -121,7 +133,6 @@ describe('direct project Codex lifecycle', () => {
         if (change === 'generated file') await writeFile(join(fixture.copy, 'output'), 'output');
         if (change === 'missing file') await rm(skill);
         if (change === 'symlink') await symlink(fixture.source, join(fixture.copy, 'extra'));
-        if (change === 'executable') await chmod(skill, 0o755);
         const before = await snapshot(fixture);
         const prepare = vi.fn(prepareDirectory);
         await expect(new Installer(context, { prepare }).add('./demo')).rejects.toThrow(/--force/);

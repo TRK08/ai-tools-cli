@@ -60,8 +60,12 @@ function windowsLock(): LockFile {
         contentHash: 'a'.repeat(64),
         agents: ['codex', 'claude-code'],
         connections: [
-          { agent: 'codex', path: roots.cwd + '\\.agents\\skills\\demo' },
-          { agent: 'claude-code', path: roots.cwd + '\\.claude\\skills\\demo' },
+          { agent: 'codex', kind: 'direct' as const, path: roots.cwd + '\\.agents\\skills\\demo' },
+          {
+            agent: 'claude-code',
+            kind: 'link' as const,
+            path: roots.cwd + '\\.claude\\skills\\demo',
+          },
         ],
       },
     },
@@ -195,7 +199,13 @@ describe('native and portable paths', () => {
         skills: {
           demo: {
             ...record,
-            connections: [{ agent: 'codex', path: roots.home + '\\.agents\\skills\\demo' }],
+            connections: [
+              {
+                agent: 'codex',
+                kind: 'direct' as const,
+                path: roots.home + '\\.agents\\skills\\demo',
+              },
+            ],
           },
         },
       },
@@ -301,12 +311,13 @@ describe('native and portable paths', () => {
     expect(inspection.connection('demo', 'claude-code')).toEqual({
       agent: 'claude-code',
       path: '.claude/skills/demo',
+      kind: 'link',
     });
     expect(() => inspection.assertSupported(windowsLock().skills.demo!)).not.toThrow();
     expect(() =>
       inspection.assertSupported({
         ...windowsLock().skills.demo!,
-        connections: [{ agent: 'claude-code', path: '.other/skills/demo' }],
+        connections: [{ agent: 'claude-code', kind: 'link' as const, path: '.other/skills/demo' }],
       }),
     ).toThrow();
   });
@@ -323,7 +334,11 @@ describe('native and portable paths', () => {
       ) as unknown as typeof installerFileSystem.readlink,
     };
     const inspection = new InstallationInspection(context, global, fs);
-    const connection = { agent: 'claude-code' as const, path: 'D:\\Claude\\skills\\demo' };
+    const connection = {
+      agent: 'claude-code' as const,
+      kind: 'link' as const,
+      path: 'D:\\Claude\\skills\\demo',
+    };
     await expect(inspection.inspectConnection(connection, 'demo', true)).resolves.toBe(true);
     await expect(inspection.inspectConnection(connection, 'demo', false)).rejects.toThrow('чужим');
     fs.readlink = vi.fn(
@@ -417,13 +432,17 @@ describe('portable names', () => {
               ...record,
               name: 'first',
               agents: ['claude-code'],
-              connections: [{ agent: 'claude-code', path: 'D:\\Claude\\skills\\shared' }],
+              connections: [
+                { agent: 'claude-code', kind: 'link' as const, path: 'D:\\Claude\\skills\\shared' },
+              ],
             },
             second: {
               ...record,
               name: 'second',
               agents: ['claude-code'],
-              connections: [{ agent: 'claude-code', path: 'd:\\CLAUDE\\skills\\SHARED' }],
+              connections: [
+                { agent: 'claude-code', kind: 'link' as const, path: 'd:\\CLAUDE\\skills\\SHARED' },
+              ],
             },
           },
         },

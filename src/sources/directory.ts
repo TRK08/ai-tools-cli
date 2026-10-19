@@ -261,7 +261,10 @@ export async function prepareDirectory(
     signal?.throwIfAborted();
     const metadata = readSkillMetadata(text);
     signal?.throwIfAborted();
-    const contentHash = await hashDirectory(directory, { signal });
+    const contentHash = await hashDirectory(directory, {
+      signal,
+      portableNames: options.portableNames,
+    });
     signal?.throwIfAborted();
     const ownedWorkspace = workspace;
     return Object.freeze({

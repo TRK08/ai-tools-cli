@@ -150,7 +150,11 @@ describe('installation review lifecycle', () => {
         requested,
       );
       expect(result.status).toBe('unchanged');
-      expect(reviewAdd).toHaveBeenCalledWith(expect.objectContaining({ destinations: saved }));
+      expect(reviewAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          destinations: saved.map(({ agent, path }) => ({ agent, path })),
+        }),
+      );
     }));
 
   it('unpins an intact exact installation with a reviewed latest selection without downloading again', async () =>

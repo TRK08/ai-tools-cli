@@ -17,7 +17,7 @@ const record: InstallationRecord = {
   contentHash: 'a'.repeat(64),
   archiveHash: 'b'.repeat(64),
   agents: ['codex'],
-  connections: [{ agent: 'codex', path: '.agents/skills/demo' }],
+  connections: [{ agent: 'codex', kind: 'direct' as const, path: '.agents/skills/demo' }],
 };
 const artifact: RegistryArtifact = {
   slug: 'demo',
@@ -74,7 +74,10 @@ describe('pure installation decisions', () => {
   it('requires application for a new connection even when shared content is intact', () => {
     const next = {
       ...snapshot,
-      candidates: [...snapshot.candidates, { agent: 'pi' as const, path: '.pi/skills/demo' }],
+      candidates: [
+        ...snapshot.candidates,
+        { agent: 'pi' as const, kind: 'direct' as const, path: '.pi/skills/demo' },
+      ],
     };
     const plan = createInstallPlan(content, next, record.source, 'latest', false);
     expect(plan.kind).toBe('apply');

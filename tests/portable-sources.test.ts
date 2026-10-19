@@ -376,7 +376,7 @@ describe('portable source preparation', () => {
         policy: 'local' as const,
         contentHash: 'a'.repeat(64),
         agents: ['claude-code' as const],
-        connections: [{ agent: 'claude-code' as const, path: saved }],
+        connections: [{ agent: 'claude-code' as const, kind: 'link' as const, path: saved }],
       };
       const prepared = await prepareDirectory(
         '.',

@@ -13,6 +13,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { AGENTS, agentConnectionKind } from '../src/agents/catalog.ts';
 import { assertSourceCompatible, sourceIdentityKey } from '../src/state/identity.ts';
 import {
   getSkillDirectory,
@@ -33,7 +34,13 @@ function directoryRecord(fixture: TestEnvironment, name = 'demo'): InstallationR
     policy: 'local',
     contentHash: 'a'.repeat(64),
     agents: ['codex', 'claude-code'],
-    connections: [{ agent: 'codex', path: join(fixture.roots.cwd, '.agents', 'skills', name) }],
+    connections: [
+      {
+        agent: 'codex',
+        kind: 'direct' as const,
+        path: join(fixture.roots.cwd, '.agents', 'skills', name),
+      },
+    ],
   };
 }
 
@@ -122,7 +129,7 @@ describe('state paths and portable schema', () => {
       const stored = await store.read();
       expect(stored?.skills.demo?.source).toEqual({ kind: 'directory', path: 'sources/demo' });
       expect(stored?.skills.demo?.connections).toEqual([
-        { agent: 'codex', path: '.agents/skills/demo' },
+        { agent: 'codex', kind: 'direct' as const, path: '.agents/skills/demo' },
       ]);
       const movedCwd = join(fixture.temporaryRoot, 'moved-project');
       await cp(fixture.roots.cwd, movedCwd, { recursive: true });
@@ -154,7 +161,11 @@ describe('state paths and portable schema', () => {
         ...record,
         source: { kind: 'directory' as const, path: './source' },
         connections: [
-          { agent: 'codex' as const, path: join(fixture.roots.home, '.agents', 'skills', 'demo') },
+          {
+            agent: 'codex' as const,
+            kind: 'direct' as const,
+            path: join(fixture.roots.home, '.agents', 'skills', 'demo'),
+          },
         ],
       };
       const store = new StateStore(global);
@@ -293,6 +304,66 @@ describe('state paths and portable schema', () => {
 });
 
 describe('strict lock reading', () => {
+  it.each(['project', 'global'] as const)(
+    'validates connection kinds against the current catalog in %s scope',
+    async (scope) => {
+      await withTestEnvironment(async (fixture) => {
+        const paths = getStatePaths(fixture.roots, scope);
+        for (const agent of AGENTS) {
+          const kind = agentConnectionKind(agent.id, scope);
+          const record: InstallationRecord = {
+            ...directoryRecord(fixture),
+            agents: [agent.id],
+            connections: [
+              {
+                agent: agent.id,
+                kind,
+                path:
+                  agent.id === 'claude-code'
+                    ? join(
+                        scope === 'project' ? fixture.roots.cwd : fixture.roots.home,
+                        '.claude',
+                        'skills',
+                        'demo',
+                      )
+                    : getSkillDirectory(paths, 'demo'),
+              },
+            ],
+          };
+          const valid = JSON.parse(serializeLockFile(oneRecord(record), paths));
+          expect(parseLockFile(valid, paths).skills.demo?.connections[0]?.kind).toBe(kind);
+          for (const wrong of [
+            undefined,
+            null,
+            'unknown',
+            'symlink',
+            'direct',
+            'copy',
+            'link',
+          ].filter((value) => value !== kind)) {
+            const invalid = structuredClone(valid);
+            if (wrong === undefined) delete invalid.skills.demo.connections[0].kind;
+            else invalid.skills.demo.connections[0].kind = wrong;
+            expect(() => parseLockFile(invalid, paths)).toThrowError(
+              expect.objectContaining({ code: 'INVALID_LOCK' }),
+            );
+          }
+          const extraField = structuredClone(valid);
+          extraField.skills.demo.connections[0].unexpected = true;
+          expect(() => parseLockFile(extraField, paths)).toThrow();
+        }
+      });
+    },
+  );
+
+  it.each([null, '1', 0, 2, 99, -1, 1.5])('rejects any noncurrent version: %s', async (version) => {
+    await withTestEnvironment(async (fixture) => {
+      expect(() =>
+        parseLockFile({ version, skills: {} }, getStatePaths(fixture.roots, 'project')),
+      ).toThrowError(expect.objectContaining({ code: 'INVALID_LOCK' }));
+    });
+  });
+
   it('allows project direct-reader agents to share only their own canonical directory', async () => {
     await withTestEnvironment(async (fixture) => {
       const paths = getStatePaths(fixture.roots, 'project');
@@ -301,10 +372,10 @@ describe('strict lock reading', () => {
         ...directoryRecord(fixture),
         agents: ['codex', 'opencode', 'cursor', 'claude-code'],
         connections: [
-          { agent: 'codex', path: canonical },
-          { agent: 'opencode', path: canonical },
-          { agent: 'cursor', path: canonical },
-          { agent: 'claude-code', path: '.claude/skills/demo' },
+          { agent: 'codex', kind: 'direct' as const, path: canonical },
+          { agent: 'opencode', kind: 'direct' as const, path: canonical },
+          { agent: 'cursor', kind: 'direct' as const, path: canonical },
+          { agent: 'claude-code', kind: 'link' as const, path: '.claude/skills/demo' },
         ],
       };
       const parsed = parseLockFile(JSON.parse(serializeLockFile(oneRecord(record), paths)), paths);
@@ -383,10 +454,10 @@ describe('strict lock reading', () => {
     { name: 'missing skills', content: '{"version":1}', code: 'INVALID_LOCK' },
     {
       name: 'future version',
-      content: '{"version":2,"skills":{}}',
-      code: 'UNSUPPORTED_LOCK_VERSION',
+      content: '{"version":99,"skills":{}}',
+      code: 'INVALID_LOCK',
     },
-    { name: 'old version', content: '{"version":0,"skills":{}}', code: 'UNSUPPORTED_LOCK_VERSION' },
+    { name: 'old version', content: '{"version":0,"skills":{}}', code: 'INVALID_LOCK' },
     { name: 'noninteger version', content: '{"version":"1","skills":{}}', code: 'INVALID_LOCK' },
     {
       name: 'partial record',
@@ -439,14 +510,18 @@ describe('strict lock reading', () => {
           record.policy = 'latest';
         },
         (record) => {
-          record.connections = [{ agent: 'pi', path: '.pi/skills/demo' }];
+          record.connections = [{ agent: 'pi', kind: 'direct' as const, path: '.pi/skills/demo' }];
         },
         (record) => {
-          record.connections = [{ agent: 'codex', path: '../outside' }];
+          record.connections = [{ agent: 'codex', kind: 'direct' as const, path: '../outside' }];
         },
         (record) => {
           record.connections = [
-            { agent: 'codex', path: join(fixture.roots.cwd, '.agents/skills/demo') },
+            {
+              agent: 'codex',
+              kind: 'direct' as const,
+              path: join(fixture.roots.cwd, '.agents/skills/demo'),
+            },
           ];
         },
         (record) => {
@@ -506,7 +581,7 @@ describe('strict lock reading', () => {
 });
 
 describe('atomic writes and scope locking', () => {
-  it('removes its scope lock and closes the handle when obtaining owner stats fails', async () => {
+  it('keeps an unconfirmed scope lock and closes the handle when obtaining owner stats fails', async () => {
     await withTestEnvironment(async (fixture) => {
       const paths = getStatePaths(fixture.roots, 'project');
       const probe = await open(join(fixture.temporaryRoot, 'probe'), 'wx');
@@ -525,8 +600,10 @@ describe('atomic writes and scope locking', () => {
         statSpy.mockRestore();
       }
       expect(failedHandles[0]?.fd).toBe(-1);
-      await expect(access(paths.operationLockPath)).rejects.toMatchObject({ code: 'ENOENT' });
-      await new StateStore(paths).write(createEmptyLock());
+      await expect(access(paths.operationLockPath)).resolves.toBeUndefined();
+      await expect(new StateStore(paths).write(createEmptyLock())).rejects.toMatchObject({
+        code: 'SCOPE_BUSY',
+      });
     });
   });
 

@@ -181,7 +181,7 @@ describe('local directory source', () => {
           expect(
             await readFile(Buffer.concat([Buffer.from(prepared.directory), suffix]), 'utf8'),
           ).toBe('raw filename');
-          expect(prepared.contentHash).toBe(await hashDirectory(source));
+          expect(prepared.contentHash).toBe(await hashDirectory(source, { portableNames: false }));
         } finally {
           await prepared.cleanup();
         }

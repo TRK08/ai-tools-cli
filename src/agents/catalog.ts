@@ -1,6 +1,8 @@
 import { nativePath } from '../state/native-path.ts';
 import type { InstallationScope, RuntimeContext } from '../runtime.ts';
 
+export type ConnectionKind = 'direct' | 'copy' | 'link';
+
 /** Единый каталог: порядок массива задаёт меню, helpOrder сохраняет порядок справки. */
 export const AGENTS = [
   {
@@ -8,12 +10,12 @@ export const AGENTS = [
     label: 'Claude Code',
     helpOrder: 0,
     project: {
-      kind: 'symlink',
+      kind: 'link',
       directory: (context: RuntimeContext) =>
         nativePath.join(context.roots.cwd, '.claude', 'skills'),
     },
     global: {
-      kind: 'symlink',
+      kind: 'link',
       directory: (context: RuntimeContext) =>
         nativePath.join(
           nativePath.resolve(
@@ -95,5 +97,10 @@ export function isAgentId(value: unknown): value is AgentId {
 
 /** Указывает, читает ли агент общую копию напрямую в выбранной области. */
 export function isDirectAgent(agent: AgentId, scope: InstallationScope): boolean {
-  return AGENTS.find((entry) => entry.id === agent)![scope].kind === 'direct';
+  return agentConnectionKind(agent, scope) === 'direct';
+}
+
+/** Возвращает вид подключения из единого каталога для агента и области; файловых операций нет. */
+export function agentConnectionKind(agent: AgentId, scope: InstallationScope): ConnectionKind {
+  return AGENTS.find((entry) => entry.id === agent)![scope].kind;
 }

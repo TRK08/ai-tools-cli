@@ -47,7 +47,7 @@ describe('lifecycle CLI', () => {
       const lock = JSON.parse(await readFile(lockPath, 'utf8'));
       expect(lock.skills.demo.agents).toEqual(['codex']);
       expect(lock.skills.demo.connections).toEqual([
-        { agent: 'codex', path: '.agents/skills/demo' },
+        { agent: 'codex', kind: 'direct' as const, path: '.agents/skills/demo' },
       ]);
       expect(cli(context, ['add', './demo', '-a', 'codex']).stdout).toContain('Без изменений demo');
       const listed = cli(context, ['list']);

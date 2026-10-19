@@ -16,6 +16,7 @@ import { list as listTar } from 'tar';
 import { withIsolatedRuntime } from './isolated-runtime.mjs';
 import { packageRunner } from './package-runner.mjs';
 import { preparePackageArchive } from './package-archive.mjs';
+import { preparePackageFixture } from './package-fixture.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'));
@@ -160,23 +161,22 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
     },
   });
   assert.ok(archivedBin, 'Missing bin in actual tar headers');
-  const project = join(temporaryRoot, 'Проект & (проверка) %PATH% ! ^');
-  const prefix = join(temporaryRoot, 'Глобальный npm prefix & (проверка) %PATH% ! ^');
-  const source = join(temporaryRoot, 'Источник & (скилл) %PATH% ! ^');
-  mkdirSync(project);
-  mkdirSync(source);
-  writeFileSync(join(project, 'package.json'), '{"private":true,"type":"module"}\n');
+  const { localInstall, prefix, project, source } = await preparePackageFixture(temporaryRoot);
+  writeFileSync(join(localInstall, 'package.json'), '{"private":true,"type":"module"}\n');
   writeFileSync(
     join(source, 'SKILL.md'),
     '---\nname: package-smoke\ndescription: Проверка npm-архива\n---\n\n# Smoke\n',
   );
-  npm(['install', archive, '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'], project);
-  npm(['ls', '--omit=dev'], project);
-  const localPackage = join(project, 'node_modules', manifest.name);
+  npm(
+    ['install', archive, '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'],
+    localInstall,
+  );
+  npm(['ls', '--omit=dev'], localInstall);
+  const localPackage = join(localInstall, 'node_modules', manifest.name);
   assert.ok(readFileSync(join(localPackage, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'));
   checkInstalledCli(
     join(
-      project,
+      localInstall,
       'node_modules/.bin/skills-installer' + (process.platform === 'win32' ? '.cmd' : ''),
     ),
     project,
@@ -211,7 +211,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   assert.ok(readFileSync(join(globalPackage, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'));
   for (const name of Object.keys(manifest.devDependencies)) {
     for (const directory of [
-      join(project, 'node_modules'),
+      join(localInstall, 'node_modules'),
       join(localPackage, 'node_modules'),
       globalModules,
       join(globalPackage, 'node_modules'),

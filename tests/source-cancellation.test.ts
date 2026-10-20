@@ -356,10 +356,11 @@ describe('cooperative preparation cancellation', () => {
       }),
   );
 
-  it('reports a close failure during abort as a preparation error', async () =>
+  it('preserves abort and close failure together as a preparation error', async () =>
     withTestEnvironment(async (f) => {
       const path = await source(f),
         controller = new AbortController(),
+        reason = new Error('cancel copying'),
         closeError = new Error('close failed');
       await expect(
         prepareDirectory(path, {
@@ -376,7 +377,7 @@ describe('cooperative preparation cancellation', () => {
                 vi.spyOn(handle, 'read').mockImplementation(
                   async (...args: Parameters<typeof read>) => {
                     const result = await read(...args);
-                    controller.abort();
+                    controller.abort(reason);
                     return result;
                   },
                 );
@@ -389,7 +390,10 @@ describe('cooperative preparation cancellation', () => {
             },
           },
         }),
-      ).rejects.toMatchObject({ code: 'PREPARATION_FAILED', cause: closeError });
+      ).rejects.toMatchObject({
+        code: 'PREPARATION_FAILED',
+        cause: expect.objectContaining({ errors: [reason, closeError] }),
+      });
       expect(await readdir(f.env.TMPDIR!)).toEqual([]);
     }));
 

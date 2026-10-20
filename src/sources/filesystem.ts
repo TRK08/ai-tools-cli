@@ -21,6 +21,28 @@ export const OWNED_WORKSPACE_CLEANUP = Object.freeze({
   retryDelay: 100,
 });
 
+/**
+ * После неудачной подготовки удаляет только созданный адаптером workspace с ограниченными retry.
+ * Без workspace или после успешной очистки выбрасывает исходную причину, включая отмену.
+ * При отказе rm передаёт обе причины адаптеру: он задаёт тип ошибки, сообщение и путь для восстановления.
+ * @remarks Вызывается после закрытия handles; владение успешным PreparedSource не меняет.
+ */
+export async function cleanupFailedPreparation(
+  workspace: string | undefined,
+  error: unknown,
+  fileSystem: Pick<ArchiveSourceFileSystem, 'rm'>,
+  cleanupFailure: (cause: AggregateError) => Error,
+): Promise<never> {
+  if (workspace !== undefined) {
+    try {
+      await fileSystem.rm(workspace, OWNED_WORKSPACE_CLEANUP);
+    } catch (cleanupError) {
+      throw cleanupFailure(new AggregateError([error, cleanupError]));
+    }
+  }
+  throw error;
+}
+
 /** Узкий файловый I/O для воспроизводимых ошибок чтения/копирования с байтовыми именами. */
 export interface DirectorySourceFileSystem {
   readonly lstat: (path: Buffer) => Promise<BigIntStats>;

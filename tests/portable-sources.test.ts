@@ -92,7 +92,7 @@ describe('portable source preparation', () => {
     async (kind) => {
       await withTestEnvironment(async (f) => {
         const resource = 'Каталог с пробелами/工具😀.bin',
-          bytes = Buffer.from([0, 255, 128, 254, 1]);
+          bytes = Buffer.alloc(150_013, Buffer.from([0, 255, 128, 254, 1, 13, 10]));
         const path = join(f.roots.cwd, kind === 'archive' ? 'Скилл.TAR.GZ' : 'Скилл');
         if (kind === 'archive')
           await writeFile(
@@ -123,7 +123,12 @@ describe('portable source preparation', () => {
                 position: number | null,
               ) => {
                 shortWrites++;
-                return write(buffer, offset, Math.min(length, 2), position);
+                return write(
+                  buffer,
+                  offset,
+                  Math.min(length, Math.max(2, Math.floor(buffer.length / 3))),
+                  position,
+                );
               }) as typeof handle.write);
             }
             return handle;

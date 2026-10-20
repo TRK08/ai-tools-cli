@@ -1,5 +1,5 @@
 import type { BigIntStats } from 'node:fs';
-import { openRegularFile, preserveFileMode } from '../regular-file.ts';
+import { openRegularFile, preserveFileMode, withFileHandle, writeAll } from '../regular-file.ts';
 import {
   assertResourceNames,
   childBufferPath as childPath,
@@ -14,6 +14,7 @@ import { INSTALLER_LOCK_NAME, LOCK_TEMP_PREFIX, WORKSPACE_PREFIX } from '../stat
 import { SourceError } from './errors.ts';
 import {
   directorySourceFileSystem,
+  cleanupFailedPreparation,
   OWNED_WORKSPACE_CLEANUP,
   type DirectorySourceFileSystem,
 } from './filesystem.ts';
@@ -39,7 +40,7 @@ const { basename, dirname, isAbsolute, join, resolve } = nativePath;
 
 /**
  * Копирует файл блоками, проверяя identity и размер, затем сохраняет POSIX-права. Между I/O проверяет отмену;
- * оба дескриптора закрываются до завершения операции.
+ * закрывает сначала выходной, затем входной handle, сохраняя ошибки операции и обоих закрытий.
  */
 async function copyFile(
   source: Buffer,
@@ -54,10 +55,10 @@ async function copyFile(
     expected,
     signal,
   });
-  try {
+  await withFileHandle(input, async () => {
     signal?.throwIfAborted();
     const output = await fs.open(destination, 'wx', 0o600);
-    try {
+    await withFileHandle(output, async () => {
       signal?.throwIfAborted();
       const buffer = Buffer.alloc(64 * 1024);
       let total = 0n;
@@ -69,26 +70,19 @@ async function copyFile(
         total += BigInt(bytesRead);
         if (total > opened.size)
           throw new Error('Размер исходного файла изменился во время копирования.');
-        let offset = 0;
-        while (offset < bytesRead) {
-          signal?.throwIfAborted();
-          const { bytesWritten } = await output.write(buffer, offset, bytesRead - offset, null);
-          signal?.throwIfAborted();
-          if (bytesWritten === 0)
-            throw new Error('Не удалось продолжить запись подготовленного содержимого.');
-          offset += bytesWritten;
-        }
+        await writeAll(
+          output,
+          buffer.subarray(0, bytesRead),
+          'Не удалось продолжить запись подготовленного содержимого.',
+          signal,
+        );
       }
       if (total !== opened.size)
         throw new Error('Размер исходного файла изменился во время копирования.');
       await preserveFileMode(output, Number(opened.mode & 0o777n));
       signal?.throwIfAborted();
-    } finally {
-      await output.close();
-    }
-  } finally {
-    await input.close();
-  }
+    });
+  });
 }
 
 /**
@@ -97,8 +91,8 @@ async function copyFile(
  * отклоняет циклы и специальные объекты. PortableNames по умолчанию включён.
  *
  * @returns PreparedSource внутри temporaryDirectory; самостоятельный потребитель обязан вызвать cleanup.
- * @remarks При ошибке/отмене очищает собственный workspace; сбой очистки сохраняется вместе с исходной
- * причиной.
+ * @remarks При ошибке/отмене закрывает handles и очищает собственный workspace; ошибки закрытия
+ * и очистки сохраняются вместе с исходной причиной.
  */
 export async function prepareDirectory(
   source: string,
@@ -276,7 +270,7 @@ export async function prepareDirectory(
       cleanup: () => fs.rm(ownedWorkspace, OWNED_WORKSPACE_CLEANUP),
     });
   } catch (cause) {
-    let error: unknown = isCancellation(cause, signal)
+    const error: unknown = isCancellation(cause, signal)
       ? signal!.reason
       : cause instanceof SourceError
         ? cause
@@ -289,19 +283,16 @@ export async function prepareDirectory(
             `Не удалось подготовить локальный источник ${JSON.stringify(identityPath)}.`,
             { cause },
           );
-    if (workspace !== undefined) {
-      try {
-        await fs.rm(workspace, OWNED_WORKSPACE_CLEANUP);
-      } catch (cleanupError) {
-        error = new SourceError(
+    return cleanupFailedPreparation(
+      workspace,
+      error,
+      fs,
+      (cause) =>
+        new SourceError(
           'PREPARATION_FAILED',
           `Подготовка и удаление временных файлов завершились ошибкой: ${workspace}.`,
-          {
-            cause: new AggregateError([error, cleanupError]),
-          },
-        );
-      }
-    }
-    throw error;
+          { cause },
+        ),
+    );
   }
 }

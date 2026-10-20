@@ -27,6 +27,28 @@ export async function withFileHandle<T>(
   return result;
 }
 
+/**
+ * Полностью записывает буфер с текущей позиции handle, продвигая offset при частичных записях.
+ * Нулевую запись отклоняет с сообщением вызывающего; отмену проверяет до и после каждого I/O.
+ * Не меняет байты/права и не закрывает handle: им по-прежнему владеет вызывающий код.
+ */
+export async function writeAll(
+  handle: Pick<FileHandle, 'write'>,
+  buffer: Buffer,
+  zeroWriteMessage: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
+  let offset = 0;
+  while (offset < buffer.length) {
+    signal?.throwIfAborted();
+    const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset, null);
+    signal?.throwIfAborted();
+    if (bytesWritten === 0) throw new Error(zeroWriteMessage);
+    offset += bytesWritten;
+  }
+}
+
 /** Сохраняет POSIX-права подготовленного файла; Unix chmod на Windows не требуется. */
 export async function preserveFileMode(handle: FileHandle, mode: number): Promise<void> {
   if (process.platform !== 'win32') await handle.chmod(mode);

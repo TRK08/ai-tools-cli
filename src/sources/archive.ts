@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
-import { openRegularFile, preserveFileMode } from '../regular-file.ts';
+import { openRegularFile, preserveFileMode, withFileHandle, writeAll } from '../regular-file.ts';
 import {
   assertResourceNames,
   childBufferPath,
@@ -15,6 +15,7 @@ import { validatePathText } from '../state/paths.ts';
 import { SourceError } from './errors.ts';
 import {
   archiveSourceFileSystem,
+  cleanupFailedPreparation,
   OWNED_WORKSPACE_CLEANUP,
   type ArchiveSourceFileSystem,
 } from './filesystem.ts';
@@ -76,7 +77,7 @@ function safePath(raw: Buffer, directory: boolean): string {
 
 /**
  * Читает ограниченный локальный архив, проверяя тип, inode и размер открытого файла. Между чтениями
- * проверяет отмену; дескриптор закрывается в finally.
+ * проверяет отмену; до выхода закрывает handle, сохраняя ошибки чтения/отмены и закрытия вместе.
  */
 async function readArchive(
   path: string,
@@ -95,7 +96,7 @@ async function readArchive(
     expected,
     signal,
   });
-  try {
+  return withFileHandle(input, async () => {
     signal?.throwIfAborted();
     if (stats.size > BigInt(ARCHIVE_LIMITS.inputBytes))
       throw new SourceError('ARCHIVE_LIMIT', 'Размер архива превышает ограничение 20 МиБ.');
@@ -114,9 +115,7 @@ async function readArchive(
     }
     if (BigInt(bytes) !== stats.size) throw new Error('Размер архива изменился во время чтения.');
     return Buffer.concat(chunks, bytes);
-  } finally {
-    await input.close();
-  }
+  });
 }
 
 /**
@@ -392,7 +391,7 @@ async function unpack(
  *
  * @returns PreparedSource с хешами архива/дерева и cleanup для самостоятельного потребителя.
  * @remarks Все ресурсы создаёт внутри temporaryDirectory; при ошибке/отмене закрывает I/O и очищает
- * workspace, сохраняя ошибки очистки.
+ * workspace, сохраняя исходную причину вместе с ошибками закрытия и очистки.
  */
 export async function prepareArchive(
   source: string,
@@ -466,30 +465,19 @@ export async function prepareArchive(
         await fs.mkdir(parentTarget, { recursive: true, mode: 0o755 });
         signal?.throwIfAborted();
         const output = await fs.open(target, 'wx', 0o600);
-        try {
+        await withFileHandle(output, async () => {
           signal?.throwIfAborted();
           for (const chunk of entry.chunks) {
-            signal?.throwIfAborted();
-            let offset = 0;
-            while (offset < chunk.length) {
-              signal?.throwIfAborted();
-              const { bytesWritten } = await output.write(
-                chunk,
-                offset,
-                chunk.length - offset,
-                null,
-              );
-              signal?.throwIfAborted();
-              if (!bytesWritten)
-                throw new Error('Не удалось продолжить запись распакованного файла.');
-              offset += bytesWritten;
-            }
+            await writeAll(
+              output,
+              chunk,
+              'Не удалось продолжить запись распакованного файла.',
+              signal,
+            );
           }
           await preserveFileMode(output, entry.mode);
           signal?.throwIfAborted();
-        } finally {
-          await output.close();
-        }
+        });
       }
     }
     signal?.throwIfAborted();
@@ -513,7 +501,7 @@ export async function prepareArchive(
       cleanup: () => fs.rm(ownedWorkspace, OWNED_WORKSPACE_CLEANUP),
     });
   } catch (cause) {
-    let error: unknown = isCancellation(cause, signal)
+    const error: unknown = isCancellation(cause, signal)
       ? signal!.reason
       : cause instanceof SourceError
         ? cause
@@ -522,17 +510,16 @@ export async function prepareArchive(
             `Не удалось подготовить локальный архив ${JSON.stringify(identityPath)}.`,
             { cause },
           );
-    if (workspace !== undefined) {
-      try {
-        await fs.rm(workspace, OWNED_WORKSPACE_CLEANUP);
-      } catch (cleanupError) {
-        error = new SourceError(
+    return cleanupFailedPreparation(
+      workspace,
+      error,
+      fs,
+      (cause) =>
+        new SourceError(
           'PREPARATION_FAILED',
           `Подготовка и удаление временных файлов завершились ошибкой: ${workspace}.`,
-          { cause: new AggregateError([error, cleanupError]) },
-        );
-      }
-    }
-    throw error;
+          { cause },
+        ),
+    );
   }
 }

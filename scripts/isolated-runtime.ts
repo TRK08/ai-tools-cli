@@ -3,15 +3,27 @@ import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 
 const systemKeys = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT']);
-const canonicalKeys = { SYSTEMROOT: 'SystemRoot', WINDIR: 'windir', COMSPEC: 'ComSpec' };
+const canonicalKeys: Record<string, string> = {
+  SYSTEMROOT: 'SystemRoot',
+  WINDIR: 'windir',
+  COMSPEC: 'ComSpec',
+};
+
+export type IsolatedRuntime = Awaited<ReturnType<typeof prepareIsolatedRuntime>> & {
+  readonly temporaryRoot: string;
+};
 
 /**
  * Собирает env по системному allowlist, нормализуя имена без учёта регистра.
  * Явные настройки допустимы, но профили, npm-конфигурация, tmp и telemetry принадлежат fixture.
  * NODE_OPTIONS/NODE_PATH и унаследованные npm-настройки в дочерние процессы не попадают.
  */
-export function isolatedEnvironment(root, overrides = {}, ambient = process.env) {
-  const values = new Map();
+export function isolatedEnvironment(
+  root: string,
+  overrides: Record<string, string | undefined> = {},
+  ambient: NodeJS.ProcessEnv = process.env,
+) {
+  const values = new Map<string, string>();
   for (const [key, value] of Object.entries(ambient)) {
     if (value !== undefined && systemKeys.has(key.toUpperCase()))
       values.set(key.toUpperCase(), value);
@@ -65,7 +77,7 @@ export function isolatedEnvironment(root, overrides = {}, ambient = process.env)
 }
 
 /** Создаёт все каталоги sandbox и пустые npmrc; очисткой полученного root владеет вызывающий. */
-export async function prepareIsolatedRuntime(root, overrides = {}) {
+export async function prepareIsolatedRuntime(root: string, overrides: Record<string, string> = {}) {
   const env = isolatedEnvironment(root, overrides);
   const directories = [
     join(root, 'project'),
@@ -80,20 +92,23 @@ export async function prepareIsolatedRuntime(root, overrides = {}) {
   await Promise.all([...new Set(directories)].map((path) => mkdir(path, { recursive: true })));
   await Promise.all(
     [env.npm_config_userconfig, env.npm_config_globalconfig].map((path) =>
-      writeFile(path, '', { flag: 'wx' }),
+      writeFile(path!, '', { flag: 'wx' }),
     ),
   );
-  return { roots: { cwd: join(root, 'project'), home: env.HOME }, env };
+  return { roots: { cwd: join(root, 'project'), home: env.HOME! }, env };
 }
 
 /**
  * Выполняет callback в собственных cwd/home/tmp/npm, затем удаляет root с ограниченными retry.
  * При совместном отказе callback и очистки AggregateError сохраняет исходную причину и путь root.
  */
-export async function withIsolatedRuntime(run, overrides = {}) {
+export async function withIsolatedRuntime<T>(
+  run: (runtime: IsolatedRuntime) => Promise<T>,
+  overrides: Record<string, string> = {},
+) {
   const created = await mkdtemp(join(tmpdir(), 'skills-installer-'));
-  let failure;
-  let result;
+  let failure: unknown;
+  let result!: T;
   try {
     const temporaryRoot = await realpath(created);
     const runtime = await prepareIsolatedRuntime(temporaryRoot, overrides);

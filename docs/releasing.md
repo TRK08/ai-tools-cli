@@ -18,7 +18,7 @@ Node, npm из `packageManager` в `package.json` и зависимости че
 При обновлении `packageManager` синхронизируйте закреплённую версию npm в `publish.yml`.
 На Windows используется PowerShell (`pwsh`), на Linux/macOS — стандартная Bash.
 Проверка версии из `RELEASE_VERSION` выполняется после подготовки окружения общим
-[Node-скриптом](../scripts/check-release-version.mjs), до тестов, сборки и создания
+[TypeScript-скриптом](../scripts/check-release-version.ts) через установленный `tsx`, до тестов, сборки и создания
 npm-артефакта, без shell heredoc.
 [.gitattributes](../.gitattributes) закрепляет LF для текстовых файлов репозитория,
 включая Windows checkout с `core.autocrlf=true`. Для `.agents/skills/**` и
@@ -67,12 +67,15 @@ npm run package:check
 npm run package:smoke
 ```
 
-`package:check` запускает publint. `package:smoke` выполняет `npm pack --dry-run --json`
+`package:check` запускает publint. Служебные скрипты хранятся в TypeScript и запускаются
+через devDependency `tsx`; `npm run type-check` проверяет их вместе с исходниками и тестами.
+Установленный npm-bin `dist/cli.mjs` запускается обычным Node без инструментов разработки.
+`package:smoke` выполняет `npm pack --dry-run --json`
 и настоящий `npm pack`, проверяет имя, версию, разрешённый состав, shebang и executable.
 Разрешены только `dist/`, `package.json`, README и лицензии; исходники, тесты,
 настройки агентов и журналы задач в архив не попадают.
 
-Bin остаётся `dist/cli.mjs`. [Подготовка архива](../scripts/package-archive.mjs)
+Bin остаётся `dist/cli.mjs`. [Подготовка архива](../scripts/package-archive.ts)
 использует состав от `npm pack --ignore-scripts`, затем перепаковывает tar без
 извлечения файлов, добавляя executable-биты только bin. Это обходит ошибку npm
 с вложенным bin на Windows без изменения точки входа и прав исходного файла.
@@ -106,7 +109,7 @@ Shim не переписывается и не заменяется вызово
 В PowerShell при запрете `.ps1` используйте `skills-installer.cmd` и `npm.cmd`;
 изменение ExecutionPolicy и повышенные права не требуются.
 
-Общий [helper окружения](../scripts/isolated-runtime.mjs) используется тестами и smoke.
+Общий [helper окружения](../scripts/isolated-runtime.ts) используется тестами и smoke.
 Из настоящего env берутся только PATH, SystemRoot/windir, ComSpec и PATHEXT;
 имена нормализуются без учёта регистра. HOME/USERPROFILE/HOMEDRIVE/HOMEPATH,
 AppData/LocalAppData, TEMP/TMP/TMPDIR, XDG и каталоги агентов принадлежат fixture.

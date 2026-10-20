@@ -1,4 +1,4 @@
-import { withIsolatedRuntime } from '../../scripts/isolated-runtime.mjs';
+import { withIsolatedRuntime } from '../../scripts/isolated-runtime.ts';
 
 import type { HttpTransport, RuntimeContext } from '../../src/runtime.js';
 

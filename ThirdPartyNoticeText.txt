@@ -1,4 +1,4 @@
-The isolated runtime helper in scripts/isolated-runtime.mjs, used by
+The isolated runtime helper in scripts/isolated-runtime.ts, used by
 tests/helpers/test-environment.ts and package smoke, adapts
 environment isolation from ../skills/src/test-utils.ts. The original license
 notice is preserved below. No command handlers from that project are copied.
@@ -32,7 +32,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Windows argument quoting in scripts/package-runner.mjs adapts
+Windows argument quoting in scripts/package-runner.ts adapts
 @npmcli/promise-spawn/lib/escape.js (https://github.com/npm/promise-spawn),
 distributed with npm. The original license follows.
 

@@ -1,6 +1,8 @@
 import { mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { create as createTar } from 'tar';
+import type { WriteEntryTar } from 'tar';
+import type { packageRunner } from './package-runner.ts';
 
 /**
  * Готовит npm-архив с executable-битами объявленного bin независимо от прав исходника.
@@ -10,9 +12,14 @@ import { create as createTar } from 'tar';
  * @param binPath - Относительный POSIX-путь bin из manifest без начального ./.
  * @throws Если в архиве нет ровно одного обычного файла bin или упаковка завершилась ошибкой.
  */
-export async function preparePackageArchive(runner, cwd, temporaryDirectory, binPath) {
+export async function preparePackageArchive(
+  runner: Pick<ReturnType<typeof packageRunner>, 'npm'>,
+  cwd: string,
+  temporaryDirectory: string,
+  binPath: string,
+) {
   const directory = await mkdtemp(join(temporaryDirectory, 'npm-pack-'));
-  const [raw] = JSON.parse(
+  const [raw]: [{ filename: string }] = JSON.parse(
     runner.npm(['pack', '--json', '--ignore-scripts', '--pack-destination', directory], cwd),
   );
   const archive = join(directory, 'prepared.tgz');
@@ -24,8 +31,10 @@ export async function preparePackageArchive(runner, cwd, temporaryDirectory, bin
       portable: true,
       strict: true,
       onWriteEntry(entry) {
+        // При перепаковке @archive tar передаёт WriteEntryTar; тип callback библиотеки указывает WriteEntry.
+        const archivedEntry = entry as unknown as WriteEntryTar;
         if (entry.path === `package/${binPath}` && entry.type === 'File') {
-          entry.mode |= 0o111;
+          archivedEntry.mode = archivedEntry.mode! | 0o111;
           bins++;
         }
       },

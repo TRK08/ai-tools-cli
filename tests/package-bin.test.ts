@@ -2,10 +2,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expect, it } from 'vitest';
 import manifest from '../package.json' with { type: 'json' };
-import { withIsolatedRuntime } from '../scripts/isolated-runtime.mjs';
-import { preparePackageArchive } from '../scripts/package-archive.mjs';
-import { preparePackageFixture } from '../scripts/package-fixture.mjs';
-import { packageRunner } from '../scripts/package-runner.mjs';
+import { withIsolatedRuntime } from '../scripts/isolated-runtime.ts';
+import { preparePackageArchive } from '../scripts/package-archive.ts';
+import { preparePackageFixture } from '../scripts/package-fixture.ts';
+import { packageRunner } from '../scripts/package-runner.ts';
 
 it(
   'runs real local/global npm bins from a metacharacter cwd with literal arguments',

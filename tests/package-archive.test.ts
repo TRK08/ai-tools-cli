@@ -3,9 +3,9 @@ import { dirname, join } from 'node:path';
 import { list as listTar } from 'tar';
 import { expect, it } from 'vitest';
 import manifest from '../package.json' with { type: 'json' };
-import { withIsolatedRuntime } from '../scripts/isolated-runtime.mjs';
-import { packageRunner } from '../scripts/package-runner.mjs';
-import { preparePackageArchive } from '../scripts/package-archive.mjs';
+import { withIsolatedRuntime } from '../scripts/isolated-runtime.ts';
+import { packageRunner } from '../scripts/package-runner.ts';
+import { preparePackageArchive } from '../scripts/package-archive.ts';
 
 interface PackResult {
   filename: string;

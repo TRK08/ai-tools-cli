@@ -43,7 +43,7 @@ jobs:
         if: inputs.release-version != ''
         env:
           RELEASE_VERSION: ${{ inputs.release-version }}
-        run: node scripts/check-release-version.mjs
+        run: node --import tsx scripts/check-release-version.ts
 
       - run: npm run type-check
       - run: npm run lint

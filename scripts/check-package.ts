@@ -13,13 +13,20 @@ import {
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { list as listTar } from 'tar';
-import { withIsolatedRuntime } from './isolated-runtime.mjs';
-import { packageRunner } from './package-runner.mjs';
-import { preparePackageArchive } from './package-archive.mjs';
-import { preparePackageFixture } from './package-fixture.mjs';
+import manifest from '../package.json' with { type: 'json' };
+import type { LockFile } from '../src/state/types.ts';
+import { withIsolatedRuntime } from './isolated-runtime.ts';
+import { packageRunner } from './package-runner.ts';
+import { preparePackageArchive } from './package-archive.ts';
+import { preparePackageFixture } from './package-fixture.ts';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
-const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8'));
+interface PackResult {
+  name: string;
+  version: string;
+  filename: string;
+  files: { path: string; mode: number }[];
+}
 const binPath = manifest.bin['skills-installer'].replace(/^\.\//, '');
 const artifactDirectory = join(repositoryRoot, 'artifacts/npm');
 await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
@@ -37,12 +44,12 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   );
   assert.deepEqual(detected, [temporaryHome, env.TMPDIR]);
   /** Проверяет runtime дочернего Node без обращения к пользовательскому env. */
-  function execNode(args) {
+  function execNode(args: string[]) {
     return execFileSync(process.execPath, args, { cwd: roots.cwd, env, encoding: 'utf8' });
   }
 
   /** Проверяет allowlist, shebang и executable-mode объявленного npm bin в подготовленном архиве. */
-  function checkContents(pack) {
+  function checkContents(pack: PackResult) {
     assert.equal(pack.name, manifest.name);
     assert.equal(pack.version, manifest.version);
     const paths = pack.files.map((file) => file.path);
@@ -66,15 +73,16 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
       readFileSync(join(repositoryRoot, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'),
     );
     assert.ok(
-      pack.files.find((file) => file.path === binPath).mode & 0o111,
+      pack.files.find((file) => file.path === binPath)!.mode & 0o111,
       'CLI must be executable',
     );
   }
 
   /** Сверяет bytes всех ресурсов через SHA-256, независимо от прав/времени файлов. */
-  function treeHash(root) {
+  function treeHash(root: string) {
     const hash = createHash('sha256');
-    function visit(path, name) {
+    /** Обходит ресурсы в стабильном порядке и добавляет имя, длину и bytes файла в общий хеш. */
+    function visit(path: string, name: string) {
       if (lstatSync(path).isDirectory()) {
         for (const entry of readdirSync(path).sort()) visit(join(path, entry), name + '/' + entry);
       } else {
@@ -88,7 +96,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   }
 
   /** Проверяет установленный bin и локальный/глобальный жизненный цикл; все установки ограничены временными корнями. */
-  function checkInstalledCli(bin, cwd, source, global) {
+  function checkInstalledCli(bin: string, cwd: string, source: string, global: boolean) {
     writeFileSync(join(source, 'ресурс.bin'), Buffer.from([0, 255, 128]));
     const scope = global ? ['--global'] : [];
     const installedRoot = global ? temporaryHome : cwd;
@@ -119,7 +127,9 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
     const lockPath = global
       ? join(temporaryHome, '.agents/skills-installer-lock.json')
       : join(cwd, 'skills-installer-lock.json');
-    const record = JSON.parse(readFileSync(lockPath, 'utf8')).skills['package-smoke'];
+    const record = (JSON.parse(readFileSync(lockPath, 'utf8')) as LockFile).skills[
+      'package-smoke'
+    ]!;
     assert.match(record.contentHash, /^[a-f0-9]{64}$/);
     assert.match(run(bin, ['list', ...scope], cwd), /package-smoke/);
     writeFileSync(join(source, 'ресурс.bin'), Buffer.from([0, 255, 128, 1]));
@@ -127,7 +137,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
     assert.equal(treeHash(skillPath), treeHash(source));
     assert.equal(treeHash(connectionPath), treeHash(source));
     assert.notEqual(
-      JSON.parse(readFileSync(lockPath, 'utf8')).skills['package-smoke'].contentHash,
+      (JSON.parse(readFileSync(lockPath, 'utf8')) as LockFile).skills['package-smoke']!.contentHash,
       record.contentHash,
     );
     run(bin, ['remove', 'package-smoke', ...scope, '--yes'], cwd);
@@ -137,12 +147,12 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
   }
 
   mkdirSync(artifactDirectory, { recursive: true });
-  const prepared = await preparePackageArchive(runner, repositoryRoot, env.TMPDIR, binPath);
-  const [preview] = JSON.parse(
+  const prepared = await preparePackageArchive(runner, repositoryRoot, env.TMPDIR!, binPath);
+  const [preview]: [PackResult] = JSON.parse(
     npm(['pack', prepared, '--dry-run', '--json', '--ignore-scripts'], repositoryRoot),
   );
   checkContents(preview);
-  const [pack] = JSON.parse(
+  const [pack]: [PackResult] = JSON.parse(
     npm(
       ['pack', prepared, '--json', '--ignore-scripts', '--pack-destination', artifactDirectory],
       repositoryRoot,
@@ -156,7 +166,7 @@ await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
     onReadEntry(entry) {
       if (entry.path === `package/${binPath}`) {
         archivedBin = true;
-        assert.ok(entry.mode & 0o111, 'Archive bin must retain executable mode on every OS');
+        assert.ok(entry.mode! & 0o111, 'Archive bin must retain executable mode on every OS');
       }
     },
   });

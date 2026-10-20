@@ -37,7 +37,7 @@
     "test:git": "node --import tsx scripts/check-git-roundtrip.ts",
     "changeset": "changeset",
     "package:check": "publint --strict",
-    "package:smoke": "node scripts/check-package.mjs"
+    "package:smoke": "node --import tsx scripts/check-package.ts"
   },
   "dependencies": {
     "@clack/core": "1.5.1",

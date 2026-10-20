@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hashDirectory } from '../src/state/hash.ts';
 import type { LockFile } from '../src/state/types.ts';
-import { withIsolatedRuntime } from './isolated-runtime.mjs';
+import { withIsolatedRuntime } from './isolated-runtime.ts';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
 const skill = 'git-roundtrip';

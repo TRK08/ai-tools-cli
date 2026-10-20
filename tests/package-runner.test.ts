@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
-import { packageRunner, quoteCmdArgument } from '../scripts/package-runner.mjs';
+import { packageRunner, quoteCmdArgument } from '../scripts/package-runner.ts';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn(() => 'output') }));
 

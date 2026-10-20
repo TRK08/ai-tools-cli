@@ -7,7 +7,7 @@ import { join } from 'node:path';
  * использует SET dp0=%~dp0 без кавычек (npm/cmd-shim#45). Сложные cwd и source
  * проверяются отдельно от пути самого shim, через настоящий установленный bin.
  */
-export async function preparePackageFixture(root) {
+export async function preparePackageFixture(root: string) {
   const paths = {
     localInstall: join(root, 'Локальная npm установка'),
     prefix: join(root, 'Глобальный npm prefix'),

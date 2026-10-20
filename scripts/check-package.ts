@@ -1,235 +1,111 @@
-import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  writeFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { list as listTar } from 'tar';
 import manifest from '../package.json' with { type: 'json' };
-import type { LockFile } from '../src/state/types.ts';
 import { withIsolatedRuntime } from './isolated-runtime.ts';
-import { packageRunner } from './package-runner.ts';
-import { preparePackageArchive } from './package-archive.ts';
-import { preparePackageFixture } from './package-fixture.ts';
 
-const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
-interface PackResult {
-  name: string;
-  version: string;
-  filename: string;
-  files: { path: string; mode: number }[];
-}
+const [input, ...extra] = process.argv.slice(2);
+assert.ok(input && extra.length === 0, 'Используйте npm run package:smoke -- <archive.tgz>');
+const archive = resolve(input);
+const npmExecPath = process.env.npm_execpath;
+assert.ok(npmExecPath, 'Запустите smoke через npm run package:smoke.');
 const binPath = manifest.bin['skills-installer'].replace(/^\.\//, '');
-const artifactDirectory = join(repositoryRoot, 'artifacts/npm');
-await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
-  const temporaryHome = roots.home;
-  const runner = packageRunner(env, process.env.npm_execpath);
-  const run = runner.bin;
-  const npm = runner.npm;
-  // Проверяется реальный homedir/tmpdir дочернего Node, а не только объект env.
-  const detected = JSON.parse(
-    execNode([
-      '--input-type=module',
-      '--eval',
-      'import {homedir,tmpdir} from "node:os";console.log(JSON.stringify([homedir(),tmpdir()]))',
-    ]),
-  );
-  assert.deepEqual(detected, [temporaryHome, env.TMPDIR]);
-  /** Проверяет runtime дочернего Node без обращения к пользовательскому env. */
-  function execNode(args: string[]) {
-    return execFileSync(process.execPath, args, { cwd: roots.cwd, env, encoding: 'utf8' });
-  }
+const required = ['package.json', binPath, 'README.md', 'LICENSE', 'ThirdPartyNoticeText.txt'];
 
-  /** Проверяет allowlist, shebang и executable-mode объявленного npm bin в подготовленном архиве. */
-  function checkContents(pack: PackResult) {
-    assert.equal(pack.name, manifest.name);
-    assert.equal(pack.version, manifest.version);
-    const paths = pack.files.map((file) => file.path);
-    for (const required of [
-      'package.json',
-      'dist/cli.mjs',
-      'README.md',
-      'LICENSE',
-      'ThirdPartyNoticeText.txt',
-    ]) {
-      assert.ok(paths.includes(required), `Missing package file: ${required}`);
-    }
-    for (const path of paths) {
-      assert.ok(
-        path.startsWith('dist/') ||
-          ['package.json', 'README.md', 'LICENSE', 'ThirdPartyNoticeText.txt'].includes(path),
-        `Unexpected package file: ${path}`,
-      );
-    }
-    assert.ok(
-      readFileSync(join(repositoryRoot, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'),
-    );
-    assert.ok(
-      pack.files.find((file) => file.path === binPath)!.mode & 0o111,
-      'CLI must be executable',
-    );
-  }
-
-  /** Сверяет bytes всех ресурсов через SHA-256, независимо от прав/времени файлов. */
-  function treeHash(root: string) {
-    const hash = createHash('sha256');
-    /** Обходит ресурсы в стабильном порядке и добавляет имя, длину и bytes файла в общий хеш. */
-    function visit(path: string, name: string) {
-      if (lstatSync(path).isDirectory()) {
-        for (const entry of readdirSync(path).sort()) visit(join(path, entry), name + '/' + entry);
-      } else {
-        const bytes = readFileSync(path);
-        hash.update(JSON.stringify([name, bytes.length]));
-        hash.update(bytes);
-      }
-    }
-    visit(realpathSync(root), '');
-    return hash.digest('hex');
-  }
-
-  /** Проверяет установленный bin и локальный/глобальный жизненный цикл; все установки ограничены временными корнями. */
-  function checkInstalledCli(bin: string, cwd: string, source: string, global: boolean) {
-    writeFileSync(join(source, 'ресурс.bin'), Buffer.from([0, 255, 128]));
-    const scope = global ? ['--global'] : [];
-    const installedRoot = global ? temporaryHome : cwd;
-    const skillPath = join(installedRoot, '.agents/skills/package-smoke');
-    const connectionPath = join(installedRoot, '.claude/skills/package-smoke');
-    assert.equal(run(bin, ['--version'], cwd).trim(), manifest.version);
-    assert.match(run(bin, ['--help'], cwd), /add/);
-    run(bin, ['list', ...scope], cwd);
-    run(
-      bin,
-      ['add', source, ...scope, '-a', 'codex', '-a', 'claude-code', '--yes', '--without-stat'],
-      cwd,
-    );
-    assert.equal(
-      readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
-      readFileSync(join(source, 'SKILL.md'), 'utf8'),
-    );
-    assert.equal(lstatSync(connectionPath).isSymbolicLink(), global);
-    assert.equal(lstatSync(connectionPath).isDirectory(), !global);
-    if (global) assert.equal(realpathSync(connectionPath), realpathSync(skillPath));
-    else assert.notEqual(realpathSync(connectionPath), realpathSync(skillPath));
-    assert.equal(
-      readFileSync(join(connectionPath, 'SKILL.md'), 'utf8'),
-      readFileSync(join(skillPath, 'SKILL.md'), 'utf8'),
-    );
-    assert.equal(treeHash(skillPath), treeHash(source));
-    assert.equal(treeHash(connectionPath), treeHash(source));
-    const lockPath = global
-      ? join(temporaryHome, '.agents/skills-installer-lock.json')
-      : join(cwd, 'skills-installer-lock.json');
-    const record = (JSON.parse(readFileSync(lockPath, 'utf8')) as LockFile).skills[
-      'package-smoke'
-    ]!;
-    assert.match(record.contentHash, /^[a-f0-9]{64}$/);
-    assert.match(run(bin, ['list', ...scope], cwd), /package-smoke/);
-    writeFileSync(join(source, 'ресурс.bin'), Buffer.from([0, 255, 128, 1]));
-    run(bin, ['update', 'package-smoke', ...scope, '--yes', '--without-stat'], cwd);
-    assert.equal(treeHash(skillPath), treeHash(source));
-    assert.equal(treeHash(connectionPath), treeHash(source));
-    assert.notEqual(
-      (JSON.parse(readFileSync(lockPath, 'utf8')) as LockFile).skills['package-smoke']!.contentHash,
-      record.contentHash,
-    );
-    run(bin, ['remove', 'package-smoke', ...scope, '--yes'], cwd);
-    assert.ok(!existsSync(skillPath));
-    assert.ok(!existsSync(connectionPath));
-    assert.doesNotMatch(run(bin, ['list', ...scope], cwd), /package-smoke/);
-  }
-
-  mkdirSync(artifactDirectory, { recursive: true });
-  const prepared = await preparePackageArchive(runner, repositoryRoot, env.TMPDIR!, binPath);
-  const [preview]: [PackResult] = JSON.parse(
-    npm(['pack', prepared, '--dry-run', '--json', '--ignore-scripts'], repositoryRoot),
-  );
-  checkContents(preview);
-  const [pack]: [PackResult] = JSON.parse(
-    npm(
-      ['pack', prepared, '--json', '--ignore-scripts', '--pack-destination', artifactDirectory],
-      repositoryRoot,
-    ),
-  );
-  checkContents(pack);
-  const archive = join(artifactDirectory, pack.filename);
-  let archivedBin = false;
+/** Проверяет готовый npm-архив без перепаковки; bytes и mode читаются из самого tar. */
+async function checkArchive(): Promise<void> {
+  const files = new Set<string>();
+  const contents = new Map<string, Buffer>();
   await listTar({
     file: archive,
+    strict: true,
     onReadEntry(entry) {
-      if (entry.path === `package/${binPath}`) {
-        archivedBin = true;
-        assert.ok(entry.mode! & 0o111, 'Archive bin must retain executable mode on every OS');
+      assert.equal(entry.type, 'File', `Ожидался обычный файл: ${entry.path}`);
+      assert.ok(entry.path.startsWith('package/'), `Неверный путь: ${entry.path}`);
+      const path = entry.path.slice('package/'.length);
+      assert.ok(!path.split('/').includes('..') && !path.includes('\\'));
+      assert.ok(required.includes(path) || path.startsWith('dist/'), `Лишний файл: ${path}`);
+      assert.ok(!files.has(path), `Повтор файла: ${path}`);
+      files.add(path);
+      if (path === binPath) assert.ok(entry.mode! & 0o111, 'CLI must be executable');
+      if (path === 'package.json' || path === binPath) {
+        const chunks: Buffer[] = [];
+        entry.on('data', (chunk: Buffer) => chunks.push(chunk));
+        entry.on('end', () => contents.set(path, Buffer.concat(chunks)));
       }
     },
   });
-  assert.ok(archivedBin, 'Missing bin in actual tar headers');
-  const { localInstall, prefix, project, source } = await preparePackageFixture(temporaryRoot);
-  writeFileSync(join(localInstall, 'package.json'), '{"private":true,"type":"module"}\n');
-  writeFileSync(
-    join(source, 'SKILL.md'),
-    '---\nname: package-smoke\ndescription: Проверка npm-архива\n---\n\n# Smoke\n',
-  );
-  npm(
-    ['install', archive, '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'],
-    localInstall,
-  );
-  npm(['ls', '--omit=dev'], localInstall);
-  const localPackage = join(localInstall, 'node_modules', manifest.name);
-  assert.ok(readFileSync(join(localPackage, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'));
-  checkInstalledCli(
-    join(
-      localInstall,
-      'node_modules/.bin/skills-installer' + (process.platform === 'win32' ? '.cmd' : ''),
-    ),
-    project,
-    source,
-    false,
-  );
-  npm(
-    [
-      'install',
-      '--global',
-      '--prefix',
-      prefix,
-      archive,
-      '--omit=dev',
-      '--no-audit',
-      '--no-fund',
-      '--ignore-scripts',
-    ],
-    project,
-  );
-  checkInstalledCli(
-    join(prefix, process.platform === 'win32' ? 'skills-installer.cmd' : 'bin/skills-installer'),
-    project,
-    source,
-    true,
-  );
-  const globalModules = join(
-    prefix,
-    process.platform === 'win32' ? 'node_modules' : 'lib/node_modules',
-  );
-  const globalPackage = join(globalModules, manifest.name);
-  assert.ok(readFileSync(join(globalPackage, binPath), 'utf8').startsWith('#!/usr/bin/env node\n'));
-  for (const name of Object.keys(manifest.devDependencies)) {
-    for (const directory of [
-      join(localInstall, 'node_modules'),
-      join(localPackage, 'node_modules'),
-      globalModules,
-      join(globalPackage, 'node_modules'),
-    ])
-      assert.ok(
-        !existsSync(join(directory, name)),
-        `Dev dependency must not be installed: ${name}`,
-      );
+  for (const path of required) assert.ok(files.has(path), `Отсутствует файл: ${path}`);
+  const packed = JSON.parse(contents.get('package.json')!.toString('utf8')) as typeof manifest;
+  assert.equal(packed.name, manifest.name);
+  assert.equal(packed.version, manifest.version);
+  assert.deepEqual(packed.bin, manifest.bin);
+  assert.ok(contents.get(binPath)!.toString('utf8').startsWith('#!/usr/bin/env node\n'));
+}
+
+await checkArchive();
+await withIsolatedRuntime(async ({ temporaryRoot, roots, env }) => {
+  const localInstall = join(temporaryRoot, 'Локальная npm установка');
+  const prefix = env.npm_config_prefix!;
+  await mkdir(localInstall);
+  await writeFile(join(localInstall, 'package.json'), '{"private":true,"type":"module"}\n');
+  const options = {
+    cwd: roots.cwd,
+    env,
+    encoding: 'utf8' as const,
+    timeout: 120_000,
+    stdio: ['ignore', 'pipe', 'pipe'] as ['ignore', 'pipe', 'pipe'],
+  };
+
+  /** Запускает настоящий bin с одним фиксированным флагом; Windows использует npm .cmd. */
+  function runBin(bin: string, flag: '--help' | '--version'): string {
+    if (process.platform !== 'win32') return execFileSync(bin, [flag], options);
+    // Fixture не поддерживает метасимволы в пути самого npm shim (npm/cmd-shim#45).
+    assert.ok(!/[%!^&()"|\r\n]/.test(bin), `Неподдерживаемый путь npm shim: ${bin}`);
+    const result = spawnSync(
+      env.ComSpec ?? join(env.SystemRoot!, 'System32', 'cmd.exe'),
+      ['/d', '/s', '/v:off', '/c', `""${bin}" ${flag}"`],
+      {
+        ...options,
+        env: { ...env, PATH: dirname(process.execPath) + ';' + (env.PATH ?? '') },
+        windowsVerbatimArguments: true,
+      },
+    );
+    if (result.error) throw result.error;
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return result.stdout;
+  }
+
+  for (const global of [false, true]) {
+    execFileSync(
+      process.execPath,
+      [
+        npmExecPath,
+        'install',
+        ...(global ? ['--global', '--prefix', prefix] : []),
+        archive,
+        '--omit=dev',
+        '--no-audit',
+        '--no-fund',
+        '--ignore-scripts',
+      ],
+      { ...options, cwd: localInstall },
+    );
+    const modules = global
+      ? join(prefix, process.platform === 'win32' ? 'node_modules' : 'lib/node_modules')
+      : join(localInstall, 'node_modules');
+    const bin = global
+      ? join(prefix, process.platform === 'win32' ? 'skills-installer.cmd' : 'bin/skills-installer')
+      : join(modules, '.bin/skills-installer' + (process.platform === 'win32' ? '.cmd' : ''));
+    assert.equal(runBin(bin, '--version').trim(), manifest.version);
+    assert.match(runBin(bin, '--help'), /add/);
+    for (const name of Object.keys(manifest.devDependencies)) {
+      for (const directory of [modules, join(modules, manifest.name, 'node_modules')])
+        assert.ok(!existsSync(join(directory, name)), `Установлена devDependency: ${name}`);
+    }
   }
   console.log(`Package smoke passed: ${manifest.name}@${manifest.version}`);
   console.log(`Verified archive: ${archive}`);

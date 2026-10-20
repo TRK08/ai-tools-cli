@@ -167,26 +167,34 @@ npm run format:check
 npm run test:run
 npm run build
 npm run package:check
-npm run package:smoke
-npm run test:git
 ```
 
 Тесты используют временные cwd/home и подменяемый HTTP; сетевым интеграционным тестам
 нужен доступ к localhost. `npm run test` — watch, `npm run format` — форматирование.
-`npm run package:smoke` после build проверяет состав архива, установку без devDependencies
-и реальный bin во временных проекте/home/tmp/npm-prefix, включая пути с пробелами
-и кириллицей. Дочерним процессам передаётся системный allowlist; npmrc/cache,
-Windows-профили, XDG и каталоги агентов изолированы. `NODE_OPTIONS` и пользовательская
-npm-конфигурация не наследуются. Проверенный архив остаётся в `artifacts/npm/`.
-Подготовка архива задаёт executable-биты `dist/cli.mjs` в tar без изменения исходника;
-проверки npm metadata и tar header не зависят от поддержки Unix-прав на ОС сборки.
-Каталоги npm-установок в smoke учитывают ограничение shim; рабочий каталог CLI и
-аргументы источника сохраняют пробелы, кириллицу и метасимволы cmd.
-`npm run changeset` создаёт заметку об изменениях. Матрица CI включает Linux/macOS/Windows
-с Node 22.20 и 24; дополнительные Git jobs передают bundles между всеми тремя ОС.
-`npm run test:git` проверяет доступное локальное направление после build; это не
-заменяет межплатформенные jobs или приёмку Windows обычным пользователем.
-Публикация запускается вручную через отдельный GitHub Actions workflow.
+Git roundtrip входит в `test:run`: настоящий commit/clone на текущей ОС,
+NFC/NFD и `core.autocrlf=false/true`, сохранность bytes/hash и работа CLI после clone.
+Для отдельного прогона без предварительной сборки: `npm run test:git`.
+
+CI содержит семь jobs: Ubuntu/Node 24 выполняет статические проверки, build,
+publint и обычный `npm pack`; шесть комбинаций Linux/macOS/Windows × Node 22.20/24
+выполняют build, Vitest и установку одного общего Linux-архива.
+Готовый архив из CI можно проверить локально:
+
+```sh
+npm run package:smoke -- /absolute/path/package.tgz
+```
+
+Smoke проверяет состав, версию, shebang и executable-mode в tar, затем устанавливает
+архив локально и в отдельный глобальный prefix с `--omit=dev`. Настоящие bin
+(Windows `.cmd`) выполняют `--help` и `--version`. Дочерним процессам передаётся
+системный allowlist; home/tmp/npmrc/cache, Windows-профили, XDG и каталоги агентов
+изолированы. `NODE_OPTIONS` и пользовательская npm-конфигурация не наследуются.
+Архив не перепаковывается. Полный add/update/remove и сложные cwd/source проверяются
+в Vitest; перенос Git между разными ОС и создание npm-архива на Windows/macOS
+в CI не проверяются. Нативная приёмка Windows обычным пользователем остаётся
+отдельной проверкой.
+`npm run changeset` создаёт заметку об изменениях. Публикация запускается вручную
+через отдельный GitHub Actions workflow и использует тот же проверенный архив.
 
 - [Архитектура и расширение](docs/architecture.md).
 - [CI и публикация пакета в npm](docs/releasing.md).

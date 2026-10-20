@@ -22,6 +22,42 @@ async function source(context: TestEnvironment) {
 }
 
 describe('lifecycle CLI', () => {
+  it.each([false, true])(
+    'preserves complex cwd/source arguments in the lifecycle, global=%s',
+    async (global) => {
+      await withTestEnvironment(async (fixture) => {
+        const cwd = join(fixture.temporaryRoot, 'Проект & (проверка) %PATH% ! ^');
+        const path = join(fixture.temporaryRoot, 'Источник & (скилл) %PATH% ! ^');
+        await mkdir(cwd);
+        await mkdir(path);
+        await writeFile(join(path, 'SKILL.md'), skillText);
+        const bytes = Buffer.from([0, 255, 128, 13, 10]);
+        await writeFile(join(path, 'ресурс.bin'), bytes);
+        const context = { ...fixture, roots: { ...fixture.roots, cwd } };
+        const scope = global ? ['--global'] : [];
+        const installedRoot = global ? fixture.roots.home : cwd;
+        const destinations = ['.agents/skills/demo', '.claude/skills/demo'];
+        expect(
+          cli(context, ['add', path, ...scope, '-a', 'codex', '-a', 'claude-code']).status,
+        ).toBe(0);
+        for (const destination of destinations)
+          expect(await readFile(join(installedRoot, destination, 'ресурс.bin'))).toEqual(bytes);
+        expect(cli(context, ['list', ...scope]).stdout).toContain('demo');
+        const updated = Buffer.concat([bytes, Buffer.from([1])]);
+        await writeFile(join(path, 'ресурс.bin'), updated);
+        expect(cli(context, ['update', 'demo', ...scope, '--yes']).status).toBe(0);
+        for (const destination of destinations)
+          expect(await readFile(join(installedRoot, destination, 'ресурс.bin'))).toEqual(updated);
+        expect(cli(context, ['remove', 'demo', ...scope, '--yes']).status).toBe(0);
+        for (const destination of destinations)
+          await expect(lstat(join(installedRoot, destination))).rejects.toMatchObject({
+            code: 'ENOENT',
+          });
+        expect(await readFile(join(path, 'ресурс.bin'))).toEqual(updated);
+      });
+    },
+  );
+
   it('runs the full local cycle, accepts repeated agents and preserves the source', async () => {
     await withTestEnvironment(async (context) => {
       const path = await source(context);

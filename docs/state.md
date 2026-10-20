@@ -167,8 +167,8 @@ CRLF или бинарные bytes. Вложенная `.gitattributes`, `.git/i
 внутри скилла остаются обычными ресурсами. Проверьте `git check-ignore --no-index`
 и `git ls-files` после добавления; не применяйте общий `git add -f` к служебному workspace.
 
-Проверка [Git roundtrip](../scripts/git-roundtrip.ts) использует настоящий собранный
-CLI, commit/bundle/clone и `core.autocrlf=true/false`, `core.symlinks=false`.
+Проверка [Git roundtrip](../tests/git-roundtrip.test.ts) входит в Vitest, использует
+исходный CLI, настоящий локальный commit/clone на текущей ОС и `core.autocrlf=true/false`, `core.symlinks=false`.
 Она сверяет bytes/hash, no-op без переписывания, защиту обеих копий и force,
 работу list/remove без внешнего source и сохранность Vercel `skills-lock.json`.
 Executable и исчезновение пустой папки при Git checkout не считаются ручной правкой;

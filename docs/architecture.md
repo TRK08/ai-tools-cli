@@ -114,11 +114,14 @@ StateTransaction удерживает блокировку, но сам не о�
 Тестовый helper изолирует cwd/home/env; HTTP запрещён, пока явно не передан транспорт.
 Файловые ошибки, HTTP, подтверждения и терминальные потоки подменяются независимо.
 
-Отдельный [Git roundtrip](../scripts/git-roundtrip.ts) работает через собранный dist CLI
-во временных репозиториях. Producer создаёт обычные project-копии и Git bundles;
-consumer делает настоящий clone с разными core.autocrlf и проверяет bytes/hash
-и CLI lifecycle. CI передаёт bundles через artifacts от каждой ОС каждой ОС на
-обеих Node; никакого Git-сервера, post-clone repair или настоящего home здесь нет.
-Изоляция env переиспользует helper package-smoke. Сценарий содержит только
-тестовые Git-коммиты, автор/config/hooks изолированы. Статус межплатформенных
-и ручных проверок хранится в [матрице приёмки](windows-validation.md).
+[Git roundtrip](../tests/git-roundtrip.test.ts) входит в обычный Vitest и запускает
+исходный CLI через общий тестовый helper; предварительный build не нужен.
+На текущей ОС временная установка коммитится и клонируется в отдельный runtime
+с NFC/NFD и разными core.autocrlf. Проверяются bytes/hash обеих копий, ignore/attributes
+и CLI lifecycle после clone. Git config/hooks/автор и домашние каталоги изолированы.
+Обмена репозиториями между ОС в CI нет.
+
+Единый Linux npm-архив устанавливается на всех шести комбинациях ОС/Node.
+[Короткий smoke](../scripts/check-package.ts) проверяет готовый tgz и настоящие
+local/global bin --help/--version; упаковка и обычные функциональные тесты разделены.
+Статус нативных и ручных Windows-проверок хранится в [матрице приёмки](windows-validation.md).

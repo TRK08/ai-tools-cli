@@ -8,124 +8,90 @@ Workflow не повышает версию, не создаёт коммиты,
 
 [ci.yml](../.github/workflows/ci.yml) запускается для pull request и push в `main`
 или `codex/windows-support`; доступен также ручной `workflow_dispatch`.
-Он также вызывается workflow публикации и проверяет именно коммит выбранного запуска.
-Матрица: `ubuntu-latest` / `macos-latest` / `windows-latest` × Node `22.20.0` / `24`
-— шесть комбинаций, Windows runner — x64.
-Node 22 проверяется на минимальной поддерживаемой версии, Node 24 — на актуальном
-патче ветки. Общий [setup-cli](../.github/actions/setup-cli/action.yml) готовит
-Node, npm из `packageManager` в `package.json` и зависимости через `npm ci`
-для основной матрицы и Git producer/consumer jobs.
-При обновлении `packageManager` синхронизируйте закреплённую версию npm в `publish.yml`.
-На Windows используется PowerShell (`pwsh`), на Linux/macOS — стандартная Bash.
-Проверка версии из `RELEASE_VERSION` выполняется после подготовки окружения общим
-[TypeScript-скриптом](../scripts/check-release-version.ts) через установленный `tsx`, до тестов, сборки и создания
-npm-артефакта, без shell heredoc.
-[.gitattributes](../.gitattributes) закрепляет LF для текстовых файлов репозитория,
-включая Windows checkout с `core.autocrlf=true`. Для `.agents/skills/**` и
-`.claude/skills/**` преобразование отключено: ресурсы скиллов сохраняют исходные байты.
+Workflow публикации вызывает тот же reusable CI для выбранного коммита.
 
-Для проверки Windows-доработок отправьте проверенный коммит в
-`codex/windows-support`: push запустит всю матрицу. После появления workflow
-в default branch его также можно запустить через **Actions → CI → Run workflow**,
-выбрав нужную ветку. Commit/push выполняются отдельным поручением.
-Windows jobs запускают полный набор ниже; пока адаптация CLI и тестов не завершена,
-их ошибки показывают оставшиеся несовместимости. Добавление runner не означает
-успешного Windows-прогона или завершения нативной приёмки.
+Всего семь jobs:
 
-Дополнительно настроены три Git producer jobs на Node 24 и шесть consumer jobs
-на Linux/macOS/Windows × Node 22.20/24. После успеха основной матрицы producer
-строит CLI, через него создаёт обе project-копии и текущий lock, затем сохраняет
-самодостаточные Git bundles для отдельных NFC/NFD fixtures. Consumer скачивает
-artifacts всех трёх producers и делает настоящий clone/checkout каждого bundle
-с core.autocrlf=false/true и core.symlinks=false. Проверяются все 9 направлений
-на обеих consumer-версиях Node (72 checkout-сценария с учётом Unicode/attributes).
-Отсутствие bundle любого producer или Unicode-варианта завершает consumer ошибкой.
-Все Git config/hooks/автор и домашние каталоги изолированы.
+- `prepare` на Ubuntu/Node 24 проверяет release-version, типы, lint, форматирование,
+  собирает CLI, запускает publint и один раз выполняет обычный `npm pack --ignore-scripts`.
+- `check` на Linux/macOS/Windows × Node 22.20.0/24 собирает CLI, выполняет весь Vitest,
+  скачивает общий архив и запускает `npm run package:smoke -- artifacts/npm/package.tgz`.
 
-Для локальной проверки доступной пары после `npm run build`:
+Общий [setup-cli](../.github/actions/setup-cli/action.yml) устанавливает Node,
+npm из `packageManager` и зависимости через `npm ci`. На Windows используется
+PowerShell (`pwsh`), на Linux/macOS — Bash. При обновлении `packageManager`
+синхронизируйте закреплённую версию npm в `publish.yml`.
+Release-version проверяется после установки зависимостей, до сборки и упаковки,
+через `node --import tsx scripts/check-release-version.ts`. Ошибка версии
+не позволяет создать артефакт и запустить матрицу.
+
+`prepare` сохраняет один tgz в artifact `npm-package` под именем `package.tgz`
+на семь дней. Переименование сохраняет bytes архива. Все шесть комбинаций
+устанавливают этот же файл; упаковка на Windows/macOS и перепаковка tar отсутствуют.
+Успех загрузки артефакта ещё не означает успех проверок. Reusable CI завершается
+после всей матрицы, поэтому publish ждёт все семь jobs и публикует проверенный
+архив своего запуска без повторной сборки. Actions закреплены commit SHA;
+права обычных проверок — `contents: read`, npm-кеш не используется.
+
+### Git и функциональные тесты
+
+Git roundtrip — обычный [Vitest-тест](../tests/git-roundtrip.test.ts).
+На каждой ОС проверяются четыре сценария NFC/NFD × core.autocrlf=false/true,
+core.symlinks=false, обе проектные копии, bytes/hash, ignore/attributes,
+no-op без переписывания, ручные правки/force и работа CLI без внешнего source.
+Настоящие commit/clone ограничены временными репозиториями; Git config/hooks,
+автор и home изолированы. Межплатформенных bundles и producer/consumer jobs нет.
 
 ```sh
+npm run test:run
 npm run test:git
-# В CI: produce записывает bundles, consume требует полный набор всех трёх ОС.
-npm run test:git -- produce artifacts/git-producer
-npm run test:git -- consume artifacts/git-input
 ```
 
-Git jobs не заменяют нативную приёмку обычным Windows-пользователем и обнаружение
-реальными агентами. Факты и оставшиеся проверки — в [матрице](windows-validation.md).
+`test:git` — алиас фильтра Vitest для Git-тестов, без produce/consume и без
+предварительного build. CLI/Installer-тесты проверяют полный add/list/update/remove,
+обе области, агентов, сложные cwd/source и буквальную передачу аргументов через Node.
+[.gitattributes](../.gitattributes) закрепляет LF для кода; ресурсы `.agents/skills/**`
+и `.claude/skills/**` сохраняют исходные bytes.
 
-На каждой комбинации выполняются:
+### Проверка готового npm-архива
 
 ```sh
-npm ci
-npm run type-check
-npm run lint
-npm run format:check
-npm run test:run
+npm run package:smoke -- /absolute/path/package.tgz
+```
+
+[Smoke](../scripts/check-package.ts) не создаёт архив. Он проверяет его состав,
+имя/версию, объявленный bin, shebang и executable-mode непосредственно в tar.
+Разрешены `dist/`, package.json, README и лицензии; исходники, тесты и настройки
+агентов в пакет не попадают. В Linux сборщик выставляет executable-mode bin;
+обычный `npm pack` сохраняет его. Для локального создания архива на Linux:
+
+```sh
 npm run build
 npm run package:check
-npm run package:smoke
+npm pack --ignore-scripts
+npm run package:smoke -- ./trof_r-skills-installer-0.2.0.tgz
 ```
 
-`package:check` запускает publint. Служебные скрипты хранятся в TypeScript и запускаются
-через devDependency `tsx`; `npm run type-check` проверяет их вместе с исходниками и тестами.
-Установленный npm-bin `dist/cli.mjs` запускается обычным Node без инструментов разработки.
-`package:smoke` выполняет `npm pack --dry-run --json`
-и настоящий `npm pack`, проверяет имя, версию, разрешённый состав, shebang и executable.
-Разрешены только `dist/`, `package.json`, README и лицензии; исходники, тесты,
-настройки агентов и журналы задач в архив не попадают.
-
-Bin остаётся `dist/cli.mjs`. [Подготовка архива](../scripts/package-archive.ts)
-использует состав от `npm pack --ignore-scripts`, затем перепаковывает tar без
-извлечения файлов, добавляя executable-биты только bin. Это обходит ошибку npm
-с вложенным bin на Windows без изменения точки входа и прав исходного файла.
-Из подготовленного tar npm получает preview/pack JSON и сохраняет финальный архив;
-проверки mode в этих метаданных и настоящем tar header сохраняются на каждой ОС.
-Для получения проверенного архива используйте `npm run package:smoke`:
-прямой `npm pack` исходного каталога не выполняет эту подготовку.
-
-Архив устанавливается с `--omit=dev` в чистый временный проект и отдельный
-глобальный npm-prefix. Проверяются настоящий bin, help/version и цикл локального
-и глобального add/list/update/remove с Codex и Claude Code. В проекте Claude —
-обычная копия, глобально — POSIX symlink / Windows junction. Сверяются bytes и
-SHA-256 дерева обеих копий с источником, изменение contentHash при update и удаление.
-Executable проверяется также в заголовке настоящего tar на каждой ОС.
-
-Npm вызывается через `process.execPath` и `npm_execpath`, полученный от `npm run`;
-проверку запускайте именно `npm run package:smoke`. Установленный POSIX executable
-вызывается напрямую, Windows `.cmd` — через `cmd.exe /d /s /v:off` с экранированием
-аргументов и второго разбора npm shim. Проверяются локальный `node_modules/.bin`
-и глобальный bin (на Windows — прямо в prefix). Каталоги установки содержат пробелы
-и кириллицу; рабочий каталог CLI и аргумент источника дополнительно содержат
-`&`, скобки, `%PATH%`, `!` и `^`.
-Путь самого npm shim исключает эти метасимволы: в npm 11.19 он содержит
-незакавыченное `SET dp0=%~dp0` ([npm/cmd-shim#45](https://github.com/npm/cmd-shim/issues/45)).
-Локальный пакет устанавливается в отдельный временный проект, а его bin запускается
-из рабочего каталога с метасимволами. Глобальный prefix учитывает то же ограничение.
-Shim не переписывается и не заменяется вызовом `node dist/cli.mjs`.
-Регрессия устанавливает минимальный npm-архив локально/глобально без сети и
-проверяет фактические cwd, байты ресурса и аргументы настоящего установленного bin;
-на Windows это выполнение npm `.cmd` через cmd, без подмены дочернего процесса.
+Smoke устанавливает готовый пакет с `--omit=dev` в чистый временный проект
+и отдельный глобальный prefix. Настоящие POSIX executable или Windows `.cmd`
+запускаются с фиксированными --help/--version; проверяются версия, справка
+и отсутствие devDependencies. Полный lifecycle через npm shim не выполняется.
+Пути smoke могут содержать пробелы и кириллицу; путь самого Windows shim
+не содержит метасимволов cmd из-за ограничения [npm/cmd-shim#45](https://github.com/npm/cmd-shim/issues/45).
+Произвольные аргументы cmd не экранируются универсальным runner.
 В PowerShell при запрете `.ps1` используйте `skills-installer.cmd` и `npm.cmd`;
 изменение ExecutionPolicy и повышенные права не требуются.
 
-Общий [helper окружения](../scripts/isolated-runtime.ts) используется тестами и smoke.
-Из настоящего env берутся только PATH, SystemRoot/windir, ComSpec и PATHEXT;
-имена нормализуются без учёта регистра. HOME/USERPROFILE/HOMEDRIVE/HOMEPATH,
-AppData/LocalAppData, TEMP/TMP/TMPDIR, XDG и каталоги агентов принадлежат fixture.
-Npm prefix/cache и пустые user/global npmrc тоже временные; изолированные значения
-побеждают overrides. Секреты, NODE_OPTIONS/NODE_PATH и остальная npm-конфигурация
-не наследуются. Homedir/tmpdir проверяются настоящим дочерним Node, статистика отключена.
-Для runtime-зависимостей нужен доступ к npm registry. Собственные корни удаляются
-с maxRetries: 3, retryDelay: 100; проверенный архив сохраняется в `artifacts/npm/`.
-Эти проверки на macOS не заменяют нативную приёмку Windows/NTFS и PowerShell/cmd.
+Npm запускается тем же Node через npm_execpath, полученный от `npm run`.
+Общий [helper окружения](../scripts/isolated-runtime.ts) изолирует home/tmp/npmrc,
+cache/prefix, XDG и профили агентов. Унаследованы только системные ключи;
+секреты, NODE_OPTIONS/NODE_PATH и пользовательские npm-настройки не передаются.
+Для runtime-зависимостей нужен доступ к npm registry. Собственные временные
+ресурсы удаляются с ограниченными retry; входной tgz сохраняется без изменений.
 
-Из комбинации Linux / Node 24 загружается артефакт `npm-package` со сроком хранения
-семь дней. Публикация скачивает его из своего запуска после успеха всей матрицы.
-Reusable CI завершается после всех основных и Git jobs, поэтому publish ждёт обе
-группы; Git bundles имеют отдельные имена и не подменяют проверенный npm tgz.
-Повторной сборки между проверкой и публикацией нет. Actions закреплены commit SHA;
-права обычных проверок — `contents: read`, npm-кеш не используется.
+Эти автоматические проверки не заменяют приёмку Windows обычным пользователем
+и обнаружение реальными агентами. Факты и ограничения — в [матрице](windows-validation.md).
+Commit/push для запуска нового CI выполняются по отдельному поручению.
 
 ## Однократная настройка перед релизом
 

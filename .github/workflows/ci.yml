@@ -35,30 +35,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: ./.github/actions/setup-cli
         with:
           node-version: ${{ matrix.node }}
-          package-manager-cache: false
-
-      - name: Install pinned npm (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          npm_spec=$(node -p "require('./package.json').packageManager")
-          npm install --global "$npm_spec"
-          node --version
-          npm --version
-
-      - name: Install pinned npm (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $npmSpec = node -p "require('./package.json').packageManager"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm install --global $npmSpec
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --version
-          npm --version
 
       - name: Check release version
         if: inputs.release-version != ''
@@ -66,7 +45,6 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release-version }}
         run: node scripts/check-release-version.mjs
 
-      - run: npm ci
       - run: npm run type-check
       - run: npm run lint
       - run: npm run format:check

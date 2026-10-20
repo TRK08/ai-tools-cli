@@ -12,11 +12,14 @@ Workflow не повышает версию, не создаёт коммиты,
 Матрица: `ubuntu-latest` / `macos-latest` / `windows-latest` × Node `22.20.0` / `24`
 — шесть комбинаций, Windows runner — x64.
 Node 22 проверяется на минимальной поддерживаемой версии, Node 24 — на актуальном
-патче ветки. npm устанавливается из `packageManager` в `package.json`.
+патче ветки. Общий [setup-cli](../.github/actions/setup-cli/action.yml) готовит
+Node, npm из `packageManager` в `package.json` и зависимости через `npm ci`
+для основной матрицы и Git producer/consumer jobs.
 При обновлении `packageManager` синхронизируйте закреплённую версию npm в `publish.yml`.
 На Windows используется PowerShell (`pwsh`), на Linux/macOS — стандартная Bash.
-Проверка версии из `RELEASE_VERSION` выполняется общим
-[Node-скриптом](../scripts/check-release-version.mjs), без shell heredoc.
+Проверка версии из `RELEASE_VERSION` выполняется после подготовки окружения общим
+[Node-скриптом](../scripts/check-release-version.mjs), до тестов, сборки и создания
+npm-артефакта, без shell heredoc.
 [.gitattributes](../.gitattributes) закрепляет LF для текстовых файлов репозитория,
 включая Windows checkout с `core.autocrlf=true`. Для `.agents/skills/**` и
 `.claude/skills/**` преобразование отключено: ресурсы скиллов сохраняют исходные байты.

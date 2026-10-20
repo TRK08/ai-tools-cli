@@ -2,7 +2,7 @@ name: Set up CLI checks
 description: Install the selected Node, pinned npm and locked dependencies
 inputs:
   node-version:
-    description: Node version used by this Git fixture job
+    description: Node version used by this CI job
     required: true
 runs:
   using: composite

@@ -1,6 +1,6 @@
 {
   "name": "@trof_r/skills-installer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI for installing and managing agent skills",
   "type": "module",
   "license": "MIT",

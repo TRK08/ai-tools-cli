@@ -1,9 +1,11 @@
+import { RegistryFindSearch } from '../../src/cli/find-search.ts';
 import { PassThrough, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAddUi, selectScope } from '../../src/cli/add-ui.ts';
-import { selectRegistrySkill } from '../../src/cli/find-ui.ts';
+import { createAddUi } from '../../src/cli/ui/add-ui.ts';
+import { selectScope } from '../../src/cli/commands/selection.ts';
+import { selectRegistrySkill } from '../../src/cli/ui/find-ui.ts';
 import { multiselect } from '../../src/cli/terminal/multiselect.ts';
-import { confirmAdd } from '../../src/cli/add-confirm.ts';
+import { confirmAdd } from '../../src/cli/ui/add-confirm.ts';
 import { confirm } from '../../src/cli/terminal/select.ts';
 import { RegistryClient } from '../../src/registry/client.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
@@ -73,13 +75,19 @@ describe.each(['find', 'agents', 'confirm', 'scope', 'plain-confirm', 'multisele
         });
       if (kind === 'confirm') return confirmAdd('demo', t, new AbortController().signal);
       return selectRegistrySkill(
-        new RegistryClient('https://example.test', async (_url, init) => {
-          const signal = init!.signal as AbortSignal;
-          observed?.(signal);
-          return new Promise<Response>((_resolve, reject) =>
-            signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }),
-          );
-        }),
+        (changed) =>
+          new RegistryFindSearch(
+            new RegistryClient('https://example.test', async (_url, init) => {
+              const signal = init!.signal as AbortSignal;
+              observed?.(signal);
+              return new Promise<Response>((_resolve, reject) =>
+                signal.addEventListener('abort', () => reject(new Error('aborted')), {
+                  once: true,
+                }),
+              );
+            }),
+            changed,
+          ),
         'de',
         t,
       );
@@ -195,9 +203,9 @@ describe('add preparation and confirmation lifecycle', () => {
     'ctrl-c',
   ] as const)('waits for operation cleanup after %s, then releases resources', async (event) => {
     vi.useFakeTimers();
-    await withTestEnvironment(async (f) => {
+    await withTestEnvironment(async (_f) => {
       const t = terminal(true, true);
-      const ui = createAddUi(f, t);
+      const ui = createAddUi(t);
       let cleaned = false,
         settle!: () => void;
       const cleanup = new Promise<void>((resolve) => {
@@ -240,10 +248,10 @@ describe('add preparation and confirmation lifecycle', () => {
     'cleans a failed %s setup/render',
     async (stage) => {
       vi.useFakeTimers();
-      await withTestEnvironment(async (f) => {
+      await withTestEnvironment(async (_f) => {
         const t = terminal();
         const failure = new Error('render/setup failed');
-        const ui = createAddUi(f, t);
+        const ui = createAddUi(t);
         if (stage === 'raw')
           t.input.setRawMode.mockImplementationOnce(() => {
             throw failure;
@@ -275,20 +283,21 @@ describe('add preparation and confirmation lifecycle', () => {
 
   it('does not cancel a transaction after approval and retains the output failure', async () => {
     vi.useFakeTimers();
-    await withTestEnvironment(async (f) => {
+    await withTestEnvironment(async (_f) => {
       const t = terminal();
-      const ui = createAddUi(f, t, true);
+      const ui = createAddUi(t, true);
       let commit!: () => void,
         committed = false;
       const pending = ui.run(async () => {
         expect(
           await ui.review({
             name: 'demo',
+            installationName: 'demo',
+            tags: [],
             version: null,
-            description: null,
-            source: { kind: 'directory', path: './demo' },
-            scope: 'project',
-            policy: 'local',
+            description: '',
+            source: './demo',
+            scope: 'локальная — текущий проект',
             sharedDirectory: '/fixture/shared',
             destinations: [],
           }),

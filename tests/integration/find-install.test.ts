@@ -115,10 +115,13 @@ it.each(['\u001b', '\u0003'])(
         t = terminal();
       const before = await hashDirectory(f.temporaryRoot);
       try {
-        const run = createProgram('0.1.0', registry.context, { write: vi.fn() }, t).parseAsync(
-          ['find', 'dem', '-g'],
-          { from: 'user' },
-        );
+        const run = createProgram({
+          version: '0.1.0',
+          runtime: registry.context,
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        }).parseAsync(['find', 'dem', '-g'], { from: 'user' });
         await searchReady(t);
         await resultsReady(t);
         await keys(t, enter);
@@ -142,7 +145,13 @@ it.each(['project', 'global'] as const)(
         t = terminal();
       try {
         const flags = scope === 'global' ? ['-g'] : [];
-        const run = createProgram('0.1.0', registry.context, { write: vi.fn() }, t).parseAsync(
+        const run = createProgram({
+          version: '0.1.0',
+          runtime: registry.context,
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        }).parseAsync(
           [
             'find',
             'dem',
@@ -179,10 +188,13 @@ it.each(['project', 'global'] as const)(
         expect(t.rendered()).not.toContain('Выберите агентов');
         expect(registry.events).toEqual([]);
         registry.current.demo = '2.0.0';
-        await createProgram('0.1.0', registry.context, { write: vi.fn() }, t).parseAsync(
-          ['update', 'demo', '--yes', '--without-stat', ...flags],
-          { from: 'user' },
-        );
+        await createProgram({
+          version: '0.1.0',
+          runtime: registry.context,
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        }).parseAsync(['update', 'demo', '--yes', '--without-stat', ...flags], { from: 'user' });
         expect(JSON.parse(await readFile(paths.lockPath, 'utf8')).skills.demo).toMatchObject({
           version: '2.0.0',
           policy: 'latest',
@@ -209,10 +221,13 @@ it('installs the selected version with latest policy even when the registry curr
           '---\nname: local-shadow\ndescription: Local\n---\n',
         );
       }
-      const run = createProgram('0.1.0', registry.context, { write: vi.fn() }, t).parseAsync(
-        ['find', '--yes'],
-        { from: 'user' },
-      );
+      const run = createProgram({
+        version: '0.1.0',
+        runtime: registry.context,
+        stdin: t.input,
+        stdout: t.output,
+        stderr: t.output,
+      }).parseAsync(['find', '--yes'], { from: 'user' });
       await searchReady(t);
       expect(registry.requests).toEqual([]);
       await keys(t, 'dem');

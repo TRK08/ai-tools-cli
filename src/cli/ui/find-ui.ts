@@ -9,19 +9,18 @@ import {
 import type { Key } from 'node:readline';
 import { styleText } from 'node:util';
 import stringWidth from 'fast-string-width';
-import type { RegistryClient } from '../registry/client.ts';
-import type { CatalogSkill } from '../registry/catalog.ts';
-import type { PromptStreams } from './terminal/types.ts';
-import { terminalText, queryViewport } from './terminal/text.ts';
-import { MIN_FIND_PREFIX_LENGTH, RegistryFindSearch } from './find-search.ts';
+import type { FindSearchFactory } from './types.ts';
+import type { CatalogSkill } from '../../registry/catalog.ts';
+import type { PromptStreams } from '../terminal/types.ts';
+import { terminalText, queryViewport } from '../terminal/text.ts';
+import { MIN_FIND_PREFIX_LENGTH } from '../find-search.ts';
 import { plural } from './labels.ts';
-import { createLoading } from './terminal/loading.ts';
-import { formatChoice } from './terminal/style.ts';
-import { runPrompt } from './terminal/prompt.ts';
-import { createFrame } from './terminal/screen.ts';
-import { moveSelection, visibleStart } from './terminal/navigation.ts';
+import { createLoading } from '../terminal/loading.ts';
+import { formatChoice } from '../terminal/style.ts';
+import { runPrompt } from '../terminal/prompt.ts';
+import { createFrame } from '../terminal/screen.ts';
+import { moveSelection, visibleStart } from '../terminal/navigation.ts';
 
-// Адаптировано из ../skills/src/find.ts; см. ThirdPartyNoticeText.txt.
 /** Форматирует счётчик установок с русским склонением и сокращениями тыс./млн. */
 function installs(count: number): string {
   const value =
@@ -41,7 +40,7 @@ function installs(count: number): string {
  * По завершении отменяет поиск и spinner, восстанавливает raw mode, поток и курсор.
  */
 export async function selectRegistrySkill(
-  client: RegistryClient,
+  createSearch: FindSearchFactory,
   initialPrefix: string,
   streams: PromptStreams,
 ): Promise<CatalogSkill | null> {
@@ -59,7 +58,7 @@ export async function selectRegistrySkill(
       },
       (cause) => prompt.finish(null, cause),
     );
-    const search = new RegistryFindSearch(client, () => {
+    const search = createSearch(() => {
       if (prompt.closed) return;
       try {
         selectedIndex = 0;

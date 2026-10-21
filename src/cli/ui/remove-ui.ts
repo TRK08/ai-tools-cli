@@ -1,11 +1,11 @@
-import { confirm } from './terminal/select.ts';
+import { confirm } from '../terminal/select.ts';
 import { cancel, intro, log, note, outro } from '@clack/prompts';
-import type { InstallationChange } from '../installer/types.ts';
-import type { AgentId, InstallationScope } from '../installer/types.ts';
-import type { InstallationRecord } from '../state/types.ts';
-import type { PromptStreams } from './terminal/types.ts';
-import { renderTable } from './terminal/table.ts';
-import { multiselect } from './terminal/multiselect.ts';
+import type { InstallationChange } from '../../installer/types.ts';
+import type { AgentId, InstallationScope } from '../../installer/types.ts';
+import type { InstallationRecord } from '../../state/types.ts';
+import type { PromptStreams } from '../terminal/types.ts';
+import { renderTable } from '../terminal/table.ts';
+import { multiselect } from '../terminal/multiselect.ts';
 import { failureLabel, plural, scopeLabel } from './labels.ts';
 
 /**
@@ -16,7 +16,6 @@ export function createRemoveUi(
   streams: PromptStreams,
   scope: InstallationScope,
   agents: readonly AgentId[],
-  yes = false,
 ) {
   const options = { output: streams.output };
   const columns = [
@@ -64,17 +63,13 @@ export function createRemoveUi(
   };
 
   /**
-   * Показывает весь выбранный список и запрашивает одно подтверждение по умолчанию «Нет».
-   *
-   * @returns true при согласии/--yes, false при отказе/отмене; без TTY требуется --yes.
+   * Показывает весь выбранный список перед подтверждением или удалением с --yes.
    */
-  const review = async (records: readonly InstallationRecord[]) => {
+  const preview = (records: readonly InstallationRecord[]): void => {
     renderTable(columns, records.map(row), streams.output);
-    if (yes) return true;
-    if (!streams.input.isTTY || !streams.output.isTTY)
-      throw new Error(
-        'Для подтверждения удаления нужны stdin и stdout терминала (TTY); в скриптах используйте remove <name> --yes.',
-      );
+  };
+  /** Подтверждает показанный список; TTY и --yes проверяет сценарий до вызова. */
+  const review = async (records: readonly InstallationRecord[]): Promise<boolean> => {
     const accepted = await confirm({
       message: `Удалить ${records.length} ${plural(records.length, 'скилл', 'скилла', 'скиллов')} у перечисленных агентов?`,
       active: 'Да, удалить',
@@ -124,6 +119,7 @@ export function createRemoveUi(
 
   return {
     select,
+    preview,
     review,
     finish,
     missing: (name: string) => log.info(`${name} не имеет подходящей установки.`, options),

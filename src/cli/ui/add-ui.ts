@@ -1,50 +1,31 @@
 import { log, note } from '@clack/prompts';
 import type { Key } from 'node:readline';
-import type { RuntimeContext } from '../runtime.ts';
-import { AGENTS } from '../installer/agents.ts';
-import type { AddDecision, AddPreview } from '../installer/types.ts';
-import type { InstallationScope } from '../installer/types.ts';
-import { RegistryClient } from '../registry/client.ts';
-import type { SkillDetail } from '../registry/catalog.ts';
-import type { PromptStreams } from './terminal/types.ts';
-import { terminalText, wrapTerminalText } from './terminal/text.ts';
-import { renderTable } from './terminal/table.ts';
-import { createLoading } from './terminal/loading.ts';
-import { terminalSession } from './terminal/session.ts';
-import { confirmAdd, selectAddScope } from './add-confirm.ts';
-
-/**
- * Выбирает область add/find; -g и запуск без TTY обходят меню.
- *
- * @returns project/global либо null при отмене; без TTY по умолчанию project.
- */
-export async function selectScope(
-  global: boolean | undefined,
-  context: RuntimeContext,
-  streams: PromptStreams,
-): Promise<InstallationScope | null> {
-  if (global) return 'global';
-  if (!streams.input.isTTY || !streams.output.isTTY) return 'project';
-  return selectAddScope(context, streams);
-}
+import type { AddDecision } from '../../installer/types.ts';
+import type { AddCardView } from './types.ts';
+import type { PromptStreams } from '../terminal/types.ts';
+import { terminalText, wrapTerminalText } from '../terminal/text.ts';
+import { renderTable } from '../terminal/table.ts';
+import { createLoading } from '../terminal/loading.ts';
+import { terminalSession } from '../terminal/session.ts';
+import { confirmAdd } from './add-confirm.ts';
 
 /**
  * Показывает выбранную версию, источник, краткое описание и агентов для каждого пути.
  * Очищает управляющие символы данных и переносит строки по ширине терминала.
  */
-function card(preview: AddPreview, details: SkillDetail | undefined, streams: PromptStreams) {
+function card(preview: AddCardView, streams: PromptStreams) {
   const width = Math.max(16, (streams.output.columns ?? 80) - 8);
   const clean = (value: string) => value.split(/\r?\n/).map(terminalText).join('\n');
   const lines = [
-    `Имя: ${details?.name ?? preview.name}`,
-    ...(preview.source.kind === 'registry' ? [`Slug: ${preview.source.slug}`] : []),
+    `Имя: ${preview.name}`,
+    ...(preview.slug ? [`Slug: ${preview.slug}`] : []),
     `Версия: ${preview.version ?? 'локальный источник'}`,
-    `Источник: ${preview.source.kind === 'registry' ? preview.source.registryUrl : preview.source.path}`,
-    `Область: ${preview.scope === 'project' ? 'локальная — текущий проект' : 'глобальная — для пользователя'}`,
+    `Источник: ${preview.source}`,
+    `Область: ${preview.scope}`,
     '',
-    details?.shortDescription ?? preview.description ?? '',
-    ...(details?.tags.length ? ['', `Теги: ${details.tags.join(', ')}`] : []),
-    ...(details ? [`Установок: ${details.installCount}`] : []),
+    preview.description,
+    ...(preview.tags.length ? ['', `Теги: ${preview.tags.join(', ')}`] : []),
+    ...(preview.installCount === undefined ? [] : [`Установок: ${preview.installCount}`]),
     '',
     `Общий каталог: ${preview.sharedDirectory}`,
   ];
@@ -53,18 +34,12 @@ function card(preview: AddPreview, details: SkillDetail | undefined, streams: Pr
     'Установка скилла',
     { output: streams.output },
   );
-  const destinations = new Map<string, string[]>();
-  for (const { agent, path } of preview.destinations) {
-    const labels = destinations.get(path) ?? [];
-    labels.push(AGENTS.find((item) => item.id === agent)!.label);
-    destinations.set(path, labels);
-  }
   renderTable(
     [
       { title: 'Агенты', maximum: 52 },
       { title: 'Путь установки', maximum: 100 },
     ],
-    [...destinations].map(([path, labels]) => [labels.join(', '), terminalText(path)]),
+    preview.destinations.map(({ path, agents }) => [agents.join(', '), terminalText(path)]),
     streams.output,
   );
 }
@@ -76,7 +51,7 @@ function card(preview: AddPreview, details: SkillDetail | undefined, streams: Pr
  * При ошибке потока отменяет подготовку и ждёт её очистки; после approve не прерывает транзакцию.
  * Индикатор очищается перед карточкой, вопросом, сообщением Installer и при завершении run.
  */
-export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes = false) {
+export function createAddUi(streams: PromptStreams, yes = false) {
   const controller = new AbortController();
   let terminalError: unknown;
   let confirmed = false;
@@ -145,32 +120,20 @@ export function createAddUi(context: RuntimeContext, streams: PromptStreams, yes
     return result;
   };
   /**
-   * Получает registry-карточку именно выбранной версии, показывает её и запрашивает согласие.
+   * Показывает готовую карточку выбранной версии и запрашивает согласие.
    *
    * @returns approve/decline/cancel; --yes пропускает только финальный вопрос.
    */
-  const review = async (preview: AddPreview): Promise<AddDecision> => {
-    let details: SkillDetail | undefined;
-    try {
-      if (preview.source.kind === 'registry')
-        details = await new RegistryClient(preview.source.registryUrl, context.http).getSkill(
-          preview.source.slug,
-          preview.version!,
-          controller.signal,
-        );
-    } catch (cause) {
-      if (controller.signal.aborted) return 'cancel';
-      throw cause;
-    }
+  const review = async (preview: AddCardView): Promise<AddDecision> => {
     stopLoading();
     if (controller.signal.aborted) return 'cancel';
-    card(preview, details, streams);
+    card(preview, streams);
     if (yes) {
       confirmed = true;
       loading.start('Установка скилла…');
       return 'approve';
     }
-    const decision = await confirmAdd(preview.name, streams, controller.signal);
+    const decision = await confirmAdd(preview.installationName, streams, controller.signal);
     if (decision === 'approve') {
       confirmed = true;
       loading.start('Установка скилла…');

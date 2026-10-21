@@ -2,7 +2,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { describe, expect, it, vi } from 'vitest';
-import { selectAgents } from '../../src/cli/agents-prompt.ts';
+import { selectAgents } from '../../src/cli/commands/selection.ts';
 import { multiselect } from '../../src/cli/terminal/multiselect.ts';
 import { createProgram } from '../../src/cli/program.ts';
 
@@ -246,19 +246,17 @@ describe('real Clack selection with controlled TTY streams', () => {
         const t = terminal();
         const http = vi.fn(context.http);
         const before = await hashDirectory(context.temporaryRoot);
-        const output = { write: vi.fn() };
         try {
-          const run = createProgram('0.1.0', { ...context, http }, output, t).parseAsync([
-            'node',
-            'skills-installer',
-            'add',
-            './missing',
-            '--force',
-            '-g',
-          ]);
+          const run = createProgram({
+            version: '0.1.0',
+            runtime: { ...context, http },
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['node', 'skills-installer', 'add', './missing', '--force', '-g']);
           await keys(t, [key]);
           await run;
-          expect(output.write).toHaveBeenCalledWith('Отменено.');
+          expect(t.rendered()).toContain('Отменено.');
           expect(http).not.toHaveBeenCalled();
           expect(await hashDirectory(context.temporaryRoot)).toBe(before);
         } finally {
@@ -278,12 +276,13 @@ describe('real Clack selection with controlled TTY streams', () => {
       try {
         const before = await hashDirectory(context.temporaryRoot);
         await expect(
-          createProgram('0.1.0', context, { write: vi.fn() }, t).parseAsync([
-            'node',
-            'skills-installer',
-            'add',
-            './missing',
-          ]),
+          createProgram({
+            version: '0.1.0',
+            runtime: context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['node', 'skills-installer', 'add', './missing']),
         ).rejects.toThrow(/TTY.*укажите -a/);
         expect(t.rendered()).toBe('');
         expect(await hashDirectory(context.temporaryRoot)).toBe(before);

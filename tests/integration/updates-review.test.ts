@@ -34,12 +34,13 @@ function terminal(inputTTY = true, outputTTY = true) {
 }
 
 const run = (f: TestEnvironment, t: ReturnType<typeof terminal>, args: string[] = []) =>
-  createProgram('0.1.0', f, { write: (message) => t.output.write(`${message}\n`) }, t).parseAsync([
-    'node',
-    'skills-installer',
-    'update',
-    ...args,
-  ]);
+  createProgram({
+    version: '0.1.0',
+    runtime: f,
+    stdin: t.input,
+    stdout: t.output,
+    stderr: t.output,
+  }).parseAsync(['node', 'skills-installer', 'update', ...args]);
 const waitForPrompt = (t: ReturnType<typeof terminal>) =>
   vi.waitFor(() => expect(t.rendered()).toContain('Нет, пропустить'), { interval: 10 });
 const approve = (t: ReturnType<typeof terminal>) => t.input.write('\u001b[C\r');

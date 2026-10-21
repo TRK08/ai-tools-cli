@@ -1,3 +1,4 @@
+import { RegistryFindSearch } from '../../src/cli/find-search.ts';
 import { readdir } from 'node:fs/promises';
 
 import { PassThrough, Writable } from 'node:stream';
@@ -6,7 +7,7 @@ import stringWidth from 'fast-string-width';
 import { S_RADIO_ACTIVE } from '@clack/prompts';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../../src/cli/program.ts';
-import { selectRegistrySkill } from '../../src/cli/find-ui.ts';
+import { selectRegistrySkill } from '../../src/cli/ui/find-ui.ts';
 import { RegistryClient } from '../../src/registry/client.ts';
 import { sortCatalog } from '../../src/registry/catalog.ts';
 import { hashDirectory } from '../../src/state/hash.ts';
@@ -119,7 +120,8 @@ describe('backend live registry finder', () => {
       try {
         let resolved = false;
         const selected = selectRegistrySkill(
-          new RegistryClient(registry.url, registry.http),
+          (changed) =>
+            new RegistryFindSearch(new RegistryClient(registry.url, registry.http), changed),
           'd',
           t,
         ).then((value) => {
@@ -166,7 +168,13 @@ describe('backend live registry finder', () => {
       );
       try {
         const chosen = selectRegistrySkill(
-          new RegistryClient('https://registry.example.test', async () => Response.json({ items })),
+          (changed) =>
+            new RegistryFindSearch(
+              new RegistryClient('https://registry.example.test', async () =>
+                Response.json({ items }),
+              ),
+              changed,
+            ),
           'skill-',
           t,
         );
@@ -192,7 +200,11 @@ describe('backend live registry finder', () => {
       }),
     );
     const chosen = selectRegistrySkill(
-      new RegistryClient('https://registry.example.test', async () => Response.json({ items })),
+      (changed) =>
+        new RegistryFindSearch(
+          new RegistryClient('https://registry.example.test', async () => Response.json({ items })),
+          changed,
+        ),
       'demo',
       t,
     );
@@ -223,7 +235,13 @@ describe('backend live registry finder', () => {
       const items = [catalogItem(), catalogItem({ slug: 'other' })];
       let resolved = false;
       const chosen = selectRegistrySkill(
-        new RegistryClient('https://registry.example.test', async () => Response.json({ items })),
+        (changed) =>
+          new RegistryFindSearch(
+            new RegistryClient('https://registry.example.test', async () =>
+              Response.json({ items }),
+            ),
+            changed,
+          ),
         'de',
         t,
       ).then((value) => {
@@ -266,10 +284,14 @@ describe('backend live registry finder', () => {
     const query = 'demo-' + 'x'.repeat(90) + 'tail';
     const prefixes: string[] = [];
     const chosen = selectRegistrySkill(
-      new RegistryClient('https://registry.example.test', async (input) => {
-        prefixes.push(new URL(String(input)).searchParams.get('slugPrefix')!);
-        return Response.json({ items: [catalogItem()] });
-      }),
+      (changed) =>
+        new RegistryFindSearch(
+          new RegistryClient('https://registry.example.test', async (input) => {
+            prefixes.push(new URL(String(input)).searchParams.get('slugPrefix')!);
+            return Response.json({ items: [catalogItem()] });
+          }),
+          changed,
+        ),
       query,
       t,
     );
@@ -306,7 +328,8 @@ describe('backend live registry finder', () => {
       try {
         let resolved = false;
         const selected = selectRegistrySkill(
-          new RegistryClient(registry.url, registry.http),
+          (changed) =>
+            new RegistryFindSearch(new RegistryClient(registry.url, registry.http), changed),
           '',
           t,
         ).then((value) => {
@@ -338,20 +361,22 @@ describe('backend live registry finder', () => {
     async (key) =>
       withTestEnvironment(async (f) => {
         const registry = catalogRegistry(f),
-          t = terminal(),
-          output = { write: vi.fn() };
+          t = terminal();
         const before = await hashDirectory(f.temporaryRoot);
         try {
-          const run = createProgram('0.1.0', registry.context, output, t).parseAsync(
-            ['find', 'dem'],
-            {
-              from: 'user',
-            },
-          );
+          const run = createProgram({
+            version: '0.1.0',
+            runtime: registry.context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['find', 'dem'], {
+            from: 'user',
+          });
           await searchReady(t);
           await keys(t, key);
           await run;
-          expect(output.write).toHaveBeenCalledWith('Отменено.');
+          expect(t.rendered()).toContain('Отменено.');
           expect(registry.requests).toHaveLength(1);
           expect(registry.events).toEqual([]);
           expect(await hashDirectory(f.temporaryRoot)).toBe(before);
@@ -371,15 +396,20 @@ describe('backend live registry finder', () => {
         return new Promise<Response>(() => {});
       });
       try {
-        const output = { write: vi.fn() };
-        const run = createProgram('0.1.0', { ...f, http }, output, t).parseAsync(['find', 'dem'], {
+        const run = createProgram({
+          version: '0.1.0',
+          runtime: { ...f, http },
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        }).parseAsync(['find', 'dem'], {
           from: 'user',
         });
         expect(t.rendered()).toContain('Поиск в реестре');
         await keys(t, key);
         await run;
         expect(signal?.aborted).toBe(true);
-        expect(output.write).toHaveBeenCalledWith('Отменено.');
+        expect(t.rendered()).toContain('Отменено.');
         expect(await readdir(f.roots.cwd)).toEqual([]);
         expect(t.input.isRaw).toBe(false);
       } finally {
@@ -392,8 +422,7 @@ describe('backend live registry finder', () => {
     'handles %s catalog without starting installation',
     async (result) =>
       withTestEnvironment(async (f) => {
-        const t = terminal(),
-          output = { write: vi.fn() };
+        const t = terminal();
         const http = vi.fn<typeof fetch>(async () =>
           result === 503
             ? new Response(null, { status: 503 })
@@ -402,12 +431,15 @@ describe('backend live registry finder', () => {
               : Response.json({ items: [] }),
         );
         try {
-          const run = createProgram('0.1.0', { ...f, http }, output, t).parseAsync(
-            ['find', 'dem'],
-            {
-              from: 'user',
-            },
-          );
+          const run = createProgram({
+            version: '0.1.0',
+            runtime: { ...f, http },
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['find', 'dem'], {
+            from: 'user',
+          });
           await vi.waitFor(
             () =>
               expect(t.current()).toContain(
@@ -448,7 +480,11 @@ describe('backend live registry finder', () => {
       });
       try {
         const selection = selectRegistrySkill(
-          new RegistryClient('https://registry.example.test', http),
+          (changed) =>
+            new RegistryFindSearch(
+              new RegistryClient('https://registry.example.test', http),
+              changed,
+            ),
           'dem',
           t,
         ).then((value) => {
@@ -488,7 +524,13 @@ describe('backend live registry finder', () => {
         http = vi.fn<typeof fetch>();
       try {
         await expect(
-          createProgram('0.1.0', { ...f, http }, { write: vi.fn() }, t).parseAsync(['find'], {
+          createProgram({
+            version: '0.1.0',
+            runtime: { ...f, http },
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['find'], {
             from: 'user',
           }),
         ).rejects.toThrow(/TTY.*find <slug-prefix>/);
@@ -506,10 +548,13 @@ describe('backend live registry finder', () => {
         http = vi.fn<typeof fetch>();
       try {
         await expect(
-          createProgram('0.1.0', { ...f, http }, { write: vi.fn() }, t).parseAsync(
-            ['find', '-a', 'unknown'],
-            { from: 'user' },
-          ),
+          createProgram({
+            version: '0.1.0',
+            runtime: { ...f, http },
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['find', '-a', 'unknown'], { from: 'user' }),
         ).rejects.toThrow('Неизвестный агент');
         expect(http).not.toHaveBeenCalled();
       } finally {
@@ -523,10 +568,13 @@ describe('backend live registry finder', () => {
         http = vi.fn<typeof fetch>();
       try {
         await expect(
-          createProgram('0.1.0', { ...f, http }, { write: vi.fn() }, t).parseAsync(
-            ['find', prefix],
-            { from: 'user' },
-          ),
+          createProgram({
+            version: '0.1.0',
+            runtime: { ...f, http },
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['find', prefix], { from: 'user' }),
         ).rejects.toThrow('длиной от 2 символов');
         expect(http).not.toHaveBeenCalled();
         expect(t.rendered()).toBe('');

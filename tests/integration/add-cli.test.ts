@@ -50,10 +50,13 @@ async function key(t: ReturnType<typeof terminal>, value: string) {
   await new Promise<void>((done) => setImmediate(done));
 }
 const run = (f: TestEnvironment, t: ReturnType<typeof terminal>, args: string[]) =>
-  createProgram('0.1.0', f, { write: (value) => t.output.write(`${value}\n`) }, t).parseAsync(
-    args,
-    { from: 'user' },
-  );
+  createProgram({
+    version: '0.1.0',
+    runtime: f,
+    stdin: t.input,
+    stdout: t.output,
+    stderr: t.output,
+  }).parseAsync(args, { from: 'user' });
 async function source(f: TestEnvironment, archive = false) {
   const path = join(f.roots.cwd, archive ? 'demo.tgz' : 'demo');
   if (archive) await writeFile(path, archiveBytes([{ path: 'SKILL.md', contents: skillText }]));

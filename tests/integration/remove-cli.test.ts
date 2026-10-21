@@ -37,12 +37,13 @@ const approve = '\u001b[C\r';
 const waitFor = (t: ReturnType<typeof terminal>, text: string) =>
   vi.waitFor(() => expect(t.rendered()).toContain(text), { interval: 10 });
 const run = (f: TestEnvironment, t: ReturnType<typeof terminal>, args: string[] = []) =>
-  createProgram('0.1.0', f, { write: (message) => t.output.write(`${message}\n`) }, t).parseAsync([
-    'node',
-    'skills-installer',
-    'remove',
-    ...args,
-  ]);
+  createProgram({
+    version: '0.1.0',
+    runtime: f,
+    stdin: t.input,
+    stdout: t.output,
+    stderr: t.output,
+  }).parseAsync(['node', 'skills-installer', 'remove', ...args]);
 
 async function install(
   f: TestEnvironment,

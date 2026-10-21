@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRemoveUi } from '../../src/cli/remove-ui.ts';
+import { createRemoveUi } from '../../src/cli/ui/remove-ui.ts';
 import type { InstallationRecord } from '../../src/state/types.ts';
 import { terminal } from '../helpers/terminal.ts';
 
@@ -26,6 +26,7 @@ describe('remove UI without filesystem operations', () => {
     if (flowing) t.input.resume();
     else t.input.pause();
     try {
+      ui.preview([record('demo')]);
       const pending = ui.review([record('demo')]);
       await vi.waitFor(() => expect(t.rendered()).toContain('Нет, оставить'));
       t.input.write('\r');
@@ -82,6 +83,7 @@ describe('remove UI without filesystem operations', () => {
     const t = terminal(),
       ui = createRemoveUi(t, 'project', []);
     try {
+      ui.preview([record('demo')]);
       const pending = ui.review([record('demo')]);
       await vi.waitFor(() => expect(t.rendered()).toContain('Нет, оставить'));
       t.input.write(key);
@@ -94,28 +96,13 @@ describe('remove UI without filesystem operations', () => {
     const t = terminal(),
       ui = createRemoveUi(t, 'global', ['codex']);
     try {
+      ui.preview([record('demo'), record('other')]);
       const pending = ui.review([record('demo'), record('other')]);
       await vi.waitFor(() => expect(t.rendered()).toContain('Нет, оставить'));
       expect(t.rendered()).not.toContain('codex, pi');
       t.input.write('\u001b[C\r');
       expect(await pending).toBe(true);
       expect(t.rendered()).toContain('глобальная');
-    } finally {
-      t.close();
-    }
-  });
-  it.each([
-    [false, false],
-    [true, false],
-    [false, true],
-  ])('requires --yes with TTY=%s/%s', async (input, output) => {
-    const t = terminal(input, output);
-    try {
-      await expect(createRemoveUi(t, 'project', []).review([record('demo')])).rejects.toThrow(
-        'используйте remove',
-      );
-      expect(await createRemoveUi(t, 'project', [], true).review([record('demo')])).toBe(true);
-      expect(t.input.setRawMode).not.toHaveBeenCalled();
     } finally {
       t.close();
     }

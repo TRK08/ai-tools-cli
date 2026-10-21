@@ -1,21 +1,17 @@
-import { confirm } from './terminal/select.ts';
+import { confirm } from '../terminal/select.ts';
 import { cancel, intro, log, note, outro } from '@clack/prompts';
-import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../installer/types.ts';
-import type { PromptStreams } from './terminal/types.ts';
-import type { InstallationScope } from '../installer/types.ts';
-import { renderTable } from './terminal/table.ts';
+import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../../installer/types.ts';
+import type { PromptStreams } from '../terminal/types.ts';
+import type { InstallationScope } from '../../installer/types.ts';
+import { renderTable } from '../terminal/table.ts';
 import { failureLabel, scopeLabel } from './labels.ts';
-import { createLoading } from './terminal/loading.ts';
+import { createLoading } from '../terminal/loading.ts';
 
 /**
  * Создаёт callbacks подтверждения и итогового вывода update, сохраняя preview каждой записи. run
  * владеет индикатором; сообщения и review останавливают его до вывода и вопросов.
  */
-export function createUpdatesUi(
-  streams: PromptStreams,
-  yes = false,
-  scope: InstallationScope = 'project',
-) {
+export function createUpdatesUi(streams: PromptStreams, scope: InstallationScope = 'project') {
   const options = { output: streams.output };
   const loading = createLoading(streams);
   const previews = new Map<string, UpdatePreview>();
@@ -49,11 +45,9 @@ export function createUpdatesUi(
   };
 
   /**
-   * Показывает доступное изменение и получает решение; unchanged/pinned не открывают вопрос.
-   *
-   * @returns approve/decline/cancel; без TTY для изменения требуется --yes.
+   * Запоминает готовый preview и показывает изменение перед вопросом либо продолжает индикатор.
    */
-  const review = async (preview: UpdatePreview): Promise<UpdateDecision> => {
+  const preview = (preview: UpdatePreview, ask: boolean): void => {
     loading.stop();
     start();
     previews.set(preview.name, preview);
@@ -74,18 +68,18 @@ export function createUpdatesUi(
                 : local
                   ? 'В источнике доступно обновлённое содержимое.'
                   : 'Доступна новая версия.';
-    if (preview.status !== 'available' || yes) {
+    if (!ask) {
       loading.start(
         preview.status === 'available' ? 'Обновление скиллов…' : 'Проверка обновлений…',
       );
-      return 'approve';
+      return;
     }
     renderTable(columns, [row(preview.name, 'Доступно обновление')], streams.output);
     log.info(status, options);
-    if (!streams.input.isTTY || !streams.output.isTTY)
-      throw new Error(
-        'Для подтверждения обновления нужны stdin и stdout терминала (TTY); в скриптах используйте --yes.',
-      );
+  };
+  /** Получает решение для уже показанного изменения; проверка TTY и --yes принадлежит сценарию. */
+  const review = async (preview: UpdatePreview): Promise<UpdateDecision> => {
+    const local = preview.sourceKind !== 'registry';
     const accepted = await confirm({
       message:
         preview.reason === 'connections'
@@ -172,5 +166,5 @@ export function createUpdatesUi(
     log.info(message, options);
     loading.start('Обновление скиллов…');
   };
-  return { review, finish, report, run };
+  return { preview, review, finish, report, run };
 }

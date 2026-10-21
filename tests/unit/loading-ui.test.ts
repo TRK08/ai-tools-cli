@@ -1,12 +1,12 @@
+import { RegistryFindSearch } from '../../src/cli/find-search.ts';
 import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAddUi } from '../../src/cli/add-ui.ts';
-import { selectRegistrySkill } from '../../src/cli/find-ui.ts';
+import { createAddUi } from '../../src/cli/ui/add-ui.ts';
+import { selectRegistrySkill } from '../../src/cli/ui/find-ui.ts';
 
 import { RegistryClient } from '../../src/registry/client.ts';
-import type { RuntimeContext } from '../../src/runtime.ts';
 
 function terminal(inputTTY = true, outputTTY = true, columns = 48) {
   let rendered = '';
@@ -37,14 +37,6 @@ function terminal(inputTTY = true, outputTTY = true, columns = 48) {
   };
 }
 
-const context: RuntimeContext = {
-  roots: { cwd: '/private/tmp/loading-project', home: '/private/tmp/loading-home' },
-  env: {},
-  http: async () => {
-    throw new Error('Unexpected HTTP');
-  },
-};
-
 afterEach(() => vi.useRealTimers());
 
 describe('loading during add preparation', () => {
@@ -52,7 +44,7 @@ describe('loading during add preparation', () => {
     vi.useFakeTimers();
     const t = terminal();
     try {
-      expect(await createAddUi(context, t).run(async () => 'done')).toBe('done');
+      expect(await createAddUi(t).run(async () => 'done')).toBe('done');
       await vi.advanceTimersByTimeAsync(1000);
       expect(t.rendered()).toBe('');
       expect(vi.getTimerCount()).toBe(0);
@@ -64,7 +56,7 @@ describe('loading during add preparation', () => {
   it('leaves fast operations silent and animates a slow operation after 200 ms', async () => {
     vi.useFakeTimers();
     const t = terminal();
-    const ui = createAddUi(context, t, true);
+    const ui = createAddUi(t, true);
     let finish!: () => void;
     const pending = ui.run(() => new Promise<void>((done) => (finish = done)));
     try {
@@ -101,7 +93,7 @@ describe('loading during add preparation', () => {
     vi.useFakeTimers();
     const t = terminal(inputTTY, outputTTY);
     let finish!: () => void;
-    const pending = createAddUi(context, t).run(() => new Promise<void>((done) => (finish = done)));
+    const pending = createAddUi(t).run(() => new Promise<void>((done) => (finish = done)));
     try {
       await vi.advanceTimersByTimeAsync(1000);
       expect(t.rendered()).toBe('');
@@ -118,7 +110,7 @@ describe('loading during add preparation', () => {
     vi.useFakeTimers();
     const t = terminal();
     let fail!: (cause: Error) => void;
-    const pending = createAddUi(context, t).run(
+    const pending = createAddUi(t).run(
       () => new Promise<void>((_resolve, reject) => (fail = reject)),
     );
     const rejected = expect(pending).rejects.toThrow('Preparation failed');
@@ -141,7 +133,7 @@ describe('loading during add preparation', () => {
   it('clears preparation before confirmation, stays quiet during the question and resumes after approval', async () => {
     vi.useFakeTimers();
     const t = terminal(true, true, 110);
-    const ui = createAddUi(context, t);
+    const ui = createAddUi(t);
     let prepared!: () => void, installed!: () => void;
     const preparation = new Promise<void>((done) => (prepared = done));
     const installation = new Promise<void>((done) => (installed = done));
@@ -149,11 +141,12 @@ describe('loading during add preparation', () => {
       await preparation;
       const decision = await ui.review({
         name: 'demo',
+        installationName: 'demo',
+        tags: [],
         version: null,
         description: 'Demo',
-        source: { kind: 'directory', path: './demo' },
-        scope: 'project',
-        policy: 'local',
+        source: './demo',
+        scope: 'локальная — текущий проект',
         sharedDirectory: '/private/tmp/loading-project/.agents/skills/demo',
         destinations: [],
       });
@@ -201,7 +194,11 @@ describe('loading in existing command screens', () => {
         'https://registry.example.test',
         async () => new Promise<Response>((done) => (finish = done)),
       );
-      const pending = selectRegistrySkill(client, 'de', t);
+      const pending = selectRegistrySkill(
+        (changed) => new RegistryFindSearch(client, changed),
+        'de',
+        t,
+      );
       try {
         await vi.advanceTimersByTimeAsync(280);
         finish(
@@ -236,7 +233,11 @@ describe('loading in existing command screens', () => {
         signal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true }),
       );
     });
-    const pending = selectRegistrySkill(client, 'de', t);
+    const pending = selectRegistrySkill(
+      (changed) => new RegistryFindSearch(client, changed),
+      'de',
+      t,
+    );
     try {
       await vi.advanceTimersByTimeAsync(199);
       expect(t.rendered()).not.toContain('◒');

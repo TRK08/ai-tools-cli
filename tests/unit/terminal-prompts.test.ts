@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { select, confirm } from '../../src/cli/terminal/select.ts';
-import { confirmAdd } from '../../src/cli/add-confirm.ts';
+import { confirmAdd } from '../../src/cli/ui/add-confirm.ts';
 import { multiselect } from '../../src/cli/terminal/multiselect.ts';
 import { terminal } from '../helpers/terminal.ts';
 

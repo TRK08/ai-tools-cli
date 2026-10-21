@@ -1,8 +1,8 @@
-import type { AddDecision } from '../installer/types.ts';
-import type { InstallationScope, RuntimeContext } from '../runtime.ts';
-import type { PromptStreams } from './terminal/types.ts';
-import { confirm, select } from './terminal/select.ts';
-import { terminalText } from './terminal/text.ts';
+import type { AddDecision } from '../../installer/types.ts';
+import type { InstallationScope } from '../../runtime.ts';
+import type { PromptStreams } from '../terminal/types.ts';
+import { confirm, select } from '../terminal/select.ts';
+import { terminalText } from '../terminal/text.ts';
 
 /** Подтверждает add/find с предвыбранным «Нет»; отмена/EOF возвращают cancel после очистки TTY. */
 export function confirmAdd(
@@ -23,17 +23,20 @@ export function confirmAdd(
 
 /** Выбирает project/global; закрытие потоков возвращает null после восстановления терминала. */
 export function selectAddScope(
-  context: RuntimeContext,
+  directories: Readonly<Record<InstallationScope, string>>,
   streams: PromptStreams,
 ): Promise<InstallationScope | null> {
   return select<InstallationScope>({
     ...streams,
     message: 'Область установки; стрелки — выбор, Enter — подтверждение',
     options: [
-      { value: 'project', label: `Локально — текущий проект (${terminalText(context.roots.cwd)})` },
+      {
+        value: 'project',
+        label: `Локально — текущий проект (${terminalText(directories.project)})`,
+      },
       {
         value: 'global',
-        label: `Глобально — для пользователя (${terminalText(context.roots.home)})`,
+        label: `Глобально — для пользователя (${terminalText(directories.global)})`,
       },
     ],
     initialValue: 'project',

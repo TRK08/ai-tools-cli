@@ -86,7 +86,7 @@ export async function resolveSelectedSource(
   };
 }
 
-/** Задаёт политику имён области и исключает состояние/назначения обоих scopes, включая сохранённые. */
+/** Задаёт политику имён; исключает default/активные каталоги всех агентов, состояние обоих scopes и сохранённые назначения. */
 export function preparationOptions(
   context: RuntimeContext,
   paths: StatePaths,
@@ -102,11 +102,13 @@ export function preparationOptions(
     cwd: paths.cwd,
     temporaryDirectory: workspace,
     excludedPaths: [
-      ...AGENTS.flatMap((agent) => [
-        agentSkillsDirectory(context, 'project', agent.id),
-        agentSkillsDirectory(context, 'global', agent.id),
-      ]),
-      join(context.roots.home, '.claude', 'skills'),
+      ...AGENTS.flatMap((agent) =>
+        (['project', 'global'] as const).flatMap((scope) => [
+          agent[scope].directory(context.roots),
+          agentSkillsDirectory(context, scope, agent.id),
+        ]),
+      ),
+      join(context.roots.cwd, '.agents', 'skills'),
       join(context.roots.cwd, INSTALLER_LOCK_NAME),
       join(context.roots.cwd, '.skills-installer-operation.lock'),
       global.skillsDirectory,

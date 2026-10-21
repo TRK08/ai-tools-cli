@@ -1,6 +1,11 @@
-import { AGENTS, isAgentId, type AgentId } from '../agents/catalog.ts';
+import {
+  AGENTS,
+  isAgentId,
+  type AgentId,
+  type AgentConnectionDefinition,
+} from '../agents/catalog.ts';
 import type { InstallationScope, RuntimeContext } from '../runtime.ts';
-import { validateNativePath } from '../state/native-path.ts';
+import { nativePath, validateNativePath } from '../state/native-path.ts';
 export { AGENTS } from '../agents/catalog.ts';
 
 /** Проверяет агентов и удаляет повторы, сохраняя порядок первого появления. */
@@ -16,15 +21,16 @@ export function parseAgents(values: readonly string[]): AgentId[] {
   return result;
 }
 
-/** Вычисляет нативный путь с учётом env; неоднозначный Windows env-путь отклоняется до resolve. */
+/** Разрешает каталог из настроек области; raw env-путь проверяется до resolve, пустой env оставляет default. */
 export function agentSkillsDirectory(
   context: RuntimeContext,
   scope: InstallationScope,
   agent: AgentId,
 ): string {
-  const configured = context.env.CLAUDE_CONFIG_DIR?.trim();
-  if (agent === 'claude-code' && scope === 'global' && configured) {
-    validateNativePath(configured);
-  }
-  return AGENTS.find((entry) => entry.id === agent)![scope].directory(context);
+  const definition: AgentConnectionDefinition = AGENTS.find((entry) => entry.id === agent)![scope];
+  const environment = definition.environment;
+  const configured = environment && context.env[environment.name]?.trim();
+  if (!configured) return definition.directory(context.roots);
+  validateNativePath(configured);
+  return nativePath.join(nativePath.resolve(context.roots.cwd, configured), ...environment.suffix);
 }

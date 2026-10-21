@@ -28,5 +28,7 @@ skill `{ name: slug, sourceType: registry, source: registryUrl }` и context
 неверный endpoint или тайм-аут не меняют файлы и результат команды. Постоянной очереди,
 файлов статистики и повторных попыток нет.
 
-Контракт backend: `../ai-tools-core/docs/openapi/swagger.yaml`; проверки —
-`tests/telemetry.test.ts` с подменяемым транспортом и настоящим локальным HTTP-сервером.
+Контракт backend: `../ai-tools-core/docs/openapi/swagger.yaml`. Условия событий
+проверяет [installer-events](../tests/unit/installer-events.test.ts), транспорт —
+[telemetry-client](../tests/unit/telemetry-client.test.ts), отправку через Installer —
+[интеграционные тесты](../tests/integration/telemetry.test.ts).

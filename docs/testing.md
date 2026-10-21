@@ -146,6 +146,9 @@ URL. Мок хранит latest, выдаёт версии 1.0.0/2.0.0 и signed
 
 Полные матрицы входов и ошибок размещаются у компонента, которому принадлежит правило:
 
+- Каталог и resolver агентов (`agents/catalog.ts`, `agents/resolve.ts`) — agents-catalog
+  и agent-configuration: ID, дедупликация, пути/default/env и защита каталогов источника.
+  Интеграции agents-installer/updates-installer проверяют сохранённые назначения после смены env.
 - Валидация путей и имён — native-path и frontmatter; адаптеры проверяют применение этих правил.
 - Tar/gzip и ограничения распаковки — archive-source; HTTP и артефакты — registry-client.
 - Схема lock, атомарная запись и блокировки — state-schema, state-store и state-mutex.

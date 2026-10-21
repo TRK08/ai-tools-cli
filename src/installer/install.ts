@@ -25,8 +25,8 @@ import {
   reusableContent,
   selectSource,
 } from './source.ts';
+import type { AgentId } from '../agents/catalog.ts';
 import type {
-  AgentId,
   InstallationChange,
   InstallerOptions,
   InstalledSnapshot,

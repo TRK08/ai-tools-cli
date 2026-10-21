@@ -1,4 +1,4 @@
-import { parseAgents } from '../../installer/agents.ts';
+import { parseAgents } from '../../agents/resolve.ts';
 import { Installer } from '../../installer/installer.ts';
 import { Telemetry } from '../../telemetry/client.ts';
 import { createUpdatesUi } from '../ui/updates-ui.ts';

@@ -1,4 +1,4 @@
-import { parseAgents } from '../../installer/agents.ts';
+import { parseAgents } from '../../agents/resolve.ts';
 import type { RegistrySelection } from '../../installer/types.ts';
 import { RegistryClient } from '../../registry/client.ts';
 import { getRegistryUrl } from '../../registry/reference.ts';

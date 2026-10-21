@@ -1,4 +1,4 @@
-import { parseAgents } from '../../installer/agents.ts';
+import { parseAgents } from '../../agents/resolve.ts';
 import { Installer } from '../../installer/installer.ts';
 import { createLoading } from '../terminal/loading.ts';
 import { renderSkillList } from '../ui/list-ui.ts';

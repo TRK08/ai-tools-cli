@@ -1,5 +1,5 @@
 import type { RegistryFindSearch } from '../find-search.ts';
-import type { AgentId } from '../../installer/types.ts';
+import type { AgentId } from '../../agents/catalog.ts';
 import type { Choice } from '../terminal/types.ts';
 
 /** Готовая карточка: источник и область подписаны, назначения объединены по пути. */

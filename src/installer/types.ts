@@ -13,8 +13,6 @@ import type { Telemetry } from '../telemetry/client.ts';
 import type { InstallerFileSystem } from './filesystem.ts';
 import type { AgentId } from '../agents/catalog.ts';
 import type { InstallationScope } from '../runtime.ts';
-export type { AgentId } from '../agents/catalog.ts';
-export type { InstallationScope } from '../runtime.ts';
 
 export interface InstallerOptions {
   readonly scope?: InstallationScope;

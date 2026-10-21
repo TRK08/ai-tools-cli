@@ -5,7 +5,7 @@ import { assertScopeLocation } from '../state/filesystem.ts';
 import { assertSkillName, getStatePaths, resolveSourcePath } from '../state/paths.ts';
 import { StateStore } from '../state/store.ts';
 import type { InstallationRecord } from '../state/types.ts';
-import { parseAgents } from './agents.ts';
+import { parseAgents } from '../agents/resolve.ts';
 import { applyRemoval } from './apply.ts';
 import { AddSkipped, UpdateSkipped } from './control.ts';
 import { inspectPath, installerFileSystem } from './filesystem.ts';
@@ -13,13 +13,13 @@ import { InstallOperation } from './install.ts';
 import { InstallationInspection } from './inspection.ts';
 import type {
   AddResult,
-  AgentId,
   InstallationChange,
   InstallerOptions,
   RegistrySelection,
   UpdateBatch,
   UpdateChange,
 } from './types.ts';
+import type { AgentId } from '../agents/catalog.ts';
 
 /** Фасад жизненного цикла скиллов с одной общей копией и независимыми подключениями. */
 export class Installer {

@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { AGENTS } from '../../src/installer/agents.ts';
+import { AGENTS } from '../../src/agents/catalog.ts';
 import { Installer } from '../../src/installer/installer.ts';
 import type { AddPreview } from '../../src/installer/types.ts';
 import { prepareLocalSource } from '../../src/sources/local.ts';

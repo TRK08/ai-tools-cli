@@ -11,9 +11,10 @@ import {
 } from '../state/paths.ts';
 import type { InstallationRecord, ManagedConnection } from '../state/types.ts';
 import { isPathWithin, nativePath, relativePathParts, samePath } from '../state/native-path.ts';
-import { agentSkillsDirectory } from './agents.ts';
+import { agentSkillsDirectory } from '../agents/resolve.ts';
 import { directoryChain, inspectPath, type InstallerFileSystem } from './filesystem.ts';
-import type { AgentId, InstalledCopy, InstalledSnapshot } from './types.ts';
+import type { AgentId } from '../agents/catalog.ts';
+import type { InstalledCopy, InstalledSnapshot } from './types.ts';
 
 /** Проверки файловых объектов и управляемых путей с подменяемым I/O. */
 export class InstallationInspection {

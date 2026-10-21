@@ -3,7 +3,8 @@ import { lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises
 import { symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { AGENTS, agentSkillsDirectory } from '../../src/installer/agents.ts';
+import { AGENTS } from '../../src/agents/catalog.ts';
+import { agentSkillsDirectory } from '../../src/agents/resolve.ts';
 import { installerFileSystem } from '../../src/installer/filesystem.ts';
 import { Installer } from '../../src/installer/installer.ts';
 import { hashDirectory } from '../../src/state/hash.ts';

@@ -1,5 +1,4 @@
-import type { AgentId } from '../installer/types.ts';
-import type { ConnectionKind } from '../agents/catalog.ts';
+import type { AgentId, ConnectionKind } from '../agents/catalog.ts';
 import type { SourceIdentity } from '../sources/types.ts';
 
 export const LOCK_VERSION = 1;

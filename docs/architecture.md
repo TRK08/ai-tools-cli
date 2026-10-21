@@ -10,6 +10,7 @@
 | [Сценарии](../src/cli/commands/)           | Параметры, зависимости, последовательность операций          | `addSkill`, `findSkill`, `listSkills`, `updateSkills`, `removeSkills` |
 | [Представления](../src/cli/ui/)            | Карточки, меню, таблицы и решения пользователя               | `createAddUi`, `createUpdatesUi`, `createRemoveUi`                    |
 | [Терминал](../src/cli/terminal/prompt.ts)  | TTY-ресурсы, кадры, диалоги, таблицы и индикатор             | `runPrompt`, `select`, `confirm`, `multiselect`                       |
+| [Агенты](../src/agents/catalog.ts)         | Настройки подключений, проверка ID и разрешение каталогов    | `AGENTS`, `parseAgents`, `agentSkillsDirectory`                       |
 | [Installer](../src/installer/installer.ts) | Add/update/list/remove, общая копия, подключения, транзакции | `Installer`                                                           |
 | [Sources](../src/sources/types.ts)         | Снимок одного скилла и его метаданные                        | `prepareLocalSource`, `prepareRegistrySource`                         |
 | [Registry](../src/registry/client.ts)      | Каталог, карточки, разрешение версии, проверенная загрузка   | `RegistryClient`                                                      |
@@ -24,6 +25,35 @@
 ошибка — в stderr. Сценарии передают терминалу только пару потоков через
 `promptStreams`; неявных process-потоков в них нет.
 Sources не знают об агентах и lock; Registry не зависит от интерфейса.
+
+## Направления зависимостей
+
+Регистрация в `program` вызывает `commands`. Сценарии связывают Installer,
+Registry и Telemetry с представлениями `ui`; представления используют `terminal`.
+Общий терминальный код зависит только от своих компонентов, Node и библиотек
+оформления. Он не импортирует команды, каталог агентов, Installer или Registry.
+UI получает готовые данные и узкие callbacks, не создаёт HTTP-клиенты и не читает lock.
+
+Базовые типы импортируются у владельцев: `AgentId` и `ConnectionKind` — из
+[agents/catalog.ts](../src/agents/catalog.ts), `InstallationScope` и `RuntimeContext` —
+из [runtime.ts](../src/runtime.ts). State и Telemetry используют эти модули напрямую.
+`installer/types.ts` описывает только контракты Installer; транзитных реэкспортов
+базовых типов нет. Операции `parseAgents` и `agentSkillsDirectory` принадлежат
+[agents/resolve.ts](../src/agents/resolve.ts), их вызывают и CLI, и Installer.
+Каталог и resolver используют общий `state/native-path` для синтаксиса путей,
+но не зависят от StateStore или состояния установок.
+
+При чтении графа различайте `import type` и runtime-импорты: типы стираются
+при сборке. Например, InstallationRecord ссылается на SourceIdentity, а подготовка
+источников использует State/hash. Это обмен контрактами; он не требует вызова
+Installer из State или Sources. Настройки агентов, терминала и runtime берутся
+напрямую у владельца, без промежуточных модулей совместимости.
+
+`src/cli.ts` получает реальные cwd/home/env, fetch, argv и process-потоки.
+Сценарии создают Installer/RegistryClient/Telemetry из переданного CliContext;
+фасад Installer создаёт StateStore и внутренние этапы из явного RuntimeContext.
+Компоненты с I/O сохраняют узкие подменяемые зависимости. Такой порядок позволяет
+проверять сценарии на временных корнях без чтения профиля пользователя.
 
 ## Основной поток
 
@@ -72,6 +102,22 @@ Find сохраняет собственную RegistryFindSearch с debounce/ab
 Новые меню подключаются к общим компонентам через PromptStreams и данные вариантов.
 Не добавляйте в UI собственные обработчики raw mode, очистку ANSI-кадров и resize.
 
+Владельцы освобождают только свои ресурсы:
+
+| Ресурс                    | Владелец и завершение                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ввод, raw mode, listeners | `terminal/session.ts` восстанавливает исходное состояние. `runPrompt` закрывает сеанс диалога; `createAddUi.run` — сеанс подготовки.           |
+| Кадр и курсор             | `terminal/screen.ts` считает физическую высоту при resize и очищает свой кадр. `runPrompt` завершает диалог по его политике.                   |
+| Таймеры индикатора        | `createLoading` очищает задержку/анимацию в `stop` и при завершении `run`; UI останавливает индикатор перед выводом и вопросом.                |
+| Debounce и запрос поиска  | `RegistryFindSearch` отменяет прежний запрос и игнорирует поздние ответы; экран find вызывает `close` при завершении.                          |
+| Workspace и rollback      | `FileTransaction` владеет временной базой Installer, staging и backup. Прямой потребитель PreparedSource вне Installer сам вызывает `cleanup`. |
+| Блокировка и lock         | `StateStore.transaction` держит область до завершения callback; Installer завершает применение/откат/очистку до выхода из него.                |
+
+До согласия add UI передаёт AbortSignal подготовке и загрузке карточки выбранной
+версии. Esc/Ctrl+C или ошибка потока ждут завершения I/O и очистки; после согласия
+Installer заканчивает транзакцию. UI не удаляет workspace самостоятельно.
+После операции сценарий ждёт `Telemetry.flush()` в `finally`.
+
 ## Контракты
 
 - `PreparedSource`: готовая папка, имя/описание, постоянный источник, версия,
@@ -109,6 +155,24 @@ Update/remove показывают preview до проверки подтвер�
 переданные потоки и UI на готовых данных. Классы команд, DI-контейнер или middleware
 для этого не нужны.
 
+В качестве образца новой читающей команды проследите существующий `list`:
+[createProgram](../src/cli/program.ts) регистрирует `-a`/`-g` и вызывает
+[listSkills](../src/cli/commands/list.ts). Сценарий получает `ScopeOptions`,
+проверяет ID через `parseAgents`, вычисляет область через `scopeOf` и вызывает
+`Installer.list`. Затем [renderSkillList](../src/cli/ui/list-ui.ts) получает
+готовые записи и PromptStreams и вызывает `renderTable`. Для новой команды
+добавляются её параметры, функция сценария и явная регистрация по этому образцу;
+собственное представление нужно, если отличается форма вывода.
+
+Изменение карточки add/find начинается с [AddCardView](../src/cli/ui/types.ts).
+Например, порядок строк «Версия»/«Описание» меняется только в `card` внутри
+[add-ui.ts](../src/cli/ui/add-ui.ts); группировка подписей назначений — в
+[addCardView](../src/cli/commands/add-card.ts). Если нужны другие уже доступные
+данные карточки, сценарий [addSkill](../src/cli/commands/add.ts) передаёт их модели.
+UI не делает дополнительный запрос и подтверждает `installationName`, даже если
+отображаемое `name` отличается. Проверки модели находятся в `add-card.test.ts`,
+оформления/решений — в `add-ui.test.ts`, HTTP и отмены — в `add-cli.test.ts`.
+
 Installer разделён на фасад, координатор install, source, inspection, plan, apply
 и events. Sources готовят снимки внутри workspace, которым владеет FileTransaction;
 заимствованная установленная копия не очищается. Plan не читает файлы, apply не
@@ -143,6 +207,8 @@ Installer: конфликт источника, отказ/отмена, пов�
 `environment: { name, suffix }` задаёт env-переменную с альтернативной базой и
 добавляемые компоненты пути. Общий resolver проверяет значение до нормализации,
 разрешает относительный путь от cwd и оставляет default при пустом значении.
+Его точка входа — [agentSkillsDirectory](../src/agents/resolve.ts);
+`parseAgents` в том же модуле проверяет ID и убирает повторы без изменения порядка.
 Подготовка источников исключает default и активные каталоги всех записей каталога;
 особые проверки ID агента в Installer для этого не нужны.
 AgentId, State-валидация, предвыбор и справка выводятся из каталога.

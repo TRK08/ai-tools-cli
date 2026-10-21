@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AGENTS, agentSkillsDirectory } from '../../src/installer/agents.ts';
+import { AGENTS } from '../../src/agents/catalog.ts';
+import { agentSkillsDirectory } from '../../src/agents/resolve.ts';
 import { preparationOptions } from '../../src/installer/source.ts';
 import { getStatePaths } from '../../src/state/paths.ts';
 import type { RuntimeContext } from '../../src/runtime.ts';

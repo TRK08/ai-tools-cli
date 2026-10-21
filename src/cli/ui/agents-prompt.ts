@@ -1,4 +1,4 @@
-import type { AgentId } from '../../installer/types.ts';
+import type { AgentId } from '../../agents/catalog.ts';
 import type { PromptStreams } from '../terminal/types.ts';
 import type { AgentsView } from './types.ts';
 import { multiselect } from '../terminal/multiselect.ts';

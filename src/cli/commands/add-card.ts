@@ -1,4 +1,4 @@
-import { AGENTS } from '../../installer/agents.ts';
+import { AGENTS } from '../../agents/catalog.ts';
 import type { AddPreview } from '../../installer/types.ts';
 import type { SkillDetail } from '../../registry/catalog.ts';
 import type { AddCardView } from '../ui/types.ts';

@@ -3,11 +3,10 @@ import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { AGENTS } from '../../src/installer/agents.ts';
+import { AGENTS } from '../../src/agents/catalog.ts';
 import { Installer } from '../../src/installer/installer.ts';
 import type { InstallerOptions } from '../../src/installer/types.ts';
-import type { InstallationScope } from '../../src/installer/types.ts';
-import type { RuntimeContext } from '../../src/runtime.ts';
+import type { InstallationScope, RuntimeContext } from '../../src/runtime.ts';
 import { getStatePaths } from '../../src/state/paths.ts';
 import { StateStore, defaultStateFileIO } from '../../src/state/store.ts';
 import { Telemetry, type TelemetryEnvelope } from '../../src/telemetry/client.ts';

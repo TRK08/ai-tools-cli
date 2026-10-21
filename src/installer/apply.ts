@@ -9,7 +9,8 @@ import { directoryChain, FileTransaction, type InstallerFileSystem } from './fil
 import type { InstallationInspection } from './inspection.ts';
 import { NoConnections } from './control.ts';
 import { createInstallationRecord, metadataChanged } from './plan.ts';
-import type { AgentId, InstallationChange, InstallPlan } from './types.ts';
+import type { AgentId } from '../agents/catalog.ts';
+import type { InstallationChange, InstallPlan } from './types.ts';
 
 /**
  * Применяет план под блокировкой области; FileTransaction владеет откатом и очисткой.

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, InstallationScope } from '../installer/types.ts';
-import type { RuntimeContext } from '../runtime.ts';
+import type { AgentId } from '../agents/catalog.ts';
+import type { InstallationScope, RuntimeContext } from '../runtime.ts';
 
 export interface RegistryEventContext {
   readonly registryUrl: string;

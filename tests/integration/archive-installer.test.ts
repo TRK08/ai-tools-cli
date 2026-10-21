@@ -3,7 +3,8 @@ import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
-import { AGENTS, agentSkillsDirectory } from '../../src/installer/agents.ts';
+import { AGENTS } from '../../src/agents/catalog.ts';
+import { agentSkillsDirectory } from '../../src/agents/resolve.ts';
 
 import { Installer } from '../../src/installer/installer.ts';
 import { hashDirectory } from '../../src/state/hash.ts';

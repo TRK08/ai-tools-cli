@@ -1,7 +1,7 @@
-import { AGENTS, agentSkillsDirectory, parseAgents } from '../../installer/agents.ts';
-import { isDirectAgent } from '../../agents/catalog.ts';
+import { AGENTS, isDirectAgent } from '../../agents/catalog.ts';
+import { agentSkillsDirectory, parseAgents } from '../../agents/resolve.ts';
 import { getStatePaths } from '../../state/paths.ts';
-import type { AgentId } from '../../installer/types.ts';
+import type { AgentId } from '../../agents/catalog.ts';
 import type { InstallationScope, RuntimeContext } from '../../runtime.ts';
 import type { PromptStreams } from '../terminal/types.ts';
 import { scopeLabel } from '../ui/labels.ts';

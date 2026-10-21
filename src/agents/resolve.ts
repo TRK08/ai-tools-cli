@@ -1,14 +1,8 @@
-import {
-  AGENTS,
-  isAgentId,
-  type AgentId,
-  type AgentConnectionDefinition,
-} from '../agents/catalog.ts';
+import { AGENTS, isAgentId, type AgentId, type AgentConnectionDefinition } from './catalog.ts';
 import type { InstallationScope, RuntimeContext } from '../runtime.ts';
 import { nativePath, validateNativePath } from '../state/native-path.ts';
-export { AGENTS } from '../agents/catalog.ts';
 
-/** Проверяет агентов и удаляет повторы, сохраняя порядок первого появления. */
+/** Проверяет ID по каталогу и удаляет повторы по первому появлению; неизвестный ID вызывает ошибку. */
 export function parseAgents(values: readonly string[]): AgentId[] {
   const result: AgentId[] = [];
   for (const value of values) {
@@ -21,7 +15,7 @@ export function parseAgents(values: readonly string[]): AgentId[] {
   return result;
 }
 
-/** Разрешает каталог из настроек области; raw env-путь проверяется до resolve, пустой env оставляет default. */
+/** Вычисляет каталог без I/O; пустой env оставляет default, небезопасный raw env-путь отклоняется до resolve. */
 export function agentSkillsDirectory(
   context: RuntimeContext,
   scope: InstallationScope,

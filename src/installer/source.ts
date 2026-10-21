@@ -1,6 +1,6 @@
 import { nativePath } from '../state/native-path.ts';
 import { AGENTS } from '../agents/catalog.ts';
-import { agentSkillsDirectory } from './agents.ts';
+import { agentSkillsDirectory } from '../agents/resolve.ts';
 import {
   localSourceIdentity,
   prepareLocalSource,

@@ -1,6 +1,5 @@
 import { posix } from 'node:path';
-import type { InstallationScope } from '../installer/types.ts';
-import type { FileSystemRoots } from '../runtime.ts';
+import type { InstallationScope, FileSystemRoots } from '../runtime.ts';
 import { PROJECT_IN_HOME_MESSAGE, StateError } from './errors.ts';
 import { assertPortableName } from './names.ts';
 import { isPathWithin, nativePath, samePath, validateNativePath } from './native-path.ts';

@@ -34,6 +34,9 @@ Callbacks интерфейса возвращают решение коорди�
 
 `<name>` добавляется к каждому каталогу из таблицы. Правила путей, тип подключения,
 названия и закреплённая группа задаются в едином [каталоге](../src/agents/catalog.ts).
+Проверка ID (`parseAgents`) и разрешение каталога (`agentSkillsDirectory`) находятся
+в [agents/resolve.ts](../src/agents/resolve.ts); CLI и Installer импортируют их напрямую.
+AgentId/ConnectionKind принадлежат каталогу, InstallationScope/RuntimeContext — runtime.
 Таблица описывает новые подключения.
 
 | Агент         | Проект            | Глобально           |

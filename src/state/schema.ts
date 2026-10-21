@@ -1,5 +1,5 @@
 import { agentConnectionKind, isAgentId, isDirectAgent } from '../agents/catalog.ts';
-import type { AgentId } from '../installer/types.ts';
+import type { AgentId } from '../agents/catalog.ts';
 import type { SourceIdentity } from '../sources/types.ts';
 import { isFullSemVer, isRegistrySlug } from '../registry/reference.ts';
 import { StateError } from './errors.ts';

@@ -4,7 +4,8 @@ import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../../src/cli/program.ts';
 import { Installer } from '../../src/installer/installer.ts';
-import type { AgentId, InstallationScope } from '../../src/installer/types.ts';
+import type { AgentId } from '../../src/agents/catalog.ts';
+import type { InstallationScope } from '../../src/runtime.ts';
 
 import { getStatePaths } from '../../src/state/paths.ts';
 import { runCli } from '../helpers/cli.ts';

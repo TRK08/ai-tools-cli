@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { agentSkillsDirectory } from '../../src/installer/agents.ts';
+import { agentSkillsDirectory } from '../../src/agents/resolve.ts';
 import { InstallationInspection } from '../../src/installer/inspection.ts';
 import { installerFileSystem } from '../../src/installer/filesystem.ts';
 import { selectSource } from '../../src/installer/source.ts';

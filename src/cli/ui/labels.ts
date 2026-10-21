@@ -1,4 +1,4 @@
-import type { InstallationScope } from '../../installer/types.ts';
+import type { InstallationScope } from '../../runtime.ts';
 
 /** Возвращает русскую подпись области для сообщений CLI. */
 export const scopeLabel = (scope: InstallationScope): string =>

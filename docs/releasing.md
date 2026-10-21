@@ -6,8 +6,8 @@ Workflow не повышает версию, не создаёт коммиты,
 
 ## Проверки CI
 
-[ci.yml](../.github/workflows/ci.yml) запускается для pull request и push в `main`
-или `codex/windows-support`; доступен также ручной `workflow_dispatch`.
+[ci.yml](../.github/workflows/ci.yml) запускается для push в `main`
+и pull request с целевой веткой `main`; доступен также ручной `workflow_dispatch`.
 Workflow публикации вызывает тот же reusable CI для выбранного коммита.
 
 Всего семь jobs:
@@ -71,7 +71,7 @@ npm run package:smoke -- /absolute/path/package.tgz
 npm run build
 npm run package:check
 npm pack --ignore-scripts
-npm run package:smoke -- ./trof_r-skills-installer-0.2.0.tgz
+npm run package:smoke -- ./trof_r-skills-installer-0.2.1.tgz
 ```
 
 Smoke устанавливает готовый пакет с `--omit=dev` в чистый временный проект
@@ -137,7 +137,7 @@ Trusted Publishing требует npm ≥11.5.1 и Node ≥22.14; использ
 настройки Trusted Publisher находятся на странице уже существующего пакета.
 Соберите и проверьте архив описанными выше командами, затем авторизуйтесь через
 `npm login` под аккаунтом `trof_r` и опубликуйте именно проверенный `.tgz`.
-Для текущей версии `0.1.0` команда:
+Например, для первичной публикации версии `0.1.0` команда:
 
 ```sh
 npm publish ./artifacts/npm/trof_r-skills-installer-0.1.0.tgz --access public --ignore-scripts
@@ -154,6 +154,9 @@ npm publish ./artifacts/npm/trof_r-skills-installer-0.1.0.tgz --access public --
 npm run changeset
 ```
 
+Выберите пакет и тип изменения: `patch`, `minor` или `major`. Заметка описывает
+будущий релиз; создание заметки ещё не меняет версию в `package.json`.
+
 Перед релизом в отдельной рабочей ветке примените накопленные заметки и синхронизируйте lock:
 
 ```sh
@@ -162,15 +165,21 @@ npm install --package-lock-only --ignore-scripts
 npm ci
 ```
 
+`changeset version` повышает версию в `package.json`, создаёт или обновляет
+`CHANGELOG.md` и удаляет применённые заметки. Следующая команда синхронизирует
+`package-lock.json`. Для patch-релиза из `0.2.0` получается `0.2.1`.
+
 Проверьте `package.json`, `package-lock.json` и `CHANGELOG.md`, затем выполните весь
 набор проверок CI. Релизный коммит с новой версией должен пройти ревью и попасть в `main`.
 Подготовка версии и merge выполняются отдельно от workflow публикации.
+CI и workflow публикации сами не повышают версию: input `version` только проверяется
+на совпадение с уже сохранёнными manifest/lock.
 
 ## Ручной запуск публикации
 
 1. Откройте **Actions → Publish npm → Run workflow** в `TRK08/ai-tools-cli`.
 2. Выберите ветку **`main`** и введите `version`, совпадающую с `package.json`
-   выбранного коммита, например `0.1.1`. Поддерживается стабильная SemVer `X.Y.Z`;
+   выбранного коммита, например `0.2.1`. Поддерживается стабильная SemVer `X.Y.Z`;
    prerelease и другие dist-tags требуют отдельного изменения workflow.
 3. Workflow снова запускает полную CI-матрицу. Несовпадение версии или ошибка
    любой проверки останавливает публикацию. Запуск из другой ветки или форка
@@ -179,8 +188,8 @@ npm ci
    required reviewers, одобрите deployment в GitHub. Он публикует проверенный
    архив с `--access public --tag latest --provenance --ignore-scripts`.
 5. После успеха проверьте страницу пакета, версию и provenance. Для независимой
-   проверки registry выполните `npm view @trof_r/skills-installer@0.1.1 version dist.integrity`
-   и проверьте `npx --yes @trof_r/skills-installer@0.1.1 --version` в отдельном каталоге.
+   проверки registry выполните `npm view @trof_r/skills-installer@0.2.1 version dist.integrity`
+   и проверьте `npx --yes @trof_r/skills-installer@0.2.1 --version` в отдельном каталоге.
    Подставьте фактическую версию.
 
 Запуски публикации сериализованы через `concurrency: publish-npm`; новый запуск

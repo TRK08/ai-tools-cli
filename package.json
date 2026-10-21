@@ -32,12 +32,15 @@
     "lint": "oxlint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "test:git": "vitest run git- state-git",
+    "test": "vitest --project unit --project integration",
+    "test:run": "vitest run --project unit --project integration",
+    "test:git": "vitest run --project integration git- state-git",
     "changeset": "changeset",
     "package:check": "publint --strict",
-    "package:smoke": "node --import tsx scripts/check-package.ts"
+    "package:smoke": "node --import tsx scripts/check-package.ts",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "vitest run --project e2e"
   },
   "dependencies": {
     "@clack/core": "1.5.1",

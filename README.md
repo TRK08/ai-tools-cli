@@ -166,18 +166,26 @@ npm run lint
 npm run format:check
 npm run test:run
 npm run build
+npm run test:e2e
 npm run package:check
 ```
 
-Тесты используют временные cwd/home и подменяемый HTTP; сетевым интеграционным тестам
-нужен доступ к localhost. `npm run test` — watch, `npm run format` — форматирование.
+Тесты разделены на Vitest-проекты `unit`, `integration` и `e2e`.
+`npm run test:run` выполняет компонентные и интеграционные проверки без сборки;
+`npm run test:unit` и `npm run test:integration` запускают их отдельно.
+После `npm run build` команда `npm run test:e2e` проверяет собранный `dist/cli.mjs`
+в восьми сценариях с локальным HTTP-моком registry. Отсутствие сборки — ошибка.
+Все наборы используют собственные cwd/home/env. HTTP в компонентных тестах подменён;
+интеграционным и e2e нужен доступ к localhost.
+`npm run test` — watch компонентных/интеграционных тестов, `npm run format` — форматирование.
+[Список проверок и карта сокращений](docs/testing.md).
 Git roundtrip входит в `test:run`: настоящий commit/clone на текущей ОС,
 NFC/NFD и `core.autocrlf=false/true`, сохранность bytes/hash и работа CLI после clone.
 Для отдельного прогона без предварительной сборки: `npm run test:git`.
 
 CI содержит семь jobs: Ubuntu/Node 24 выполняет статические проверки, build,
 publint и обычный `npm pack`; шесть комбинаций Linux/macOS/Windows × Node 22.20/24
-выполняют build, Vitest и установку одного общего Linux-архива.
+выполняют build, компонентные/интеграционные тесты, e2e и установку одного общего Linux-архива.
 Готовый архив из CI можно проверить локально:
 
 ```sh
@@ -190,7 +198,7 @@ Smoke проверяет состав, версию, shebang и executable-mode 
 системный allowlist; home/tmp/npmrc/cache, Windows-профили, XDG и каталоги агентов
 изолированы. `NODE_OPTIONS` и пользовательская npm-конфигурация не наследуются.
 Архив не перепаковывается. Полный add/update/remove и сложные cwd/source проверяются
-в Vitest; перенос Git между разными ОС и создание npm-архива на Windows/macOS
+в e2e собранного CLI; перенос Git между разными ОС и создание npm-архива на Windows/macOS
 в CI не проверяются. Нативная приёмка Windows обычным пользователем остаётся
 отдельной проверкой.
 `npm run changeset` создаёт заметку об изменениях. Публикация запускается вручную

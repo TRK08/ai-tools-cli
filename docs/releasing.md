@@ -14,7 +14,7 @@ Workflow публикации вызывает тот же reusable CI для в
 
 - `prepare` на Ubuntu/Node 24 проверяет release-version, типы, lint, форматирование,
   собирает CLI, запускает publint и один раз выполняет обычный `npm pack --ignore-scripts`.
-- `check` на Linux/macOS/Windows × Node 22.20.0/24 собирает CLI, выполняет весь Vitest,
+- `check` на Linux/macOS/Windows × Node 22.20.0/24 собирает CLI, выполняет `test:run` и восемь e2e собранного CLI (`test:e2e`),
   скачивает общий архив и запускает `npm run package:smoke -- artifacts/npm/package.tgz`.
 
 Общий [setup-cli](../.github/actions/setup-cli/action.yml) устанавливает Node,
@@ -35,7 +35,7 @@ Release-version проверяется после установки завис�
 
 ### Git и функциональные тесты
 
-Git roundtrip — обычный [Vitest-тест](../tests/git-roundtrip.test.ts).
+Git roundtrip — обычный [Vitest-тест](../tests/integration/git-roundtrip.test.ts).
 На каждой ОС проверяются четыре сценария NFC/NFD × core.autocrlf=false/true,
 core.symlinks=false, обе проектные копии, bytes/hash, ignore/attributes,
 no-op без переписывания, ручные правки/force и работа CLI без внешнего source.
@@ -44,6 +44,8 @@ no-op без переписывания, ручные правки/force и ра
 
 ```sh
 npm run test:run
+npm run build
+npm run test:e2e
 npm run test:git
 ```
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { truncateTerminalText, wrapTerminalText } from '../../src/cli/table.ts';
+import { truncateTerminalText, wrapTerminalText } from '../../src/cli/terminal/text.ts';
 
 describe('terminal truncation', () => {
   it('preserves spaces and graphemes while wrapping paths', () => {

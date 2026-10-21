@@ -1,24 +1,11 @@
-import type { Readable, Writable } from 'node:stream';
+import type { PromptStreams } from './terminal/types.ts';
 import { AGENTS, agentSkillsDirectory, parseAgents } from '../installer/agents.ts';
 import type { AgentId, InstallationScope } from '../installer/types.ts';
 import type { RuntimeContext } from '../runtime.ts';
-import { searchMultiselect } from './search-multiselect.ts';
+import { multiselect } from './terminal/multiselect.ts';
 import { isDirectAgent } from '../agents/catalog.ts';
 import { getStatePaths } from '../state/paths.ts';
 import { scopeLabel } from './labels.ts';
-
-export interface PromptStreams {
-  readonly input: Readable & {
-    readonly isTTY?: boolean;
-    readonly isRaw?: boolean;
-    readonly setRawMode?: (value: boolean) => void;
-  };
-  readonly output: Writable & {
-    readonly isTTY?: boolean;
-    readonly columns?: number;
-    readonly rows?: number;
-  };
-}
 
 /**
  * Проверяет явный список либо открывает поиск с закреплёнными агентами общей папки.
@@ -45,9 +32,12 @@ export async function selectAgents(
     label: agent.label,
     hint: agentSkillsDirectory(context, scope, agent.id),
   }));
-  const selected = await searchMultiselect<AgentId>({
+  const selected = await multiselect<AgentId>({
     message: `Выберите агентов (${scopeLabel(scope)})`,
-    sharedDirectory: getStatePaths(context.roots, scope).skillsDirectory,
+    search: true,
+    context: [`Общая папка: ${getStatePaths(context.roots, scope).skillsDirectory}`],
+    lockedLabel: 'Всегда включены',
+    optionsLabel: 'Дополнительные агенты',
     locked: choices.filter((agent) => isDirectAgent(agent.value, scope)),
     options: choices.filter((agent) => !isDirectAgent(agent.value, scope)),
     input: streams.input,

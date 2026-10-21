@@ -1,11 +1,6 @@
 import type { Writable } from 'node:stream';
 import type { CatalogSkill } from '../registry/catalog.ts';
-import { renderTable } from './table.ts';
-
-/** Заменяет управляющие и форматирующие символы данных пробелами для безопасного вывода в терминал. */
-export function terminalText(value: string): string {
-  return value.replace(/[\p{Cc}\p{Cf}]/gu, ' ');
-}
+import { renderTable } from './terminal/table.ts';
 
 /** Печатает результаты серверного поиска без установки; пустой список показывает отдельным сообщением. */
 export function renderSearch(

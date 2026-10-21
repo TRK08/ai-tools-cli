@@ -2,8 +2,9 @@ import { PassThrough, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAddUi, selectScope } from '../../src/cli/add-ui.ts';
 import { selectRegistrySkill } from '../../src/cli/find-ui.ts';
-import { searchMultiselect } from '../../src/cli/search-multiselect.ts';
+import { multiselect } from '../../src/cli/terminal/multiselect.ts';
 import { confirmAdd } from '../../src/cli/add-confirm.ts';
+import { confirm } from '../../src/cli/terminal/select.ts';
 import { RegistryClient } from '../../src/registry/client.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
@@ -42,10 +43,19 @@ function released(t: ReturnType<typeof terminal>, flowing = false, raw = false) 
 
 afterEach(() => vi.useRealTimers());
 
-describe.each(['find', 'agents', 'confirm', 'scope'] as const)(
+describe.each(['find', 'agents', 'confirm', 'scope', 'plain-confirm', 'multiselect'] as const)(
   '%s terminal resource ownership',
   (kind) => {
     function run(t: ReturnType<typeof terminal>, observed?: (signal: AbortSignal) => void) {
+      if (kind === 'plain-confirm')
+        return confirm({ ...t, message: 'Продолжить?', active: 'Да', inactive: 'Нет' });
+      if (kind === 'multiselect')
+        return multiselect({
+          ...t,
+          message: 'Выберите',
+          options: [{ value: 'one', label: 'Один' }],
+          required: true,
+        });
       if (kind === 'scope')
         return selectScope(
           false,
@@ -53,10 +63,11 @@ describe.each(['find', 'agents', 'confirm', 'scope'] as const)(
           t,
         );
       if (kind === 'agents')
-        return searchMultiselect({
+        return multiselect({
           ...t,
           message: 'Агенты',
-          sharedDirectory: '/fixture',
+          context: ['Общая папка: /fixture'],
+          search: true,
           locked: [],
           options: [{ value: 'one', label: 'Один' }],
         });

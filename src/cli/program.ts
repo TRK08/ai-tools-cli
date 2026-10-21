@@ -6,7 +6,8 @@ import { Installer } from '../installer/installer.ts';
 import type { InstallationChange, RegistrySelection } from '../installer/types.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import type { RuntimeContext } from '../runtime.ts';
-import { selectAgents, type PromptStreams } from './agents-prompt.ts';
+import { selectAgents } from './agents-prompt.ts';
+import type { PromptStreams } from './terminal/types.ts';
 import { createUpdatesUi } from './updates-ui.ts';
 import { renderSkillList } from './list-ui.ts';
 import { RegistryClient } from '../registry/client.ts';
@@ -21,7 +22,7 @@ import { createRemoveUi } from './remove-ui.ts';
 import { assertSkillName } from '../state/paths.ts';
 import { RussianCommand } from './command.ts';
 import { failureLabel } from './labels.ts';
-import { createLoading } from './loading.ts';
+import { createLoading } from './terminal/loading.ts';
 
 export interface CliOutput {
   readonly write: (message: string) => void;

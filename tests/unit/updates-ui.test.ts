@@ -16,6 +16,29 @@ const preview: UpdatePreview = {
 
 describe('update preview and result UI', () => {
   it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])('restores raw=%s and flowing=%s after confirmation', async (raw, flowing) => {
+    const t = terminal(),
+      ui = createUpdatesUi(t);
+    t.input.isRaw = raw;
+    if (flowing) t.input.resume();
+    else t.input.pause();
+    try {
+      const pending = ui.review(preview);
+      await vi.waitFor(() => expect(t.rendered()).toContain('Нет, пропустить'));
+      t.input.write('\r');
+      expect(await pending).toBe('decline');
+      expect([t.input.isRaw, t.input.readableFlowing]).toEqual([raw, flowing]);
+    } finally {
+      ui.finish({ status: 'success', results: [] });
+      t.close();
+    }
+  });
+
+  it.each([
     ['copy', 'Заменить установленное содержимое'],
     ['connections', 'Восстановить подключения'],
     ['artifact', 'Архив изменился'],

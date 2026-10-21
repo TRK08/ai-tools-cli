@@ -14,6 +14,28 @@ const record = (name: string): InstallationRecord => ({
 });
 
 describe('remove UI without filesystem operations', () => {
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])('restores raw=%s and flowing=%s after confirmation', async (raw, flowing) => {
+    const t = terminal(),
+      ui = createRemoveUi(t, 'project', []);
+    t.input.isRaw = raw;
+    if (flowing) t.input.resume();
+    else t.input.pause();
+    try {
+      const pending = ui.review([record('demo')]);
+      await vi.waitFor(() => expect(t.rendered()).toContain('Нет, оставить'));
+      t.input.write('\r');
+      expect(await pending).toBe(false);
+      expect([t.input.isRaw, t.input.readableFlowing]).toEqual([raw, flowing]);
+    } finally {
+      t.close();
+    }
+  });
+
   it('cancels selection with Escape', async () => {
     const t = terminal(),
       ui = createRemoveUi(t, 'project', []);
@@ -21,6 +43,21 @@ describe('remove UI without filesystem operations', () => {
       const pending = ui.select([record('demo')]);
       t.input.write('\u001b');
       expect(await pending).toBeNull();
+    } finally {
+      t.close();
+    }
+  });
+
+  it('restores the incoming raw and flowing state after selecting skills', async () => {
+    const t = terminal(),
+      ui = createRemoveUi(t, 'project', []);
+    t.input.isRaw = true;
+    t.input.resume();
+    try {
+      const pending = ui.select([record('demo')]);
+      t.input.write(' \r');
+      expect(await pending).toEqual([record('demo')]);
+      expect([t.input.isRaw, t.input.readableFlowing]).toEqual([true, true]);
     } finally {
       t.close();
     }

@@ -6,11 +6,11 @@ import type { AddDecision, AddPreview } from '../installer/types.ts';
 import type { InstallationScope } from '../installer/types.ts';
 import { RegistryClient } from '../registry/client.ts';
 import type { SkillDetail } from '../registry/catalog.ts';
-import type { PromptStreams } from './agents-prompt.ts';
-import { terminalText } from './discovery-ui.ts';
-import { renderTable, wrapTerminalText } from './table.ts';
-import { createLoading } from './loading.ts';
-import { terminalSession } from './terminal-session.ts';
+import type { PromptStreams } from './terminal/types.ts';
+import { terminalText, wrapTerminalText } from './terminal/text.ts';
+import { renderTable } from './terminal/table.ts';
+import { createLoading } from './terminal/loading.ts';
+import { terminalSession } from './terminal/session.ts';
 import { confirmAdd, selectAddScope } from './add-confirm.ts';
 
 /**

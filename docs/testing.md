@@ -26,11 +26,11 @@ home/каталоги агентов. HTTP запрещён fixture, пока т
 
 ## Состав набора
 
-Всего **933 случая в 65 файлах**.
+Всего **984 случая в 67 файлах**.
 
 | Проект      | Случаев | Файлов | Назначение                        |
 | ----------- | ------: | -----: | --------------------------------- |
-| unit        |     726 |     44 | Компонентные правила              |
+| unit        |     777 |     46 | Компонентные правила              |
 | integration |     199 |     20 | Связность и сохранность состояния |
 | e2e         |       8 |      1 | Собранный CLI                     |
 
@@ -44,52 +44,54 @@ Windows-пути и junction проверяются в отдельных ком
 
 ### Компоненты
 
-| Файл                                                                             | Случаев | Что проверяет                                                                                                          |
-| -------------------------------------------------------------------------------- | ------: | ---------------------------------------------------------------------------------------------------------------------- |
-| [agent-configuration](../tests/unit/agent-configuration.test.ts)                 |       8 | Дополнительный агент: env, scope, валидация Windows и исключение default/активных каталогов.                           |
-| [add-ui](../tests/unit/add-ui.test.ts)                                           |       7 | Карточка локального/registry-источника, группировка путей, подтверждение, область.                                     |
-| [agents-catalog](../tests/unit/agents-catalog.test.ts)                           |       3 | Все пять ID, четыре общих пути, отдельный Claude, явный выбор и валидация.                                             |
-| [agents-prompt](../tests/unit/agents-prompt.test.ts)                             |      16 | Закреплённая группа, поиск и отметки, клавиши, размер окна, отмена, явные -a.                                          |
-| [archive-source](../tests/unit/archive-source.test.ts)                           |      62 | Tar/gzip, корень SKILL.md, traversal/PAX/GNU, специальные записи, лимиты, cleanup.                                     |
-| [cli](../tests/unit/cli.test.ts)                                                 |      36 | Регистрация/русская справка, запрещённые команды, TTY, передача флагов, batch и отсутствие мутаций при отказе.         |
-| [content-hash](../tests/unit/content-hash.test.ts)                               |      17 | Байты и framing, имена/ссылки, детерминированность, игнорирование прав и пустых папок.                                 |
-| [directory-source](../tests/unit/directory-source.test.ts)                       |      40 | Разыменование ссылок, защита от циклов/чужих данных, ресурсы, ошибки и cleanup.                                        |
-| [discovery](../tests/unit/discovery.test.ts)                                     |      27 | Каталог и карточка, кодирование буквального префикса, невалидные ответы и ошибки API.                                  |
-| [errors](../tests/unit/errors.test.ts)                                           |       2 | Локализация filesystem-ошибки с кодом/путями и сохранение доменного текста.                                            |
-| [file-operations](../tests/unit/file-operations.test.ts)                         |      12 | writeAll short/zero/error/abort; withFileHandle close; cleanupFailedPreparation и совмещённые причины.                 |
-| [find-cli](../tests/unit/find-cli.test.ts)                                       |      22 | Компонент finder: строки/сортировка/скролл/resize, пустой результат, ошибка/retry, отмена и TTY.                       |
-| [find-search](../tests/unit/find-search.test.ts)                                 |      10 | Debounce 200 мс, минимальный префикс, abort, устаревшие ответы, retry, close.                                          |
-| [frontmatter](../tests/unit/frontmatter.test.ts)                                 |      40 | YAML/frontmatter, строки, обязательные поля, безопасное имя, aliases и их лимит.                                       |
-| [installer-events](../tests/unit/installer-events.test.ts)                       |      10 | Условия download/install, общие агенты, metadata-only/no-op, partial/failed, отказ/отмена и локальные источники.       |
-| [installer-filesystem](../tests/unit/installer-filesystem.test.ts)               |       6 | Зависимые move/обратный порядок, EXDEV без cp, recovery и cleanup до/после commit.                                     |
-| [installer-native-inspection](../tests/unit/installer-native-inspection.test.ts) |       4 | Моделируемые Windows-пути агентов, владение junction и отказ cross-drive до I/O.                                       |
-| [installer-plan](../tests/unit/installer-plan.test.ts)                           |       9 | Чистые решения unchanged/metadata-only/apply, reusable и причины preview; текущий путь Pi.                             |
-| [installer-source](../tests/unit/installer-source.test.ts)                       |       5 | Выбор folder.tgz/archive/registry, latest/exact и запрет неразрешённой подготовки без HTTP.                            |
-| [loading-ui](../tests/unit/loading-ui.test.ts)                                   |      10 | Быстрые операции, задержка/анимация/TTY, смена экрана и освобождение индикатора.                                       |
-| [native-path](../tests/unit/native-path.test.ts)                                 |      66 | Нативные/переносимые пути и имена, Unicode/регистр, границы, сериализация и коллизии lock.                             |
-| [portable-hash](../tests/unit/portable-hash.test.ts)                             |      11 | Эталон digest, LF/CRLF, Unicode/байтовые имена, гонки чтения и abort/close.                                            |
-| [portable-sources](../tests/unit/portable-sources.test.ts)                       |      27 | Подключение политики имён/области к адаптерам, Unicode/short writes и исключаемые пути.                                |
-| [registry-client](../tests/unit/registry-client.test.ts)                         |      80 | SemVer/URL, ответы/лимиты, размер/digest, ошибки потока, refresh одной версии и конфиденциальность URL; HTTP подменён. |
-| [registry-source-cleanup](../tests/unit/registry-source-cleanup.test.ts)         |       2 | Владение download-workspace, повтор cleanup и сохранение обеих причин отказа.                                          |
-| [registry-source](../tests/unit/registry-source.test.ts)                         |       4 | Разрешённый артефакт без повторного latest, slug/version/name mismatch, callback и cleanup.                            |
-| [regular-file](../tests/unit/regular-file.test.ts)                               |      16 | Флаги ОС, verified handle, inode/подмена/ссылки, закрытие при ошибке и отмене.                                         |
-| [remove-ui](../tests/unit/remove-ui.test.ts)                                     |       9 | Выбор без предвыбора, прокрутка, cancel/decline/approve, фильтр агентов, --yes и результаты.                           |
-| [source-cancellation](../tests/unit/source-cancellation.test.ts)                 |      13 | Прерывание папки/архива/хеширования и очистка, сохранение abort вместе с ошибкой close/cleanup.                        |
-| [source-file-operations](../tests/unit/source-file-operations.test.ts)           |      10 | Подключение helpers к обоим адаптерам: zero write, размер, закрытие вложенных handles до cleanup.                      |
-| [state-io](../tests/unit/state-io.test.ts)                                       |       9 | Verified reads и атомарный store: подмена файла, sync/close, временные файлы и совмещённые ошибки.                     |
-| [state-mutex](../tests/unit/state-mutex.test.ts)                                 |       7 | Владение блокировкой, BigInt inode, чужая замена и ошибки освобождения.                                                |
-| [state-paths](../tests/unit/state-paths.test.ts)                                 |       9 | Корни областей, home guard, переносимость источников/подключений и идентичность источника.                             |
-| [state-schema](../tests/unit/state-schema.test.ts)                               |      22 | Строгий lock: версия/тип/структура, агенты, коллизии, пути и запрет signed URL.                                        |
-| [state-store](../tests/unit/state-store.test.ts)                                 |       3 | Атомарная запись: сохранение прежних bytes, cleanup и отсутствие частичной видимой записи.                             |
-| [telemetry-client](../tests/unit/telemetry-client.test.ts)                       |      12 | Envelope v1, endpoint override/opt-out, bounded timeout/abort и best-effort ошибки транспорта.                         |
-| [terminal-layout](../tests/unit/terminal-layout.test.ts)                         |      10 | Ширина графем, многоточие и сохранение пробелов/разделителей в путях.                                                  |
-| [terminal-lifecycle](../tests/unit/terminal-lifecycle.test.ts)                   |      28 | По одному probe каждого UI для EOF/error/render; add ждёт cleanup и завершает одобренную транзакцию.                   |
-| [terminal-session](../tests/unit/terminal-session.test.ts)                       |      10 | Общая матрица EOF/close/error/setup, raw/flow, чужие listeners, идемпотентность и releaseInput.                        |
-| [test-environment](../tests/unit/test-environment.test.ts)                       |       9 | Изолированные cwd/home/env/npm/tmp, allowlist, subprocess и запрет HTTP по умолчанию.                                  |
-| [updates-ui](../tests/unit/updates-ui.test.ts)                                   |      15 | Готовые preview/results: default No, approve/decline/cancel, TTY, pinned/local, причины и диагностика.                 |
-| [windows-agent-links](../tests/unit/windows-agent-links.test.ts)                 |       5 | Моделируемая junction: абсолютная цель, владение, unlink/rollback без fallback в copy.                                 |
-| [windows-hash](../tests/unit/windows-hash.test.ts)                               |       2 | Моделируемые Windows Unicode/namespace пути без потери имён.                                                           |
-| [windows-sources](../tests/unit/windows-sources.test.ts)                         |       1 | Передача нативного Windows extraction-пути после проверки архива.                                                      |
+| Файл                                                                             | Случаев | Что проверяет                                                                                                                                |
+| -------------------------------------------------------------------------------- | ------: | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| [agent-configuration](../tests/unit/agent-configuration.test.ts)                 |       8 | Дополнительный агент: env, scope, валидация Windows и исключение default/активных каталогов.                                                 |
+| [add-ui](../tests/unit/add-ui.test.ts)                                           |       7 | Карточка локального/registry-источника, группировка путей, подтверждение, область.                                                           |
+| [agents-catalog](../tests/unit/agents-catalog.test.ts)                           |       3 | Все пять ID, четыре общих пути, отдельный Claude, явный выбор и валидация.                                                                   |
+| [agents-prompt](../tests/unit/agents-prompt.test.ts)                             |      16 | Закреплённая группа, поиск и отметки, клавиши, размер окна, отмена, явные -a.                                                                |
+| [archive-source](../tests/unit/archive-source.test.ts)                           |      62 | Tar/gzip, корень SKILL.md, traversal/PAX/GNU, специальные записи, лимиты, cleanup.                                                           |
+| [cli](../tests/unit/cli.test.ts)                                                 |      36 | Регистрация/русская справка, запрещённые команды, TTY, передача флагов, batch и отсутствие мутаций при отказе.                               |
+| [content-hash](../tests/unit/content-hash.test.ts)                               |      17 | Байты и framing, имена/ссылки, детерминированность, игнорирование прав и пустых папок.                                                       |
+| [directory-source](../tests/unit/directory-source.test.ts)                       |      40 | Разыменование ссылок, защита от циклов/чужих данных, ресурсы, ошибки и cleanup.                                                              |
+| [discovery](../tests/unit/discovery.test.ts)                                     |      27 | Каталог и карточка, кодирование буквального префикса, невалидные ответы и ошибки API.                                                        |
+| [errors](../tests/unit/errors.test.ts)                                           |       2 | Локализация filesystem-ошибки с кодом/путями и сохранение доменного текста.                                                                  |
+| [file-operations](../tests/unit/file-operations.test.ts)                         |      12 | writeAll short/zero/error/abort; withFileHandle close; cleanupFailedPreparation и совмещённые причины.                                       |
+| [find-cli](../tests/unit/find-cli.test.ts)                                       |      22 | Компонент finder: строки/сортировка/скролл/resize, пустой результат, ошибка/retry, отмена и TTY.                                             |
+| [find-search](../tests/unit/find-search.test.ts)                                 |      10 | Debounce 200 мс, минимальный префикс, abort, устаревшие ответы, retry, close.                                                                |
+| [frontmatter](../tests/unit/frontmatter.test.ts)                                 |      40 | YAML/frontmatter, строки, обязательные поля, безопасное имя, aliases и их лимит.                                                             |
+| [installer-events](../tests/unit/installer-events.test.ts)                       |      10 | Условия download/install, общие агенты, metadata-only/no-op, partial/failed, отказ/отмена и локальные источники.                             |
+| [installer-filesystem](../tests/unit/installer-filesystem.test.ts)               |       6 | Зависимые move/обратный порядок, EXDEV без cp, recovery и cleanup до/после commit.                                                           |
+| [installer-native-inspection](../tests/unit/installer-native-inspection.test.ts) |       4 | Моделируемые Windows-пути агентов, владение junction и отказ cross-drive до I/O.                                                             |
+| [installer-plan](../tests/unit/installer-plan.test.ts)                           |       9 | Чистые решения unchanged/metadata-only/apply, reusable и причины preview; текущий путь Pi.                                                   |
+| [installer-source](../tests/unit/installer-source.test.ts)                       |       5 | Выбор folder.tgz/archive/registry, latest/exact и запрет неразрешённой подготовки без HTTP.                                                  |
+| [loading-ui](../tests/unit/loading-ui.test.ts)                                   |      10 | Быстрые операции, задержка/анимация/TTY, смена экрана и освобождение индикатора.                                                             |
+| [native-path](../tests/unit/native-path.test.ts)                                 |      66 | Нативные/переносимые пути и имена, Unicode/регистр, границы, сериализация и коллизии lock.                                                   |
+| [portable-hash](../tests/unit/portable-hash.test.ts)                             |      11 | Эталон digest, LF/CRLF, Unicode/байтовые имена, гонки чтения и abort/close.                                                                  |
+| [portable-sources](../tests/unit/portable-sources.test.ts)                       |      27 | Подключение политики имён/области к адаптерам, Unicode/short writes и исключаемые пути.                                                      |
+| [registry-client](../tests/unit/registry-client.test.ts)                         |      80 | SemVer/URL, ответы/лимиты, размер/digest, ошибки потока, refresh одной версии и конфиденциальность URL; HTTP подменён.                       |
+| [registry-source-cleanup](../tests/unit/registry-source-cleanup.test.ts)         |       2 | Владение download-workspace, повтор cleanup и сохранение обеих причин отказа.                                                                |
+| [registry-source](../tests/unit/registry-source.test.ts)                         |       4 | Разрешённый артефакт без повторного latest, slug/version/name mismatch, callback и cleanup.                                                  |
+| [regular-file](../tests/unit/regular-file.test.ts)                               |      16 | Флаги ОС, verified handle, inode/подмена/ссылки, закрытие при ошибке и отмене.                                                               |
+| [remove-ui](../tests/unit/remove-ui.test.ts)                                     |      14 | Выбор без предвыбора, прокрутка, cancel/decline/approve, фильтр агентов, --yes и результаты; восстановление raw/flow подтверждения и выбора. |
+| [source-cancellation](../tests/unit/source-cancellation.test.ts)                 |      13 | Прерывание папки/архива/хеширования и очистка, сохранение abort вместе с ошибкой close/cleanup.                                              |
+| [source-file-operations](../tests/unit/source-file-operations.test.ts)           |      10 | Подключение helpers к обоим адаптерам: zero write, размер, закрытие вложенных handles до cleanup.                                            |
+| [state-io](../tests/unit/state-io.test.ts)                                       |       9 | Verified reads и атомарный store: подмена файла, sync/close, временные файлы и совмещённые ошибки.                                           |
+| [state-mutex](../tests/unit/state-mutex.test.ts)                                 |       7 | Владение блокировкой, BigInt inode, чужая замена и ошибки освобождения.                                                                      |
+| [state-paths](../tests/unit/state-paths.test.ts)                                 |       9 | Корни областей, home guard, переносимость источников/подключений и идентичность источника.                                                   |
+| [state-schema](../tests/unit/state-schema.test.ts)                               |      22 | Строгий lock: версия/тип/структура, агенты, коллизии, пути и запрет signed URL.                                                              |
+| [state-store](../tests/unit/state-store.test.ts)                                 |       3 | Атомарная запись: сохранение прежних bytes, cleanup и отсутствие частичной видимой записи.                                                   |
+| [telemetry-client](../tests/unit/telemetry-client.test.ts)                       |      12 | Envelope v1, endpoint override/opt-out, bounded timeout/abort и best-effort ошибки транспорта.                                               |
+| [terminal-layout](../tests/unit/terminal-layout.test.ts)                         |      10 | Ширина графем, многоточие и сохранение пробелов/разделителей в путях.                                                                        |
+| [terminal-lifecycle](../tests/unit/terminal-lifecycle.test.ts)                   |      36 | По одному probe UI и общих диалогов для EOF/error/render; add ждёт cleanup и завершает одобренную транзакцию.                                |
+| [terminal-prompts](../tests/unit/terminal-prompts.test.ts)                       |      30 | Raw/flow всех диалогов, Y/N/Enter, a/i и vim-навигация, resize и маленькое окно, AbortSignal и закрытый output.                              |
+| [terminal-screen](../tests/unit/terminal-screen.test.ts)                         |       4 | Физические строки при resize, ANSI/Unicode, свой кадр/курсор, inline и ошибка очистки.                                                       |
+| [terminal-session](../tests/unit/terminal-session.test.ts)                       |      10 | Общая матрица EOF/close/error/setup, raw/flow, чужие listeners, идемпотентность и releaseInput.                                              |
+| [test-environment](../tests/unit/test-environment.test.ts)                       |       9 | Изолированные cwd/home/env/npm/tmp, allowlist, subprocess и запрет HTTP по умолчанию.                                                        |
+| [updates-ui](../tests/unit/updates-ui.test.ts)                                   |      19 | Готовые preview/results: default No, approve/decline/cancel, TTY, pinned/local, причины и диагностика; восстановление raw/flow.              |
+| [windows-agent-links](../tests/unit/windows-agent-links.test.ts)                 |       5 | Моделируемая junction: абсолютная цель, владение, unlink/rollback без fallback в copy.                                                       |
+| [windows-hash](../tests/unit/windows-hash.test.ts)                               |       2 | Моделируемые Windows Unicode/namespace пути без потери имён.                                                                                 |
+| [windows-sources](../tests/unit/windows-sources.test.ts)                         |       1 | Передача нативного Windows extraction-пути после проверки архива.                                                                            |
 
 ### Интеграции
 
@@ -146,7 +148,8 @@ URL. Мок хранит latest, выдаёт версии 1.0.0/2.0.0 и signed
 - Схема lock, атомарная запись и блокировки — state-schema, state-store и state-mutex.
 - Запись, закрытие handles и очистка — file-operations; изменения файлов и откат — installer-filesystem.
 - Условия событий — installer-events; доставка — telemetry-client.
-- Общий жизненный цикл терминала — terminal-session; меню проверяют собственные переходы и клавиши.
+- Терминальные ресурсы — terminal-session; общие диалоги и кадры — terminal-prompts/terminal-screen.
+  Terminal-lifecycle проверяет подключение механизма к меню и подготовке add; поиск и фильтр проверяют свои переходы и клавиши.
 
 Интеграционные тесты проверяют подключение каждого источника и direct/copy/link,
 согласованность двух копий, partial, изменение после preview, откат, отмену до

@@ -1,10 +1,11 @@
-import { cancel, confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
+import { confirm } from './terminal/select.ts';
+import { cancel, intro, log, note, outro } from '@clack/prompts';
 import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../installer/types.ts';
-import type { PromptStreams } from './agents-prompt.ts';
+import type { PromptStreams } from './terminal/types.ts';
 import type { InstallationScope } from '../installer/types.ts';
-import { renderTable } from './table.ts';
+import { renderTable } from './terminal/table.ts';
 import { failureLabel, scopeLabel } from './labels.ts';
-import { createLoading } from './loading.ts';
+import { createLoading } from './terminal/loading.ts';
 
 /**
  * Создаёт callbacks подтверждения и итогового вывода update, сохраняя preview каждой записи. run
@@ -92,13 +93,12 @@ export function createUpdatesUi(
           : preview.reason === 'copy'
             ? `Заменить установленное содержимое ${preview.name}?`
             : `Обновить ${preview.name}${local ? '' : ` (${preview.currentVersion} → ${preview.latestVersion})`}?`,
-      initialValue: false,
       active: 'Да, обновить',
       inactive: 'Нет, пропустить',
       input: streams.input,
       output: streams.output,
     });
-    const decision = isCancel(accepted) ? 'cancel' : accepted ? 'approve' : 'decline';
+    const decision = accepted === null ? 'cancel' : accepted ? 'approve' : 'decline';
     if (decision !== 'cancel')
       loading.start(decision === 'approve' ? 'Обновление скиллов…' : 'Проверка обновлений…');
     return decision;

@@ -3,7 +3,7 @@ import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { describe, expect, it, vi } from 'vitest';
 import { selectAgents } from '../../src/cli/agents-prompt.ts';
-import { searchMultiselect } from '../../src/cli/search-multiselect.ts';
+import { multiselect } from '../../src/cli/terminal/multiselect.ts';
 import { createProgram } from '../../src/cli/program.ts';
 
 import { hashDirectory } from '../../src/state/hash.ts';
@@ -56,10 +56,13 @@ describe('real Clack selection with controlled TTY streams', () => {
     try {
       t.output.columns = 48;
       t.output.rows = 18;
-      const selected = searchMultiselect({
+      const selected = multiselect({
         ...t,
         message: 'Выберите агентов',
-        sharedDirectory: '/temporary/.agents/skills',
+        context: ['Общая папка: /temporary/.agents/skills'],
+        lockedLabel: 'Всегда включены',
+        optionsLabel: 'Дополнительные агенты',
+        search: true,
         locked: [{ value: 'locked', label: 'Закреплённый' }],
         options: Array.from({ length: 12 }, (_, i) => ({
           value: `agent-${i}`,

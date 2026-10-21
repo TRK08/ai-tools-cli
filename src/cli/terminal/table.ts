@@ -1,46 +1,10 @@
 import stringWidth from 'fast-string-width';
 import type { Writable } from 'node:stream';
+import { wrapTerminalText } from './text.ts';
 
 interface TableColumn {
   readonly title: string;
   readonly maximum: number;
-}
-
-const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
-/** Сокращает подпись до экранной ширины с многоточием, сохраняя целые графемы. */
-export function truncateTerminalText(value: string, width: number): string {
-  if (width <= 0) return '';
-  if (stringWidth(value) <= width) return value;
-  let result = '';
-  for (const { segment } of segmenter.segment(value)) {
-    if (stringWidth(result + segment) > width - 1) break;
-    result += segment;
-  }
-  return result + '…';
-}
-
-/**
- * Переносит текст по экранной ширине, сохраняя графемы и исходные разрывы строк. Предпочитает границы
- * пути или пробела; сохраняет разделители и пробелы, в том числе внутри файловых путей.
- */
-export function wrapTerminalText(value: string, width: number): string[] {
-  return value.split('\n').flatMap((line) => {
-    const lines: string[] = [];
-    let current = '';
-    for (const { segment } of segmenter.segment(line)) {
-      while (current && stringWidth(current + segment) > width) {
-        const space = current.lastIndexOf(' ');
-        const slash = Math.max(current.lastIndexOf('/'), current.lastIndexOf('\\'));
-        const split = slash > 0 ? slash + 1 : space > 0 ? space + 1 : current.length;
-        lines.push(current.slice(0, split));
-        current = current.slice(split);
-      }
-      current += segment;
-    }
-    lines.push(current);
-    return lines;
-  });
 }
 
 /**

@@ -1,10 +1,11 @@
-import { cancel, confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
+import { confirm } from './terminal/select.ts';
+import { cancel, intro, log, note, outro } from '@clack/prompts';
 import type { InstallationChange } from '../installer/types.ts';
 import type { AgentId, InstallationScope } from '../installer/types.ts';
 import type { InstallationRecord } from '../state/types.ts';
-import type { PromptStreams } from './agents-prompt.ts';
-import { renderTable } from './table.ts';
-import { multiselect } from './multiselect.ts';
+import type { PromptStreams } from './terminal/types.ts';
+import { renderTable } from './terminal/table.ts';
+import { multiselect } from './terminal/multiselect.ts';
 import { failureLabel, plural, scopeLabel } from './labels.ts';
 
 /**
@@ -50,11 +51,12 @@ export function createRemoveUi(
         hint: `${record.version ?? 'локальная'} · ${affected(record).join(', ')}`,
       })),
       initialValues: [],
+      required: true,
       maxItems: 8,
       input: streams.input,
       output: streams.output,
     });
-    if (isCancel(selected) || selected === undefined) {
+    if (selected === null) {
       cancel('Удаление отменено.', options);
       return null;
     }
@@ -75,14 +77,13 @@ export function createRemoveUi(
       );
     const accepted = await confirm({
       message: `Удалить ${records.length} ${plural(records.length, 'скилл', 'скилла', 'скиллов')} у перечисленных агентов?`,
-      initialValue: false,
       active: 'Да, удалить',
       inactive: 'Нет, оставить',
       input: streams.input,
       output: streams.output,
     });
-    if (isCancel(accepted) || !accepted) {
-      cancel(isCancel(accepted) ? 'Удаление отменено.' : 'Удаление отклонено.', options);
+    if (!accepted) {
+      cancel(accepted === null ? 'Удаление отменено.' : 'Удаление отклонено.', options);
       return false;
     }
     return true;

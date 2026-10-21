@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
-import { constants } from 'node:fs';
 import { lstat, open, readdir, readlink } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { openRegularFile, withFileHandle } from '../regular-file.ts';
 import { StateError } from './errors.ts';
+import { assertResourceNames, childBufferPath, nativePath } from './native-path.ts';
 
 export interface HashDirectoryOptions {
   readonly signal?: AbortSignal | undefined;
+  /** По умолчанию переносимые NFC-имена; false сохраняет native POSIX bytes. */
+  readonly portableNames?: boolean | undefined;
   readonly fileSystem?: {
     readonly lstat: typeof lstat;
     readonly open: typeof open;
@@ -15,26 +17,28 @@ export interface HashDirectoryOptions {
 }
 
 /**
- * Вычисляет детерминированный SHA-256 дерева по байтовым путям, типам, содержимому и признаку executable.
+ * Вычисляет SHA-256 типов, логических путей с / и точных bytes; права и пустые поддеревья игнорирует.
  *
- * @remarks Поля предваряются восьмибайтовой длиной big-endian. Файл содержит executable и байты; ссылка —
- * цель без разыменования; каталог — отсортированные по байтам записи. Путь корня пуст; абсолютный корень,
- * mtime и владелец не учитываются. Отмена проверяется между I/O, дескрипторы закрываются в finally.
+ * @remarks Поля предваряются восьмибайтовой длиной big-endian; корень каталога имеет пустой путь.
+ * Portable-имена проверяются на коллизии и хешируются в NFC, физические имена не переписываются.
+ * Native POSIX сохраняет байтовые имена; ссылка включает target без чтения цели. Файлы читаются
+ * проверенным reader блоками; отмена проверяется между I/O, handle закрывается до выхода.
  */
 export async function hashDirectory(
   directory: string,
   options: HashDirectoryOptions = {},
 ): Promise<string> {
-  const { signal } = options;
+  const { signal, portableNames = true } = options;
   const fs = options.fileSystem ?? { lstat, open, readdir, readlink };
   signal?.throwIfAborted();
-  if (!isAbsolute(directory)) {
+  if (!nativePath.isAbsolute(directory)) {
     throw new StateError(
       'INVALID_PATH',
       'Корневой путь для вычисления хеша должен быть абсолютным.',
     );
   }
   const hash = createHash('sha256');
+  const directories: { path: Buffer; emitted: boolean }[] = [];
 
   function fieldLength(size: bigint): void {
     const length = Buffer.alloc(8);
@@ -51,16 +55,46 @@ export async function hashDirectory(
     field(Buffer.from(value));
   }
 
-  /**
-   * Добавляет узел дерева в хеш, не разыменовывая ссылки; для файла проверяет inode/размер и читает
-   * блоками.
-   */
+  /** Добавляет предков перед первым листом; ветви только из каталогов не попадают в хеш. */
+  function emitDirectories(): void {
+    for (const directory of directories) {
+      if (!directory.emitted) {
+        field(directory.path);
+        text('directory');
+        directory.emitted = true;
+      }
+    }
+  }
+
+  /** Обходит нативный путь отдельно от логического; файлы проверяются по точным identity и размеру. */
   async function visit(absolutePath: Buffer, relativePath: Buffer): Promise<void> {
     signal?.throwIfAborted();
     const stats = await fs.lstat(absolutePath, { bigint: true });
     signal?.throwIfAborted();
-    field(relativePath);
 
+    if (stats.isDirectory()) {
+      directories.push({ path: relativePath, emitted: false });
+      if (relativePath.length === 0) emitDirectories();
+      const names = await fs.readdir(absolutePath, { encoding: 'buffer' });
+      signal?.throwIfAborted();
+      assertResourceNames(names, portableNames);
+      const entries = names.map((name) => ({
+        name,
+        logical: portableNames ? Buffer.from(name.toString('utf8').normalize('NFC')) : name,
+      }));
+      entries.sort((a, b) => Buffer.compare(a.logical, b.logical));
+      for (const { name, logical } of entries) {
+        const relative = relativePath.length
+          ? Buffer.concat([relativePath, Buffer.from('/'), logical])
+          : logical;
+        await visit(childBufferPath(absolutePath, name), relative);
+      }
+      directories.pop();
+      return;
+    }
+
+    emitDirectories();
+    field(relativePath);
     if (stats.isSymbolicLink()) {
       text('symlink');
       field(await fs.readlink(absolutePath, { encoding: 'buffer' }));
@@ -68,43 +102,14 @@ export async function hashDirectory(
       return;
     }
 
-    if (stats.isDirectory()) {
-      text('directory');
-      const names = await fs.readdir(absolutePath, { encoding: 'buffer' });
-      signal?.throwIfAborted();
-      names.sort(Buffer.compare);
-
-      for (const name of names) {
-        const childPath = Buffer.concat([absolutePath, Buffer.from('/'), name]);
-        const childRelativePath =
-          relativePath.byteLength === 0
-            ? name
-            : Buffer.concat([relativePath, Buffer.from('/'), name]);
-        await visit(childPath, childRelativePath);
-      }
-      return;
-    }
-
     if (stats.isFile()) {
-      // NOFOLLOW отклоняет ссылку, подменившую файл между lstat и open.
-      // NONBLOCK не позволяет подменённому FIFO заблокировать open навсегда.
-      const handle = await fs.open(
-        absolutePath,
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
-
-      try {
-        signal?.throwIfAborted();
-        const opened = await handle.stat({ bigint: true });
-        signal?.throwIfAborted();
-        if (!opened.isFile() || opened.dev !== stats.dev || opened.ino !== stats.ino) {
-          throw new Error(
-            `Объект файловой системы изменился во время вычисления хеша: ${absolutePath.toString()}`,
-          );
-        }
-
+      const { handle, stats: opened } = await openRegularFile(absolutePath, {
+        expected: stats,
+        signal,
+        fileSystem: { lstat: (path) => fs.lstat(path, { bigint: true }), open: fs.open },
+      });
+      await withFileHandle(handle, async () => {
         text('file');
-        field(Buffer.from([(opened.mode & 0o111n) === 0n ? 0 : 1]));
         fieldLength(opened.size);
         const buffer = Buffer.alloc(64 * 1024);
         let total = 0n;
@@ -117,14 +122,20 @@ export async function hashDirectory(
           if (total > opened.size) break;
           hash.update(buffer.subarray(0, bytesRead));
         }
-        if (total !== opened.size) {
+        const final = await handle.stat({ bigint: true });
+        signal?.throwIfAborted();
+        if (
+          !final.isFile() ||
+          final.dev !== opened.dev ||
+          final.ino !== opened.ino ||
+          total !== opened.size ||
+          final.size !== opened.size
+        ) {
           throw new Error(
             `Размер файла изменился во время вычисления хеша: ${absolutePath.toString()}`,
           );
         }
-      } finally {
-        await handle.close();
-      }
+      });
       return;
     }
 
@@ -134,7 +145,7 @@ export async function hashDirectory(
   }
 
   text('skills-installer-content-v1');
-  await visit(Buffer.from(resolve(directory)), Buffer.alloc(0));
+  await visit(Buffer.from(nativePath.resolve(directory)), Buffer.alloc(0));
   signal?.throwIfAborted();
   return hash.digest('hex');
 }

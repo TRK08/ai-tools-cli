@@ -1,11 +1,14 @@
 import type { AgentId } from '../installer/types.ts';
+import type { ConnectionKind } from '../agents/catalog.ts';
 import type { SourceIdentity } from '../sources/types.ts';
 
 export const LOCK_VERSION = 1;
 
 export interface ManagedConnection {
   readonly agent: AgentId;
-  /** Общая копия напрямую или ссылка агента; проектный путь относителен к cwd. */
+  /** Вид подключения сверяется с единым каталогом агентов для выбранной области. */
+  readonly kind: ConnectionKind;
+  /** Управляемое назначение; проектный путь относителен к cwd. */
   readonly path: string;
 }
 

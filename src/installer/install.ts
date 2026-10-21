@@ -29,6 +29,7 @@ import type {
   AgentId,
   InstallationChange,
   InstallerOptions,
+  InstalledSnapshot,
   RegistrySelection,
   UpdatePreview,
 } from './types.ts';
@@ -174,13 +175,14 @@ export class InstallOperation {
     );
     if (previousSource) events.includeAgents(previousSource.agents);
     await this.inspection.checkParents();
-    let installedHash: string | null = null;
+    let initialSnapshot: InstalledSnapshot | undefined;
     if (previousSource) {
       this.inspection.assertSupported(previousSource);
-      installedHash = await this.inspection.checkCopy(
+      initialSnapshot = await this.inspection.snapshot(
         previousSource.name,
         previousSource,
         force,
+        requested,
         updating ? undefined : this.options.signal,
       );
     }
@@ -194,7 +196,25 @@ export class InstallOperation {
       throw cause;
     }
     const { artifact, identity, policy } = selection;
-    if (artifact) events.resolve(artifact.version);
+    if (artifact) {
+      events.resolve(artifact.version);
+      if (initialSnapshot)
+        await this.inspection.assertUnchanged(
+          artifact.slug,
+          initialSnapshot,
+          force,
+          updating ? undefined : this.options.signal,
+        );
+      else
+        initialSnapshot = await this.inspection.snapshot(
+          artifact.slug,
+          previousSource,
+          force,
+          requested,
+          updating ? undefined : this.options.signal,
+        );
+    }
+    const installedHash = initialSnapshot?.contentHash ?? null;
     if (!updating && artifact)
       await this.reviewAdd(
         artifact.slug,
@@ -206,33 +226,27 @@ export class InstallOperation {
         previousSource,
       );
     const reusable = findReusableInstallation(previousSource, artifact, installedHash);
-    let preview: UpdatePreview | undefined;
     if (updating && artifact && this.options.reviewUpdate) {
-      const reason = registryUpdateReason(updating, artifact, installedHash, false);
-      preview = await this.reviewUpdate(
+      await this.reviewUpdate(
         updating,
         artifact.version,
-        reason ??
-          registryUpdateReason(
-            updating,
-            artifact,
-            installedHash,
-            await this.inspection.connectionsNeedRepair(updating),
-          ),
+        registryUpdateReason(
+          updating,
+          artifact,
+          initialSnapshot!.copies.some((copy) => copy.contentHash !== updating.contentHash)
+            ? null
+            : installedHash,
+          initialSnapshot!.connectionsNeedRepair,
+        ),
       );
     }
     if (reusable) {
-      const snapshot = await this.inspection.reusableSnapshot(reusable, requested, installedHash);
-      if (snapshot.connectionsNeedRepair && preview?.status === 'unchanged')
-        throw new Error(
-          `Подключения ${reusable.name} изменились во время подтверждения; повторите операцию.`,
-        );
+      const snapshot = initialSnapshot!;
       const plan = createInstallPlan(
         reusableContent(reusable, this.paths),
         snapshot,
         identity,
         policy,
-        preview?.status === 'unchanged',
         force,
       );
       if (plan.kind !== 'apply') return applyInstallPlan(plan, lock, state, this.inspection);
@@ -254,6 +268,7 @@ export class InstallOperation {
                 this.paths,
                 files.workspace,
                 !updating && !artifact ? this.options.signal : undefined,
+                Object.values(lock.skills),
               ),
               this.options.prepare,
               (download) => events.download(download),
@@ -274,6 +289,15 @@ export class InstallOperation {
         assertSourceCompatible(lock, name, prepared.identity, this.paths);
         const previous = Object.hasOwn(lock.skills, name) ? lock.skills[name] : undefined;
         if (previous) this.inspection.assertSupported(previous);
+        const snapshot = artifact
+          ? initialSnapshot!
+          : await this.inspection.snapshot(
+              name,
+              previous,
+              force,
+              requested,
+              updating ? undefined : this.options.signal,
+            );
         if (!updating && !artifact)
           await this.reviewAdd(
             name,
@@ -284,21 +308,13 @@ export class InstallOperation {
             requested,
             previous,
           );
-        const snapshot = await this.inspection.snapshot(name, previous, force, requested);
         if (snapshot.candidates.length && updating && !artifact && this.options.reviewUpdate)
-          preview = await this.reviewUpdate(
+          await this.reviewUpdate(
             updating,
             prepared.version,
             localUpdateReason(updating, prepared, snapshot),
           );
-        const plan = createInstallPlan(
-          prepared,
-          snapshot,
-          identity,
-          policy,
-          preview?.status === 'unchanged',
-          force,
-        );
+        const plan = createInstallPlan(prepared, snapshot, identity, policy, force);
         return applyInstallPlan(plan, lock, state, this.inspection, files, this.options.report);
       });
     } catch (cause) {

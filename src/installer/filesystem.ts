@@ -1,11 +1,22 @@
-import { lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
-import { join } from 'node:path';
 import { hasErrorCode } from '../state/errors.ts';
 import { WORKSPACE_PREFIX } from '../state/paths.ts';
+import { nativePath, samePath } from '../state/native-path.ts';
+import { OWNED_WORKSPACE_CLEANUP } from '../sources/filesystem.ts';
 
 /** Подменяемый файловый I/O для проверок обрабатываемых ошибок на временных корнях. */
-export const installerFileSystem = { lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink };
+export const installerFileSystem = {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readlink,
+  rename,
+  rm,
+  rmdir,
+  symlink,
+};
 export type InstallerFileSystem = Omit<typeof installerFileSystem, 'mkdtemp' | 'lstat'> & {
   readonly mkdtemp: (prefix: string) => Promise<string>;
   readonly lstat: (path: string) => Promise<Stats>;
@@ -24,7 +35,7 @@ export async function inspectPath(path: string, fs: InstallerFileSystem) {
 }
 
 /**
- * Проверяет обычные каталоги последовательно по частям пути, отклоняя ссылки и чужие объекты.
+ * Проверяет обычные каталоги по нативным частям пути, отклоняя ссылки и чужие объекты.
  *
  * @param create - Создавать отсутствующие каталоги; без него проверка прекращается на первом
  * отсутствующем родителе.
@@ -37,7 +48,7 @@ export async function directoryChain(
 ): Promise<void> {
   let path = root;
   for (const part of parts) {
-    path = join(path, part);
+    path = nativePath.join(path, part);
     if (create) {
       await fs.mkdir(path).catch((cause: unknown) => {
         if (!hasErrorCode(cause, 'EEXIST')) throw cause;
@@ -75,7 +86,7 @@ export class FileTransaction {
     run: (files: FileTransaction) => Promise<T>,
   ): Promise<T> {
     const files = new FileTransaction(
-      await fs.mkdtemp(join(workspaceParent, WORKSPACE_PREFIX)),
+      await fs.mkdtemp(nativePath.join(workspaceParent, WORKSPACE_PREFIX)),
       fs,
     );
     let result: T;
@@ -98,20 +109,18 @@ export class FileTransaction {
           },
         );
       }
-      await fs
-        .rm(files.workspace, { recursive: true, force: true })
-        .catch((cleanupError: unknown) => {
-          throw new Error(
-            `Операция отменена откатом, но удалить временный каталог не удалось: ${files.workspace}.`,
-            {
-              cause: new AggregateError([cause, cleanupError]),
-            },
-          );
-        });
+      await fs.rm(files.workspace, OWNED_WORKSPACE_CLEANUP).catch((cleanupError: unknown) => {
+        throw new Error(
+          `Операция отменена откатом, но удалить временный каталог не удалось: ${files.workspace}.`,
+          {
+            cause: new AggregateError([cause, cleanupError]),
+          },
+        );
+      });
       throw cause;
     }
     // Lock уже сохранён: сбой очистки не должен откатывать файлы к прежнему состоянию.
-    await fs.rm(files.workspace, { recursive: true, force: true }).catch((cause: unknown) => {
+    await fs.rm(files.workspace, OWNED_WORKSPACE_CLEANUP).catch((cause: unknown) => {
       throw new Error(
         `Операция завершена, но удалить временный каталог не удалось: ${files.workspace}.`,
         {
@@ -131,9 +140,32 @@ export class FileTransaction {
     this.undo.push(() => this.fs.rename(destination, source));
   }
 
-  /** Создаёт символическую ссылку и регистрирует удаление созданной ссылки при откате. */
+  /** Копирует снимок в собственный staging без разыменования ссылок; очисткой владеет транзакция. */
+  async stageCopy(source: string, name: string): Promise<string> {
+    const destination = nativePath.join(this.workspace, `staging-${name}`);
+    await this.fs.cp(source, destination, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+      verbatimSymlinks: true,
+    });
+    return destination;
+  }
+
+  /** Создаёт symlink POSIX или junction Windows с абсолютной целью; откат снимает только ссылку. */
   async link(target: string, destination: string): Promise<void> {
-    await this.fs.symlink(target, destination);
+    await this.fs.symlink(target, destination, nativePath.sep === '\\' ? 'junction' : 'dir');
     this.undo.push(() => this.fs.rm(destination));
+  }
+
+  /** Снимает только объект ссылки без rename между томами; откат восстанавливает исходный target. */
+  async unlink(path: string, expectedTarget: string): Promise<void> {
+    const target = await this.fs.readlink(path);
+    if (!samePath(nativePath.resolve(nativePath.dirname(path), target), expectedTarget))
+      throw new Error(`Цель ссылки изменилась перед удалением: ${path}.`);
+    await this.fs.rm(path);
+    this.undo.push(() =>
+      this.fs.symlink(target, path, nativePath.sep === '\\' ? 'junction' : 'dir'),
+    );
   }
 }

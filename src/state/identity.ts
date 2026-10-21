@@ -1,6 +1,7 @@
 import type { SourceIdentity } from '../sources/types.ts';
 import { StateError } from './errors.ts';
 import { resolveSourcePath, type StatePaths } from './paths.ts';
+import { pathIdentityKey } from './native-path.ts';
 import type { LockFile } from './types.ts';
 
 /** Проверяет базовый HTTP(S) URL источника и удаляет завершающие слеши; неверный URL даёт INVALID_LOCK. */
@@ -35,7 +36,7 @@ export function normalizeRegistryUrl(value: string): string {
 export function sourceIdentityKey(source: SourceIdentity, paths: StatePaths): string {
   return source.kind === 'registry'
     ? JSON.stringify([source.kind, normalizeRegistryUrl(source.registryUrl), source.slug])
-    : JSON.stringify([source.kind, resolveSourcePath(source.path, paths)]);
+    : JSON.stringify([source.kind, pathIdentityKey(resolveSourcePath(source.path, paths))]);
 }
 
 /** Запрещает менять постоянный источник уже установленного имени; для смены требуется remove и add. */

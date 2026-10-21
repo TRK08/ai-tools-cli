@@ -5,13 +5,14 @@ import {
   S_CHECKBOX_INACTIVE,
   S_STEP_ACTIVE,
 } from '@clack/prompts';
-import { emitKeypressEvents, type Key } from 'node:readline';
+import type { Key } from 'node:readline';
 import { styleText } from 'node:util';
 import stringWidth from 'fast-string-width';
 import type { PromptStreams } from './agents-prompt.ts';
 import { terminalText } from './discovery-ui.ts';
 import { truncateTerminalText } from './table.ts';
 import { formatChoice } from './selection-style.ts';
+import { terminalSession } from './terminal-session.ts';
 
 interface SearchChoice<Value> {
   readonly value: Value;
@@ -37,16 +38,21 @@ export function searchMultiselect<Value>(
   options: SearchMultiselectOptions<Value>,
 ): Promise<Value[] | null> {
   const { input, output, locked } = options;
-  if (input.destroyed || input.readableEnded) return Promise.resolve(null);
+  if (input.destroyed || input.readableEnded || output.destroyed || output.writableEnded)
+    return Promise.resolve(null);
   return new Promise((resolve, reject) => {
-    const previousRaw = input.isRaw ?? false;
-    const wasFlowing = input.readableFlowing === true;
     const selected = new Set<Value>();
     let closed = false;
     let query = '';
     let cursor = 0;
     let previousLines: string[] = [];
     let canSubmit = false;
+    const session = terminalSession(options, {
+      key: onKey,
+      end: onEnd,
+      error: onError,
+      resize: onResize,
+    });
 
     const filtered = () =>
       options.options.filter(
@@ -66,29 +72,18 @@ export function searchMultiselect<Value>(
     function finish(value: Value[] | null, error?: unknown) {
       if (closed) return;
       closed = true;
-      input.off('keypress', onKey);
-      input.off('end', onEnd);
-      input.off('close', onEnd);
-      input.off('error', onError);
-      output.off('error', onError);
-      output.off('resize', onResize);
-      try {
-        input.setRawMode?.(previousRaw);
-        if (wasFlowing) input.resume();
-        else input.pause();
-      } catch (cause) {
-        error ??= cause;
-      }
       try {
         clear();
       } catch (cause) {
         error ??= cause;
       }
       try {
-        output.write('\u001b[?25h');
+        if (!output.destroyed && !output.writableEnded) output.write('\u001b[?25h');
       } catch (cause) {
         error ??= cause;
       }
+      const cleanupError = session.close();
+      error ??= cleanupError;
       if (error !== undefined) reject(error);
       else resolve(value);
     }
@@ -212,7 +207,7 @@ export function searchMultiselect<Value>(
     function onEnd() {
       finish(null);
     }
-    function onError(error: Error) {
+    function onError(error: unknown) {
       finish(null, error);
     }
     /** Пересчитывает физическую высоту старого кадра после изменения ширины терминала. */
@@ -225,15 +220,7 @@ export function searchMultiselect<Value>(
     }
 
     try {
-      emitKeypressEvents(input);
-      input.on('keypress', onKey);
-      input.on('end', onEnd);
-      input.on('close', onEnd);
-      input.on('error', onError);
-      output.on('error', onError);
-      output.on('resize', onResize);
-      input.setRawMode?.(true);
-      input.resume();
+      session.start();
       output.write('\u001b[?25l');
       render();
     } catch (cause) {

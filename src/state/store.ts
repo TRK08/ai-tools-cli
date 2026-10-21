@@ -1,4 +1,3 @@
-import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -9,25 +8,27 @@ import { withScopeLock } from './mutex.ts';
 import { LOCK_TEMP_PREFIX, type StatePaths } from './paths.ts';
 import { parseLockFile, serializeLockFile } from './schema.ts';
 import type { LockFile } from './types.ts';
+import { openRegularFile, withFileHandle, type RegularFileIO } from '../regular-file.ts';
 
-export interface StateFileIO {
+export interface StateFileIO extends RegularFileIO<string> {
   readonly writeTemporaryFile: (path: string, content: string) => Promise<void>;
   readonly rename: (source: string, destination: string) => Promise<void>;
 }
 
 export const defaultStateFileIO: StateFileIO = {
+  lstat: (path) => lstat(path, { bigint: true }),
+  open,
   /**
    * Создаёт новый временный lock эксклюзивно, записывает JSON и выполняет fsync. Дескриптор закрывается в
-   * finally; существующий файл не перезаписывается.
+   * до выхода; существующий файл не перезаписывается. Использует open этого StateFileIO;
+   * ошибки операции и close сохраняются вместе.
    */
   async writeTemporaryFile(path, content) {
-    const handle = await open(path, 'wx', 0o600);
-    try {
+    const handle = await this.open(path, 'wx', 0o600);
+    await withFileHandle(handle, async () => {
       await handle.writeFile(content, 'utf8');
       await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    });
   },
   rename,
 };
@@ -41,16 +42,17 @@ export interface StateTransaction {
 }
 
 export class StateStore {
-  /** Связывает пути состояния и подменяемые операции атомарной записи; I/O не выполняет. */
+  /** Связывает пути состояния и подменяемый I/O чтения/атомарной записи; I/O не выполняет. */
   constructor(
     readonly paths: StatePaths,
     private readonly io: StateFileIO = defaultStateFileIO,
   ) {}
 
   /**
-   * Читает собственный lock с проверкой корня, типа файла и схемы, не создавая каталогов.
+   * Читает lock проверенным regular-file reader и валидирует единственную текущую схему.
    *
-   * @returns null при отсутствии корня/lock; повреждённые данные и ошибки I/O пробрасываются.
+   * @returns null только при первоначальном отсутствии корня/lock; подмена после lstat — ошибка.
+   * @remarks Каталоги не создаёт, handle закрывает до выхода; ошибки чтения и close сохраняет вместе.
    */
   async read(): Promise<LockFile | null> {
     await assertScopeLocation(this.paths);
@@ -64,35 +66,34 @@ export class StateStore {
         'INVALID_PATH',
         'Корневой каталог состояния должен быть обычным каталогом.',
       );
-    const handle = await open(
-      this.paths.lockPath,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    ).catch((cause: unknown) => {
+    const before = await this.io.lstat(this.paths.lockPath).catch((cause: unknown) => {
       if (hasErrorCode(cause, 'ENOENT')) return null;
-      if (hasErrorCode(cause, 'ELOOP'))
-        throw new StateError(
-          'INVALID_LOCK',
-          'Файл состояния не может быть символической ссылкой.',
-          { cause },
-        );
       throw cause;
     });
-    if (handle === null) return null;
-    try {
-      if (!(await handle.stat()).isFile())
-        throw new StateError('INVALID_LOCK', 'Файл состояния должен быть обычным файлом.');
+    if (before === null) return null;
+    const { handle, stats } = await openRegularFile(this.paths.lockPath, {
+      expected: before,
+      fileSystem: this.io,
+    }).catch((cause: unknown) => {
+      throw new StateError('INVALID_LOCK', 'Не удалось безопасно открыть файл состояния.', {
+        cause,
+      });
+    });
+    return withFileHandle(handle, async () => {
+      const bytes = await handle.readFile();
+      const after = await handle.stat({ bigint: true });
+      if (BigInt(bytes.length) !== stats.size || after.size !== stats.size)
+        throw new StateError('INVALID_LOCK', 'Размер файла состояния изменился во время чтения.');
       let parsed: unknown;
       try {
-        parsed = JSON.parse(await handle.readFile('utf8'));
+        parsed = JSON.parse(bytes.toString('utf8'));
       } catch (cause) {
         if (cause instanceof SyntaxError)
           throw new StateError('INVALID_LOCK', 'Некорректный JSON в файле состояния.', { cause });
         throw cause;
       }
       return parseLockFile(parsed, this.paths);
-    } finally {
-      await handle.close();
-    }
+    });
   }
 
   /**
@@ -154,7 +155,8 @@ export class StateStore {
   /**
    * Проверяет схему и неизменность источников, затем сохраняет lock через временный файл и rename.
    *
-   * @remarks Вызывается под блокировкой; при неудачном commit удаляет временный файл.
+   * @remarks Вызывается под блокировкой; ошибка до rename сохраняет прежний lock. При неудаче удаляет
+   * временный файл; ошибка cleanup не скрывает исходную причину. Назначение до rename не удаляется.
    */
   private async writeAtomic(lock: LockFile): Promise<void> {
     const content = serializeLockFile(lock, this.paths);
@@ -166,16 +168,21 @@ export class StateStore {
       }
     }
     const temporaryPath = join(this.paths.root, `${LOCK_TEMP_PREFIX}${randomUUID()}.tmp`);
-    let committed = false;
     try {
       await this.io.writeTemporaryFile(temporaryPath, content);
       await this.io.rename(temporaryPath, this.paths.lockPath);
-      committed = true;
-    } finally {
-      if (!committed)
+    } catch (cause) {
+      try {
         await unlink(temporaryPath).catch((cause: unknown) => {
           if (!hasErrorCode(cause, 'ENOENT')) throw cause;
         });
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [cause, cleanupError],
+          `Запись состояния и очистка ${temporaryPath} завершились ошибками.`,
+        );
+      }
+      throw cause;
     }
   }
 }

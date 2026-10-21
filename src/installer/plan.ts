@@ -46,11 +46,10 @@ export function createInstallPlan(
   snapshot: InstalledSnapshot,
   identity: SourceIdentity,
   policy: InstallationRecord['policy'],
-  reviewedUnchanged = false,
   force = false,
 ): InstallPlan {
   const intact =
-    snapshot.contentHash === content.contentHash &&
+    snapshot.copies.every((copy) => copy.contentHash === content.contentHash) &&
     !snapshot.connectionsNeedRepair &&
     !snapshot.errors.length &&
     snapshot.candidates.length > 0 &&
@@ -67,7 +66,6 @@ export function createInstallPlan(
     snapshot,
     identity,
     policy,
-    reviewedUnchanged,
     force,
   };
 }
@@ -134,7 +132,7 @@ export function localUpdateReason(
   content: InstallationContent,
   snapshot: InstalledSnapshot,
 ): UpdatePreview['reason'] {
-  return snapshot.contentHash !== record.contentHash
+  return snapshot.copies.some((copy) => copy.contentHash !== record.contentHash)
     ? 'copy'
     : content.contentHash !== record.contentHash
       ? 'source'

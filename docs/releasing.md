@@ -6,42 +6,94 @@ Workflow не повышает версию, не создаёт коммиты,
 
 ## Проверки CI
 
-[ci.yml](../.github/workflows/ci.yml) запускается для pull request и push в `main`.
-Он также вызывается workflow публикации и проверяет именно коммит выбранного запуска.
-Матрица: `ubuntu-latest` / `macos-latest` × Node `22.20.0` / `24`.
-Node 22 проверяется на минимальной поддерживаемой версии, Node 24 — на актуальном
-патче ветки. npm устанавливается из `packageManager` в `package.json`.
-При обновлении `packageManager` синхронизируйте закреплённую версию npm в `publish.yml`.
+[ci.yml](../.github/workflows/ci.yml) запускается для push в `main`
+и pull request с целевой веткой `main`; доступен также ручной `workflow_dispatch`.
+Workflow публикации вызывает тот же reusable CI для выбранного коммита.
 
-На каждой комбинации выполняются:
+Всего семь jobs:
+
+- `prepare` на Ubuntu/Node 24 проверяет release-version, типы, lint, форматирование,
+  собирает CLI, запускает publint и один раз выполняет обычный `npm pack --ignore-scripts`.
+- `check` на Linux/macOS/Windows × Node 22.20.0/24 собирает CLI, выполняет `test:run` и восемь e2e собранного CLI (`test:e2e`),
+  скачивает общий архив и запускает `npm run package:smoke -- artifacts/npm/package.tgz`.
+
+Общий [setup-cli](../.github/actions/setup-cli/action.yml) устанавливает Node,
+npm из `packageManager` и зависимости через `npm ci`. На Windows используется
+PowerShell (`pwsh`), на Linux/macOS — Bash. При обновлении `packageManager`
+синхронизируйте закреплённую версию npm в `publish.yml`.
+Release-version проверяется после установки зависимостей, до сборки и упаковки,
+через `node --import tsx scripts/check-release-version.ts`. Ошибка версии
+не позволяет создать артефакт и запустить матрицу.
+
+`prepare` сохраняет один tgz в artifact `npm-package` под именем `package.tgz`
+на семь дней. Переименование сохраняет bytes архива. Все шесть комбинаций
+устанавливают этот же файл; упаковка на Windows/macOS и перепаковка tar отсутствуют.
+Успех загрузки артефакта ещё не означает успех проверок. Reusable CI завершается
+после всей матрицы, поэтому publish ждёт все семь jobs и публикует проверенный
+архив своего запуска без повторной сборки. Actions закреплены commit SHA;
+права обычных проверок — `contents: read`, npm-кеш не используется.
+
+### Git и функциональные тесты
+
+Git roundtrip — обычный [Vitest-тест](../tests/integration/git-roundtrip.test.ts).
+На каждой ОС проверяются четыре сценария NFC/NFD × core.autocrlf=false/true,
+core.symlinks=false, обе проектные копии, bytes/hash, ignore/attributes,
+no-op без переписывания, ручные правки/force и работа CLI без внешнего source.
+Настоящие commit/clone ограничены временными репозиториями; Git config/hooks,
+автор и home изолированы. Межплатформенных bundles и producer/consumer jobs нет.
 
 ```sh
-npm ci
-npm run type-check
-npm run lint
-npm run format:check
 npm run test:run
 npm run build
-npm run package:check
-npm run package:smoke
+npm run test:e2e
+npm run test:git
 ```
 
-`package:check` запускает publint. `package:smoke` выполняет `npm pack --dry-run --json`
-и настоящий `npm pack`, проверяет имя, версию, разрешённый состав, shebang и executable.
-Разрешены только `dist/`, `package.json`, README и лицензии; исходники, тесты,
-настройки агентов и журналы задач в архив не попадают.
+`test:git` — алиас фильтра Vitest для Git-тестов, без produce/consume и без
+предварительного build. CLI/Installer-тесты проверяют полный add/list/update/remove,
+обе области, агентов, сложные cwd/source и буквальную передачу аргументов через Node.
+[.gitattributes](../.gitattributes) закрепляет LF для кода; ресурсы `.agents/skills/**`
+и `.claude/skills/**` сохраняют исходные bytes.
 
-Архив устанавливается без devDependencies в чистый временный проект и отдельный
-глобальный npm-prefix. Проверяются настоящий bin, help/version и цикл локального
-и глобального add/list/update/remove с прямым подключением Codex и ссылкой Claude Code.
-Home и npm-конфигурация временные, статистика отключена, настоящие установки агентов
-не затрагиваются. Для установки runtime-зависимостей нужен доступ к npm registry.
-Проверка освобождает временные каталоги и сохраняет архив в `artifacts/npm/`.
+### Проверка готового npm-архива
 
-Из комбинации Linux / Node 24 загружается артефакт `npm-package` со сроком хранения
-семь дней. Публикация скачивает его из своего запуска после успеха всей матрицы.
-Повторной сборки между проверкой и публикацией нет. Actions закреплены commit SHA;
-права обычных проверок — `contents: read`, npm-кеш не используется.
+```sh
+npm run package:smoke -- /absolute/path/package.tgz
+```
+
+[Smoke](../scripts/check-package.ts) не создаёт архив. Он проверяет его состав,
+имя/версию, объявленный bin, shebang и executable-mode непосредственно в tar.
+Разрешены `dist/`, package.json, README и лицензии; исходники, тесты и настройки
+агентов в пакет не попадают. В Linux сборщик выставляет executable-mode bin;
+обычный `npm pack` сохраняет его. Для локального создания архива на Linux:
+
+```sh
+npm run build
+npm run package:check
+npm pack --ignore-scripts
+npm run package:smoke -- ./trof_r-skills-installer-0.2.1.tgz
+```
+
+Smoke устанавливает готовый пакет с `--omit=dev` в чистый временный проект
+и отдельный глобальный prefix. Настоящие POSIX executable или Windows `.cmd`
+запускаются с фиксированными --help/--version; проверяются версия, справка
+и отсутствие devDependencies. Полный lifecycle через npm shim не выполняется.
+Пути smoke могут содержать пробелы и кириллицу; путь самого Windows shim
+не содержит метасимволов cmd из-за ограничения [npm/cmd-shim#45](https://github.com/npm/cmd-shim/issues/45).
+Произвольные аргументы cmd не экранируются универсальным runner.
+В PowerShell при запрете `.ps1` используйте `skills-installer.cmd` и `npm.cmd`;
+изменение ExecutionPolicy и повышенные права не требуются.
+
+Npm запускается тем же Node через npm_execpath, полученный от `npm run`.
+Общий [helper окружения](../scripts/isolated-runtime.ts) изолирует home/tmp/npmrc,
+cache/prefix, XDG и профили агентов. Унаследованы только системные ключи;
+секреты, NODE_OPTIONS/NODE_PATH и пользовательские npm-настройки не передаются.
+Для runtime-зависимостей нужен доступ к npm registry. Собственные временные
+ресурсы удаляются с ограниченными retry; входной tgz сохраняется без изменений.
+
+Эти автоматические проверки не заменяют приёмку Windows обычным пользователем
+и обнаружение реальными агентами. Сценарии ручной проверки описаны
+в [проверках Windows](windows-validation.md).
 
 ## Однократная настройка перед релизом
 
@@ -58,7 +110,8 @@ Home и npm-конфигурация временные, статистика о
    в `publish.yml` и настройки Trusted Publisher.
 3. В GitHub создайте environment **`npm`** и разрешите deployment только из `main`.
    Required reviewers можно добавить, если функция доступна в вашем тарифе.
-   В правилах защиты `main` включите обязательные проверки четырёх комбинаций CI.
+   В правилах защиты `main` включите обязательные проверки шести комбинаций CI
+   после подтверждения их успешных прогонов.
 4. В настройках npm-пакета выберите **Trusted Publisher → GitHub Actions**:
 
    | Поле                 | Значение       |
@@ -84,7 +137,7 @@ Trusted Publishing требует npm ≥11.5.1 и Node ≥22.14; использ
 настройки Trusted Publisher находятся на странице уже существующего пакета.
 Соберите и проверьте архив описанными выше командами, затем авторизуйтесь через
 `npm login` под аккаунтом `trof_r` и опубликуйте именно проверенный `.tgz`.
-Для текущей версии `0.1.0` команда:
+Например, для первичной публикации версии `0.1.0` команда:
 
 ```sh
 npm publish ./artifacts/npm/trof_r-skills-installer-0.1.0.tgz --access public --ignore-scripts
@@ -101,6 +154,9 @@ npm publish ./artifacts/npm/trof_r-skills-installer-0.1.0.tgz --access public --
 npm run changeset
 ```
 
+Выберите пакет и тип изменения: `patch`, `minor` или `major`. Заметка описывает
+будущий релиз; создание заметки ещё не меняет версию в `package.json`.
+
 Перед релизом в отдельной рабочей ветке примените накопленные заметки и синхронизируйте lock:
 
 ```sh
@@ -109,15 +165,21 @@ npm install --package-lock-only --ignore-scripts
 npm ci
 ```
 
+`changeset version` повышает версию в `package.json`, создаёт или обновляет
+`CHANGELOG.md` и удаляет применённые заметки. Следующая команда синхронизирует
+`package-lock.json`. Для patch-релиза из `0.2.0` получается `0.2.1`.
+
 Проверьте `package.json`, `package-lock.json` и `CHANGELOG.md`, затем выполните весь
 набор проверок CI. Релизный коммит с новой версией должен пройти ревью и попасть в `main`.
 Подготовка версии и merge выполняются отдельно от workflow публикации.
+CI и workflow публикации сами не повышают версию: input `version` только проверяется
+на совпадение с уже сохранёнными manifest/lock.
 
 ## Ручной запуск публикации
 
 1. Откройте **Actions → Publish npm → Run workflow** в `TRK08/ai-tools-cli`.
 2. Выберите ветку **`main`** и введите `version`, совпадающую с `package.json`
-   выбранного коммита, например `0.1.1`. Поддерживается стабильная SemVer `X.Y.Z`;
+   выбранного коммита, например `0.2.1`. Поддерживается стабильная SemVer `X.Y.Z`;
    prerelease и другие dist-tags требуют отдельного изменения workflow.
 3. Workflow снова запускает полную CI-матрицу. Несовпадение версии или ошибка
    любой проверки останавливает публикацию. Запуск из другой ветки или форка
@@ -126,8 +188,8 @@ npm ci
    required reviewers, одобрите deployment в GitHub. Он публикует проверенный
    архив с `--access public --tag latest --provenance --ignore-scripts`.
 5. После успеха проверьте страницу пакета, версию и provenance. Для независимой
-   проверки registry выполните `npm view @trof_r/skills-installer@0.1.1 version dist.integrity`
-   и проверьте `npx --yes @trof_r/skills-installer@0.1.1 --version` в отдельном каталоге.
+   проверки registry выполните `npm view @trof_r/skills-installer@0.2.1 version dist.integrity`
+   и проверьте `npx --yes @trof_r/skills-installer@0.2.1 --version` в отдельном каталоге.
    Подставьте фактическую версию.
 
 Запуски публикации сериализованы через `concurrency: publish-npm`; новый запуск
@@ -149,5 +211,5 @@ npm ci
   чтобы заново выполнить проверки и собрать архив того же выбранного коммита.
 
 CI и проверка архивов подтверждают автоматизированные сценарии. Обнаружение скиллов
-пятью реальными агентами и остальная ручная итоговая матрица MVP проверяются отдельно;
-успешный workflow не заменяет эти проверки и пользовательский аппрув результата.
+пятью реальными агентами и работа терминала на Windows проверяются отдельно
+по [сценариям ручной проверки](windows-validation.md).

@@ -6,7 +6,7 @@ import {
   S_RADIO_INACTIVE,
   S_STEP_ACTIVE,
 } from '@clack/prompts';
-import { emitKeypressEvents, type Key } from 'node:readline';
+import type { Key } from 'node:readline';
 import { styleText } from 'node:util';
 import stringWidth from 'fast-string-width';
 import type { RegistryClient } from '../registry/client.ts';
@@ -18,6 +18,7 @@ import { truncateTerminalText } from './table.ts';
 import { plural } from './labels.ts';
 import { createLoading } from './loading.ts';
 import { formatChoice } from './selection-style.ts';
+import { terminalSession } from './terminal-session.ts';
 
 // Адаптировано из ../skills/src/find.ts; см. ThirdPartyNoticeText.txt.
 /** Форматирует счётчик установок с русским склонением и сокращениями тыс./млн. */
@@ -47,15 +48,22 @@ function queryViewport(before: string, after: string, width: number): string {
 /**
  * Ведёт асинхронный выбор registry-скилла с редактированием префикса и прокруткой.
  *
- * @returns Полный объект выбранного результата либо null при отмене/закрытии stdin.
- * @remarks По завершении отменяет поиск, снимает обработчики и восстанавливает raw mode и курсор.
+ * @returns Полный объект результата либо null при отмене/закрытии потоков.
+ * @remarks Ошибка setup/render/потока отклоняет Promise после очистки; исходная причина сохраняется.
+ * По завершении отменяет поиск и spinner, восстанавливает raw mode, поток и курсор.
  */
 export async function selectRegistrySkill(
   client: RegistryClient,
   initialPrefix: string,
   streams: PromptStreams,
 ): Promise<CatalogSkill | null> {
-  intro('Поиск скиллов', { output: streams.output });
+  if (
+    streams.input.destroyed ||
+    streams.input.readableEnded ||
+    streams.output.destroyed ||
+    streams.output.writableEnded
+  )
+    return null;
   return new Promise((resolve, reject) => {
     let closed = false,
       selectedIndex = 0,
@@ -64,16 +72,30 @@ export async function selectRegistrySkill(
     let previousLines: string[] = [];
     let loadingLine: string | null = null;
     let canSubmit = false;
-    const previousRaw = streams.input.isRaw ?? false;
-    const loading = createLoading(streams, (line) => {
-      loadingLine = line;
-      render();
-    });
+    const loading = createLoading(
+      streams,
+      (line) => {
+        loadingLine = line;
+        render();
+      },
+      (cause) => finish(null, cause),
+    );
     const search = new RegistryFindSearch(client, () => {
-      selectedIndex = 0;
-      if (search.state.status === 'loading') loading.start('Поиск в реестре…');
-      else loading.stop();
-      render();
+      if (closed) return;
+      try {
+        selectedIndex = 0;
+        if (search.state.status === 'loading') loading.start('Поиск в реестре…');
+        else loading.stop();
+        render();
+      } catch (cause) {
+        finish(null, cause);
+      }
+    });
+    const session = terminalSession(streams, {
+      key: onKey,
+      end: onEnd,
+      error: (cause) => finish(null, cause),
+      resize: onResize,
     });
 
     /** Стирает только строки предыдущего кадра, чтобы повторная отрисовка не оставляла старые варианты. */
@@ -85,19 +107,23 @@ export async function selectRegistrySkill(
     const finish = (skill: CatalogSkill | null, error?: unknown) => {
       if (closed) return;
       closed = true;
-      loading.stop();
-      search.close();
-      streams.input.off('keypress', onKey);
-      streams.input.off('end', onEnd);
-      streams.output.off('resize', onResize);
-      streams.input.setRawMode?.(previousRaw);
-      streams.input.pause();
-      try {
-        clear();
-        streams.output.write('\u001b[?25h');
-      } catch (cause) {
-        error ??= cause;
+      for (const cleanup of [
+        () => search.close(),
+        () => loading.stop(),
+        clear,
+        () => {
+          if (!streams.output.destroyed && !streams.output.writableEnded)
+            streams.output.write('\u001b[?25h');
+        },
+      ]) {
+        try {
+          cleanup();
+        } catch (cause) {
+          error ??= cause;
+        }
       }
+      const cleanupError = session.close();
+      error ??= cleanupError;
       if (error !== undefined) reject(error);
       else resolve(skill);
     };
@@ -268,13 +294,13 @@ export async function selectRegistrySkill(
       );
       render();
     }
-    emitKeypressEvents(streams.input);
-    streams.input.on('keypress', onKey);
-    streams.input.on('end', onEnd);
-    streams.output.on('resize', onResize);
-    streams.input.setRawMode?.(true);
-    streams.input.resume();
-    streams.output.write('\u001b[?25l');
-    search.setPrefix(initialPrefix, true);
+    try {
+      session.start();
+      intro('Поиск скиллов', { output: streams.output });
+      streams.output.write('\u001b[?25l');
+      search.setPrefix(initialPrefix, true);
+    } catch (cause) {
+      finish(null, cause);
+    }
   });
 }

@@ -1,10 +1,5 @@
 export type StateErrorCode =
-  | 'INVALID_PATH'
-  | 'INVALID_LOCK'
-  | 'UNSUPPORTED_LOCK_VERSION'
-  | 'SOURCE_CONFLICT'
-  | 'SCOPE_BUSY'
-  | 'PROJECT_IN_HOME';
+  'INVALID_PATH' | 'INVALID_LOCK' | 'SOURCE_CONFLICT' | 'SCOPE_BUSY' | 'PROJECT_IN_HOME';
 
 export const PROJECT_IN_HOME_MESSAGE =
   'Локальная область недоступна в домашнем каталоге. Выберите другую рабочую папку или используйте --global.';

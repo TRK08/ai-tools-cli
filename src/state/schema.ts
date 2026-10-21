@@ -1,5 +1,4 @@
-import { isAbsolute, resolve } from 'node:path';
-import { isAgentId, isDirectAgent } from '../agents/catalog.ts';
+import { agentConnectionKind, isAgentId, isDirectAgent } from '../agents/catalog.ts';
 import type { AgentId } from '../installer/types.ts';
 import type { SourceIdentity } from '../sources/types.ts';
 import { isFullSemVer, isRegistrySlug } from '../registry/reference.ts';
@@ -10,9 +9,12 @@ import {
   getSkillDirectory,
   portableConnectionPath,
   portableSourcePath,
+  validatePortablePathText,
   validatePathText,
   type StatePaths,
 } from './paths.ts';
+import { assertPortableNames } from './names.ts';
+import { nativePath, pathIdentityKey } from './native-path.ts';
 import {
   LOCK_VERSION,
   type InstallationRecord,
@@ -87,24 +89,35 @@ function source(value: unknown, paths: StatePaths, storageInput: boolean): Sourc
     invalid('Неподдерживаемый тип источника.');
   keys(entry, ['kind', 'path']);
   const path = text(entry.path, 'source.path');
-  validatePathText(path);
-  if (!storageInput && isAbsolute(path) !== (paths.scope === 'global'))
+  if (!storageInput && paths.scope === 'project') validatePortablePathText(path);
+  else validatePathText(path);
+  if (!storageInput && nativePath.isAbsolute(path) !== (paths.scope === 'global'))
     invalid(
       'Сохранённый путь локального источника должен быть относительным в проекте и абсолютным в глобальной области.',
     );
   return { kind: entry.kind, path: portableSourcePath(path, paths) };
 }
 
-/** Проверяет агент/путь управляемого подключения и кодирует путь по правилам области. */
+/** Проверяет агент/вид по единому каталогу и кодирует путь подключения по правилам области. */
 function connection(value: unknown, paths: StatePaths, storageInput: boolean): ManagedConnection {
   const entry = object(value, 'connection');
-  keys(entry, ['agent', 'path']);
+  keys(entry, ['agent', 'path', 'kind']);
+  const id = agent(entry.agent);
+  const kind = agentConnectionKind(id, paths.scope);
+  if (entry.kind !== kind) invalid('Вид подключения не соответствует агенту и области.');
   const path = text(entry.path, 'connection.path');
-  if (!storageInput && isAbsolute(path) !== (paths.scope === 'global'))
+  if (!storageInput && paths.scope === 'project') validatePortablePathText(path);
+  else validatePathText(path);
+  if (!storageInput && nativePath.isAbsolute(path) !== (paths.scope === 'global'))
     invalid(
       'Сохранённый путь подключения должен быть относительным в проекте и абсолютным в глобальной области.',
     );
-  return { agent: agent(entry.agent), path: portableConnectionPath(path, paths) };
+  return { agent: id, path: portableConnectionPath(path, paths), kind };
+}
+
+/** Строит ключ владения назначением, сохраняя исходную строку пути в записи lock. */
+function connectionKey(path: string, paths: StatePaths): string {
+  return pathIdentityKey(nativePath.resolve(paths.cwd, path));
 }
 
 /** Проверяет одну запись lock: имя, источник/политику, версии, хеши и согласованность подключений. */
@@ -142,18 +155,19 @@ function record(
     invalid('Повторяющиеся агенты недопустимы.');
   if (!Array.isArray(entry.connections)) invalid('Поле connections должно быть массивом.');
   const connections = entry.connections.map((value) => connection(value, paths, storageInput));
+  const groups = new Map<string, ManagedConnection[]>();
+  for (const item of connections) {
+    const key = connectionKey(item.path, paths);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  const sharedKey = connectionKey(getSkillDirectory(paths, name), paths);
   if (
     connections.some((item) => !desiredAgents.includes(item.agent)) ||
     new Set(connections.map((item) => item.agent)).size !== connections.length ||
-    connections.some(
-      (item, index) =>
-        connections.slice(0, index).some((other) => other.path === item.path) &&
-        !(
-          resolve(paths.cwd, item.path) === getSkillDirectory(paths, name) &&
-          connections
-            .filter((other) => other.path === item.path)
-            .every((other) => isDirectAgent(other.agent, paths.scope))
-        ),
+    [...groups].some(
+      ([key, group]) =>
+        group.length > 1 &&
+        (key !== sharedKey || group.some((item) => !isDirectAgent(item.agent, paths.scope))),
     )
   )
     invalid(
@@ -187,16 +201,10 @@ function record(
 function normalize(value: unknown, paths: StatePaths, storageInput: boolean): LockFile {
   try {
     const lock = object(value, 'lock');
-    if (Object.hasOwn(lock, 'version') && lock.version !== LOCK_VERSION) {
-      if (typeof lock.version === 'number' && Number.isInteger(lock.version))
-        throw new StateError(
-          'UNSUPPORTED_LOCK_VERSION',
-          `Неподдерживаемая версия файла состояния: ${lock.version}.`,
-        );
-      invalid('Версия файла состояния должна быть целым числом.');
-    }
     keys(lock, ['version', 'skills']);
+    if (lock.version !== LOCK_VERSION) invalid('Некорректная версия файла состояния.');
     const skills = object(lock.skills, 'skills');
+    assertPortableNames(Object.keys(skills));
     const records = Object.fromEntries(
       Object.keys(skills)
         .sort()
@@ -205,9 +213,10 @@ function normalize(value: unknown, paths: StatePaths, storageInput: boolean): Lo
     const managedPaths = new Map<string, string>();
     for (const entry of Object.values(records)) {
       for (const connection of entry.connections) {
-        if (managedPaths.has(connection.path) && managedPaths.get(connection.path) !== entry.name)
+        const key = connectionKey(connection.path, paths);
+        if (managedPaths.has(key) && managedPaths.get(key) !== entry.name)
           invalid('Разные скиллы не могут управлять одним путём подключения.');
-        managedPaths.set(connection.path, entry.name);
+        managedPaths.set(key, entry.name);
       }
     }
     return {

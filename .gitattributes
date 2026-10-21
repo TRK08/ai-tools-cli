@@ -1,0 +1,7 @@
+# Текстовые файлы репозитория используют LF на всех ОС, независимо от core.autocrlf.
+* text=auto eol=lf
+
+# Ресурсы установленных скиллов сохраняют исходные байты, включая CRLF и бинарные данные.
+.agents/skills/** -text -filter -ident -working-tree-encoding
+.claude/skills/** -text -filter -ident -working-tree-encoding
+skills-installer-lock.json text eol=lf -filter -ident -working-tree-encoding

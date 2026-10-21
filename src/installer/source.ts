@@ -1,4 +1,6 @@
-import { join } from 'node:path';
+import { nativePath } from '../state/native-path.ts';
+import { AGENTS } from '../agents/catalog.ts';
+import { agentSkillsDirectory } from './agents.ts';
 import {
   localSourceIdentity,
   prepareLocalSource,
@@ -15,6 +17,9 @@ import type { InstallationRecord } from '../state/types.ts';
 import {
   getSkillDirectory,
   getStatePaths,
+  portableSourcePath,
+  resolveConnectionPath,
+  INSTALLER_LOCK_NAME,
   LOCK_TEMP_PREFIX,
   WORKSPACE_PREFIX,
   type StatePaths,
@@ -26,7 +31,7 @@ import type {
   SourceSelection,
 } from './types.ts';
 
-/** Выбирает постоянный источник и политику; update использует сохранённый registry. */
+/** Проверяет переносимость пути до I/O и выбирает источник/политику; update сохраняет registry. */
 export async function selectSource(
   input: string,
   context: RuntimeContext,
@@ -35,6 +40,8 @@ export async function selectSource(
   updating?: InstallationRecord,
   selection?: RegistrySelection,
 ): Promise<SourceSelection> {
+  // Проверка выполняется до чтения источника, workspace и сетевых запросов.
+  portableSourcePath(input, paths);
   const reference = updating
     ? updating.source.kind === 'registry'
       ? { slug: updating.source.slug }
@@ -79,20 +86,41 @@ export async function resolveSelectedSource(
   };
 }
 
-/** Ограничивает временные ресурсы workspace операции и исключает собственное состояние CLI. */
+/** Задаёт политику имён; исключает default/активные каталоги всех агентов, состояние обоих scopes и сохранённые назначения. */
 export function preparationOptions(
   context: RuntimeContext,
   paths: StatePaths,
   workspace: string,
   signal?: AbortSignal,
+  records: readonly InstallationRecord[] = [],
 ): Omit<PrepareDirectoryOptions, 'fileSystem'> {
+  const { join } = nativePath;
   const global = getStatePaths(context.roots, 'global');
   return {
     signal,
+    portableNames: paths.scope === 'project',
     cwd: paths.cwd,
     temporaryDirectory: workspace,
-    excludedPaths: [global.skillsDirectory, global.lockPath, global.operationLockPath],
+    excludedPaths: [
+      ...AGENTS.flatMap((agent) =>
+        (['project', 'global'] as const).flatMap((scope) => [
+          agent[scope].directory(context.roots),
+          agentSkillsDirectory(context, scope, agent.id),
+        ]),
+      ),
+      join(context.roots.cwd, '.agents', 'skills'),
+      join(context.roots.cwd, INSTALLER_LOCK_NAME),
+      join(context.roots.cwd, '.skills-installer-operation.lock'),
+      global.skillsDirectory,
+      global.lockPath,
+      global.operationLockPath,
+      ...records.flatMap((record) =>
+        record.connections.map((connection) => resolveConnectionPath(connection.path, paths)),
+      ),
+    ],
     excludedPrefixes: [
+      join(context.roots.cwd, '.agents', WORKSPACE_PREFIX),
+      join(context.roots.cwd, LOCK_TEMP_PREFIX),
       join(global.agentsDirectory, WORKSPACE_PREFIX),
       join(global.root, LOCK_TEMP_PREFIX),
     ],

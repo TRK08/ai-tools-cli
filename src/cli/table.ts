@@ -22,19 +22,19 @@ export function truncateTerminalText(value: string, width: number): string {
 
 /**
  * Переносит текст по экранной ширине, сохраняя графемы и исходные разрывы строк. Предпочитает границы
- * пробела или пути; остаток переносит целиком.
+ * пути или пробела; сохраняет разделители и пробелы, в том числе внутри файловых путей.
  */
 export function wrapTerminalText(value: string, width: number): string[] {
   return value.split('\n').flatMap((line) => {
     const lines: string[] = [];
     let current = '';
     for (const { segment } of segmenter.segment(line)) {
-      if (current && stringWidth(current + segment) > width) {
+      while (current && stringWidth(current + segment) > width) {
         const space = current.lastIndexOf(' ');
-        const slash = current.lastIndexOf('/');
-        const split = space > 0 ? space : slash > 0 ? slash + 1 : current.length;
+        const slash = Math.max(current.lastIndexOf('/'), current.lastIndexOf('\\'));
+        const split = slash > 0 ? slash + 1 : space > 0 ? space + 1 : current.length;
         lines.push(current.slice(0, split));
-        current = current.slice(split + (space > 0 ? 1 : 0));
+        current = current.slice(split);
       }
       current += segment;
     }

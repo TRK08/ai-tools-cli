@@ -3,8 +3,8 @@ import { stripVTControlCharacters } from 'node:util';
 
 import { afterEach, expect, it, vi } from 'vitest';
 
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
 
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';

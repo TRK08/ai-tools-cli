@@ -1,20 +1,16 @@
-import { nativePath } from '../state/native-path.ts';
-import { AGENTS } from '../agents/catalog.ts';
-import { agentSkillsDirectory } from '../agents/resolve.ts';
+import { nativePath } from '@/paths';
+import { AGENTS, agentSkillsDirectory } from '@/agents';
 import {
   localSourceIdentity,
   prepareLocalSource,
   registryReferenceForSource,
-} from '../sources/local.ts';
-import { prepareRegistrySource } from '../sources/registry.ts';
-import { RegistryClient } from '../registry/client.ts';
-import { RegistryError } from '../registry/errors.ts';
-import type { RegistryDownload } from '../registry/client.ts';
-import { getRegistryUrl } from '../registry/reference.ts';
-import type { PrepareDirectoryOptions } from '../sources/directory.ts';
-import type { RuntimeContext } from '../runtime.ts';
-import type { InstallationRecord } from '../state/types.ts';
+  prepareRegistrySource,
+  type PrepareDirectoryOptions,
+} from '@/sources';
+import { RegistryClient, RegistryError, getRegistryUrl, type RegistryDownload } from '@/registry';
+import type { RuntimeContext } from '@/runtime';
 import {
+  type InstallationRecord,
   getSkillDirectory,
   getStatePaths,
   portableSourcePath,
@@ -23,13 +19,13 @@ import {
   LOCK_TEMP_PREFIX,
   WORKSPACE_PREFIX,
   type StatePaths,
-} from '../state/paths.ts';
+} from '@/state';
 import type {
   InstallationContent,
   InstallerOptions,
   RegistrySelection,
   SourceSelection,
-} from './types.ts';
+} from './types';
 
 /** Проверяет переносимость пути до I/O и выбирает источник/политику; update сохраняет registry. */
 export async function selectSource(

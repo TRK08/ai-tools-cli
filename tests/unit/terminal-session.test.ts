@@ -1,6 +1,6 @@
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { terminalSession } from '../../src/cli/terminal/session.ts';
+import { terminalSession } from '@/cli/terminal/session';
 
 function fixture(raw = false, flowing = false) {
   const input = Object.assign(new PassThrough(), {

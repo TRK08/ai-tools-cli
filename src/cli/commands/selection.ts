@@ -1,12 +1,10 @@
-import { AGENTS, isDirectAgent } from '../../agents/catalog.ts';
-import { agentSkillsDirectory, parseAgents } from '../../agents/resolve.ts';
-import { getStatePaths } from '../../state/paths.ts';
-import type { AgentId } from '../../agents/catalog.ts';
-import type { InstallationScope, RuntimeContext } from '../../runtime.ts';
-import type { PromptStreams } from '../terminal/types.ts';
-import { scopeLabel } from '../ui/labels.ts';
-import { selectAgentChoices } from '../ui/agents-prompt.ts';
-import { selectAddScope } from '../ui/add-confirm.ts';
+import { AGENTS, isDirectAgent, agentSkillsDirectory, parseAgents, type AgentId } from '@/agents';
+import { getStatePaths } from '@/state';
+import type { InstallationScope, RuntimeContext } from '@/runtime';
+import type { PromptStreams } from '@/cli/terminal';
+import { scopeLabel } from '@/cli/ui/labels';
+import { selectAgentChoices } from '@/cli/ui/agents-prompt';
+import { selectAddScope } from '@/cli/ui/add-confirm';
 
 /** Выбирает область add/find; -g и отсутствие пары TTY обходят меню, отмена возвращает null. */
 export async function selectScope(

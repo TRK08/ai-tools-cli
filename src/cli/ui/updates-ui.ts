@@ -1,11 +1,8 @@
-import { confirm } from '../terminal/select.ts';
+import { confirm, renderTable, createLoading, type PromptStreams } from '@/cli/terminal';
 import { cancel, intro, log, note, outro } from '@clack/prompts';
-import type { UpdateBatch, UpdateDecision, UpdatePreview } from '../../installer/types.ts';
-import type { PromptStreams } from '../terminal/types.ts';
-import type { InstallationScope } from '../../runtime.ts';
-import { renderTable } from '../terminal/table.ts';
-import { failureLabel, scopeLabel } from './labels.ts';
-import { createLoading } from '../terminal/loading.ts';
+import type { UpdateBatch, UpdateDecision, UpdatePreview } from '@/installer';
+import type { InstallationScope } from '@/runtime';
+import { failureLabel, scopeLabel } from './labels';
 
 /**
  * Создаёт callbacks подтверждения и итогового вывода update, сохраняя preview каждой записи. run

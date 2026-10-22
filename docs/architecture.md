@@ -4,18 +4,19 @@
 бизнес-операции вызываются напрямую. Публичного SDK нет.
 Поддерживаемые сценарии и ограничения описаны в [README](../README.md).
 
-| Модуль                                     | Ответственность                                              | Основные точки входа                                                  |
-| ------------------------------------------ | ------------------------------------------------------------ | --------------------------------------------------------------------- |
-| [CLI](../src/cli/program.ts)               | Аргументы и явная регистрация обработчиков                   | `createProgram`                                                       |
-| [Сценарии](../src/cli/commands/)           | Параметры, зависимости, последовательность операций          | `addSkill`, `findSkill`, `listSkills`, `updateSkills`, `removeSkills` |
-| [Представления](../src/cli/ui/)            | Карточки, меню, таблицы и решения пользователя               | `createAddUi`, `createUpdatesUi`, `createRemoveUi`                    |
-| [Терминал](../src/cli/terminal/prompt.ts)  | TTY-ресурсы, кадры, диалоги, таблицы и индикатор             | `runPrompt`, `select`, `confirm`, `multiselect`                       |
-| [Агенты](../src/agents/catalog.ts)         | Настройки подключений, проверка ID и разрешение каталогов    | `AGENTS`, `parseAgents`, `agentSkillsDirectory`                       |
-| [Installer](../src/installer/installer.ts) | Add/update/list/remove, общая копия, подключения, транзакции | `Installer`                                                           |
-| [Sources](../src/sources/types.ts)         | Снимок одного скилла и его метаданные                        | `prepareLocalSource`, `prepareRegistrySource`                         |
-| [Registry](../src/registry/client.ts)      | Каталог, карточки, разрешение версии, проверенная загрузка   | `RegistryClient`                                                      |
-| [State](../src/state/store.ts)             | Схема lock, переносимые пути, атомарная запись и блокировка  | `StateStore`, `hashDirectory`                                         |
-| [Telemetry](../src/telemetry/client.ts)    | Ограниченная по времени отправка событий                     | `Telemetry.emit`, `flush`                                             |
+| Модуль                                   | Ответственность                                              | Основные точки входа                                                  |
+| ---------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
+| [CLI](../src/cli/program.ts)             | Аргументы и явная регистрация обработчиков                   | `createProgram`                                                       |
+| [Сценарии](../src/cli/commands/)         | Параметры, зависимости, последовательность операций          | `addSkill`, `findSkill`, `listSkills`, `updateSkills`, `removeSkills` |
+| [Представления](../src/cli/ui/)          | Карточки, меню, таблицы и решения пользователя               | `createAddUi`, `createUpdatesUi`, `createRemoveUi`                    |
+| [Терминал](../src/cli/terminal/index.ts) | TTY-ресурсы, кадры, диалоги, таблицы и индикатор             | `runPrompt`, `select`, `confirm`, `multiselect`                       |
+| [Агенты](../src/agents/index.ts)         | Настройки подключений, проверка ID и разрешение каталогов    | `AGENTS`, `parseAgents`, `agentSkillsDirectory`                       |
+| [Пути](../src/paths/index.ts)            | Нативные пути, байтовые имена и переносимые проверки         | `nativePath`, `samePath`, `assertPortableName`                        |
+| [Installer](../src/installer/index.ts)   | Add/update/list/remove, общая копия, подключения, транзакции | `Installer`                                                           |
+| [Sources](../src/sources/index.ts)       | Снимок одного скилла и его метаданные                        | `prepareLocalSource`, `prepareRegistrySource`                         |
+| [Registry](../src/registry/index.ts)     | Каталог, карточки, разрешение версии, проверенная загрузка   | `RegistryClient`                                                      |
+| [State](../src/state/index.ts)           | Схема lock, переносимые пути, атомарная запись и блокировка  | `StateStore`, `hashDirectory`                                         |
+| [Telemetry](../src/telemetry/index.ts)   | Ограниченная по времени отправка событий                     | `Telemetry.emit`, `flush`                                             |
 
 `RuntimeContext` содержит явные `roots.cwd`, `roots.home`, `env`, `http`.
 [CliContext](../src/cli/types.ts) объединяет его с версией CLI и независимыми
@@ -35,13 +36,55 @@ Registry и Telemetry с представлениями `ui`; представл
 UI получает готовые данные и узкие callbacks, не создаёт HTTP-клиенты и не читает lock.
 
 Базовые типы импортируются у владельцев: `AgentId` и `ConnectionKind` — из
-[agents/catalog.ts](../src/agents/catalog.ts), `InstallationScope` и `RuntimeContext` —
+[agents/index.ts](../src/agents/index.ts), `InstallationScope` и `RuntimeContext` —
 из [runtime.ts](../src/runtime.ts). State и Telemetry используют эти модули напрямую.
 `installer/types.ts` описывает только контракты Installer; транзитных реэкспортов
 базовых типов нет. Операции `parseAgents` и `agentSkillsDirectory` принадлежат
-[agents/resolve.ts](../src/agents/resolve.ts), их вызывают и CLI, и Installer.
-Каталог и resolver используют общий `state/native-path` для синтаксиса путей,
-но не зависят от StateStore или состояния установок.
+[agents/resolve.ts](../src/agents/resolve.ts), CLI и Installer получают их через API агентов.
+Каталог, resolver и State используют независимый `paths` для синтаксиса путей.
+Он зависит от Node и общего [errors.ts](../src/errors.ts), не читает состояние
+и не зависит от StateStore. StateError, его коды и hasErrorCode принадлежат errors;
+проектный запрет установки в home и его сообщение остаются в State.
+
+### Внутренний public API
+
+Восемь модулей из таблицы имеют явный `index.ts`: это граница использования внутри
+CLI, без отдельного npm SDK. Между модулями импортируйте функции и типы из этого
+входа; внутри модуля — напрямую из файлов реализации. В одной папке используйте
+относительные пути (`./plan`), между папками — алиас `@/` на `src/`. Например:
+
+```ts
+import { AGENTS, parseAgents, type AgentId } from '@/agents';
+```
+
+Индекс перечисляет именованные экспорты, нужные production-потребителям, без
+`export *`. Не экспортируйте реализацию только ради компонентного теста.
+В импорте публичного API указывайте каталог без `/index.ts`; внутренние импорты
+и реэкспорты файлов своей папки пишите как `./plan`, сохраняя прямую зависимость от реализации.
+Листовые типы State импортируются как `@/sources/types`. TypeScript использует
+`module: ESNext` и `moduleResolution: Bundler`, согласованные со сборкой tsdown;
+`paths` задаёт `@/* → ./src/*`. Tsdown и tsx читают эту настройку, а Vitest получает
+эквивалентный абсолютный `resolve.alias`. Исходники из другого рабочего каталога
+запускаются с явным `TSX_TSCONFIG_PATH` на конфигурацию репозитория; тестовые
+процессы задают его сами, сохраняя изолированные cwd/home/env.
+Внутренний код не импортирует собственный индекс: это усложняет порядок загрузки
+и может вернуть циклы. Однофайловые runtime/errors/regular-file/cancellation
+остаются самостоятельными точками входа. У CLI commands/ui отдельных barrel нет.
+
+Для State предусмотрен листовой публичный вход
+[sources/types.ts](../src/sources/types.ts): `import type { SourceIdentity }`
+не ссылается на общий индекс Sources, который сам использует State. Это сохраняет
+ацикличность даже с учётом типов. Остальные потребители Sources используют его индекс.
+Компонентные тесты могут напрямую проверять внутренние файлы через `@/`;
+динамические импорты и моки используют тот же путь. Моки нативных путей
+подменяют `@/paths/native-path` через `createPathOperations`.
+Относительными также остаются ссылки на файлы вне src (например, helpers тестов и
+package.json). Markdown-ссылки, URL конфигурации и пути запуска указывают на реальные файлы.
+
+Индексы содержат только реэкспорты и не запускают I/O. Реализации также не должны
+читать файлы, обращаться к HTTP или захватывать терминал при импорте. Обычные
+ESM-реэкспорты допускают tree shaking; не добавляйте глобальное отключение
+побочных эффектов сборщику ради размера бандла.
 
 При чтении графа различайте `import type` и runtime-импорты: типы стираются
 при сборке. Например, InstallationRecord ссылается на SourceIdentity, а подготовка

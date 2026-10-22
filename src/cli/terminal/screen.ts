@@ -1,7 +1,7 @@
 import { stripVTControlCharacters, styleText } from 'node:util';
 import stringWidth from 'fast-string-width';
-import type { PromptStreams, TerminalScreen } from './types.ts';
-import { truncateTerminalText } from './text.ts';
+import type { PromptStreams, TerminalScreen } from './types';
+import { truncateTerminalText } from './text';
 
 /**
  * Владеет своим кадром и скрываемым курсором; ввод и события потоков остаются у session.

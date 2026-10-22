@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createUpdatesUi } from '../../src/cli/ui/updates-ui.ts';
-import type { UpdatePreview } from '../../src/installer/types.ts';
+import { createUpdatesUi } from '@/cli/ui/updates-ui';
+import type { UpdatePreview } from '@/installer/types';
 import { terminal } from '../helpers/terminal.ts';
 
 const preview: UpdatePreview = {

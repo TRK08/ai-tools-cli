@@ -1,5 +1,5 @@
 import { emitKeypressEvents, type Key } from 'node:readline';
-import type { PromptStreams } from './types.ts';
+import type { PromptStreams } from './types';
 
 /**
  * Владеет только своими обработчиками терминала. start может бросить ошибку setup;

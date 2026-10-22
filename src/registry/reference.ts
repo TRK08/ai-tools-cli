@@ -1,5 +1,5 @@
-import type { Environment } from '../runtime.ts';
-import { RegistryError } from './errors.ts';
+import type { Environment } from '@/runtime';
+import { RegistryError } from './errors';
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // Адаптировано из ../skills/src/registry-source.ts; полная SemVer с build/prerelease.

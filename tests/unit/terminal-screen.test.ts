@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
-import { createFrame, createScreen } from '../../src/cli/terminal/screen.ts';
+import { createFrame, createScreen } from '@/cli/terminal/screen';
 import { terminal } from '../helpers/terminal.ts';
 
 describe('terminal frame ownership', () => {

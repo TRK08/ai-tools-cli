@@ -1,6 +1,6 @@
 import type { Writable } from 'node:stream';
-import type { CatalogSkill } from '../../registry/catalog.ts';
-import { renderTable } from '../terminal/table.ts';
+import type { CatalogSkill } from '@/registry';
+import { renderTable } from '@/cli/terminal';
 
 /** Печатает результаты серверного поиска без установки; пустой список показывает отдельным сообщением. */
 export function renderSearch(

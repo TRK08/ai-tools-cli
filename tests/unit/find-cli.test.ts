@@ -1,4 +1,4 @@
-import { RegistryFindSearch } from '../../src/cli/find-search.ts';
+import { RegistryFindSearch } from '@/cli/find-search';
 import { readdir } from 'node:fs/promises';
 
 import { PassThrough, Writable } from 'node:stream';
@@ -6,13 +6,13 @@ import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { S_RADIO_ACTIVE } from '@clack/prompts';
 import { describe, expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
-import { selectRegistrySkill } from '../../src/cli/ui/find-ui.ts';
-import { RegistryClient } from '../../src/registry/client.ts';
-import { sortCatalog } from '../../src/registry/catalog.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
+import { createProgram } from '@/cli/program';
+import { selectRegistrySkill } from '@/cli/ui/find-ui';
+import { RegistryClient } from '@/registry/client';
+import { sortCatalog } from '@/registry/catalog';
+import { hashDirectory } from '@/state/hash';
 
-import type { TelemetryEnvelope } from '../../src/telemetry/client.ts';
+import type { TelemetryEnvelope } from '@/telemetry/client';
 import { catalogItem } from '../helpers/discovery.ts';
 
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';

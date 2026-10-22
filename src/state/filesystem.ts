@@ -1,6 +1,7 @@
 import { lstat, mkdir, stat } from 'node:fs/promises';
-import { PROJECT_IN_HOME_MESSAGE, StateError, hasErrorCode } from './errors.ts';
-import type { StatePaths } from './paths.ts';
+import { PROJECT_IN_HOME_MESSAGE } from './messages';
+import { StateError, hasErrorCode } from '@/errors';
+import type { StatePaths } from './paths';
 
 /**
  * Отклоняет проектную область, совпадающую с home по inode, включая symlink-алиас. Проверяется до чтения

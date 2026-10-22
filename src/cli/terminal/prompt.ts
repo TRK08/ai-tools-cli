@@ -1,6 +1,6 @@
-import { terminalSession } from './session.ts';
-import { createScreen } from './screen.ts';
-import type { PromptStreams, PromptController, PromptHandlers } from './types.ts';
+import { terminalSession } from './session';
+import { createScreen } from './screen';
+import type { PromptStreams, PromptController, PromptHandlers } from './types';
 
 /**
  * Запускает диалог с общим владением session, кадром и AbortSignal.

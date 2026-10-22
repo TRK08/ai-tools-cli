@@ -3,7 +3,7 @@ import { lstat, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileSymlinks, symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createRegularFileReader } from '../../src/regular-file.ts';
+import { createRegularFileReader } from '@/regular-file';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 const io = { lstat: (path: string | Buffer) => lstat(path, { bigint: true }), open };

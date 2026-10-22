@@ -1,15 +1,15 @@
-import { samePath } from '../../src/state/native-path.ts';
+import { samePath } from '@/paths/native-path';
 import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
-import { AGENTS } from '../../src/agents/catalog.ts';
-import { agentSkillsDirectory } from '../../src/agents/resolve.ts';
+import { AGENTS } from '@/agents/catalog';
+import { agentSkillsDirectory } from '@/agents/resolve';
 
-import { Installer } from '../../src/installer/installer.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
-import { getStatePaths, WORKSPACE_PREFIX } from '../../src/state/paths.ts';
-import { StateStore } from '../../src/state/store.ts';
+import { Installer } from '@/installer/installer';
+import { hashDirectory } from '@/state/hash';
+import { getStatePaths, WORKSPACE_PREFIX } from '@/state/paths';
+import { StateStore } from '@/state/store';
 import { archiveBytes, rawTar, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 

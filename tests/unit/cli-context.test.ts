@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
-import { executeCli } from '../../src/cli/run.ts';
-import { createProgram } from '../../src/cli/program.ts';
+import { executeCli } from '@/cli/run';
+import { createProgram } from '@/cli/program';
 import { terminal } from '../helpers/terminal.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 

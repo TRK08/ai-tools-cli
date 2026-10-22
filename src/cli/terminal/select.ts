@@ -1,10 +1,10 @@
 import { S_BAR, S_RADIO_ACTIVE, S_RADIO_INACTIVE, S_STEP_ACTIVE, symbol } from '@clack/prompts';
-import { runPrompt } from './prompt.ts';
-import { wrapTerminalText, terminalText } from './text.ts';
-import { formatChoice } from './style.ts';
-import type { SelectOptions, ConfirmOptions } from './types.ts';
-import { createFrame } from './screen.ts';
-import { moveSelection, navigationKey } from './navigation.ts';
+import { runPrompt } from './prompt';
+import { wrapTerminalText, terminalText } from './text';
+import { formatChoice } from './style';
+import type { SelectOptions, ConfirmOptions } from './types';
+import { createFrame } from './screen';
+import { moveSelection, navigationKey } from './navigation';
 
 /** Выбирает одно значение, сохраняя финальный кадр; EOF/отмена дают null после восстановления TTY. */
 export function select<Value>(options: SelectOptions<Value>): Promise<Value | null> {

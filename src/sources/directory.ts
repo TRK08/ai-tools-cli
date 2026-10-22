@@ -1,26 +1,30 @@
 import type { BigIntStats } from 'node:fs';
-import { openRegularFile, preserveFileMode, withFileHandle, writeAll } from '../regular-file.ts';
+import { openRegularFile, preserveFileMode, withFileHandle, writeAll } from '@/regular-file';
 import {
   assertResourceNames,
   childBufferPath as childPath,
   hasBufferPathPrefix,
   isBufferPathWithin as within,
   nativePath,
-} from '../state/native-path.ts';
-import { hasErrorCode } from '../state/errors.ts';
-import { hashDirectory } from '../state/hash.ts';
-import { validatePathText } from '../state/paths.ts';
-import { INSTALLER_LOCK_NAME, LOCK_TEMP_PREFIX, WORKSPACE_PREFIX } from '../state/paths.ts';
-import { SourceError } from './errors.ts';
+} from '@/paths';
+import { hasErrorCode } from '@/errors';
+import {
+  hashDirectory,
+  validatePathText,
+  INSTALLER_LOCK_NAME,
+  LOCK_TEMP_PREFIX,
+  WORKSPACE_PREFIX,
+} from '@/state';
+import { SourceError } from './errors';
 import {
   directorySourceFileSystem,
   cleanupFailedPreparation,
   OWNED_WORKSPACE_CLEANUP,
   type DirectorySourceFileSystem,
-} from './filesystem.ts';
-import { readSkillMetadata } from './frontmatter.ts';
-import type { PreparedSource } from './types.ts';
-import { isCancellation } from '../cancellation.ts';
+} from './filesystem';
+import { readSkillMetadata } from './frontmatter';
+import type { PreparedSource } from './types';
+import { isCancellation } from '@/cancellation';
 
 export interface PrepareDirectoryOptions {
   readonly cwd: string;

@@ -1,8 +1,6 @@
-import type { AddDecision } from '../../installer/types.ts';
-import type { InstallationScope } from '../../runtime.ts';
-import type { PromptStreams } from '../terminal/types.ts';
-import { confirm, select } from '../terminal/select.ts';
-import { terminalText } from '../terminal/text.ts';
+import type { AddDecision } from '@/installer';
+import type { InstallationScope } from '@/runtime';
+import { type PromptStreams, confirm, select, terminalText } from '@/cli/terminal';
 
 /** Подтверждает add/find с предвыбранным «Нет»; отмена/EOF возвращают cancel после очистки TTY. */
 export function confirmAdd(

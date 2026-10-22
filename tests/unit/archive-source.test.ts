@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { create, Pax } from 'tar';
 import { describe, expect, it, vi } from 'vitest';
-import { ARCHIVE_LIMITS, prepareArchive } from '../../src/sources/archive.ts';
-import { prepareDirectory } from '../../src/sources/directory.ts';
-import { archiveSourceFileSystem } from '../../src/sources/filesystem.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
+import { ARCHIVE_LIMITS, prepareArchive } from '@/sources/archive';
+import { prepareDirectory } from '@/sources/directory';
+import { archiveSourceFileSystem } from '@/sources/filesystem';
+import { hashDirectory } from '@/state/hash';
 import { archiveBytes, rawTar, skillText, type TarFixtureEntry } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 

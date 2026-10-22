@@ -1,12 +1,12 @@
-import { RegistryFindSearch } from '../../src/cli/find-search.ts';
+import { RegistryFindSearch } from '@/cli/find-search';
 import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAddUi } from '../../src/cli/ui/add-ui.ts';
-import { selectRegistrySkill } from '../../src/cli/ui/find-ui.ts';
+import { createAddUi } from '@/cli/ui/add-ui';
+import { selectRegistrySkill } from '@/cli/ui/find-ui';
 
-import { RegistryClient } from '../../src/registry/client.ts';
+import { RegistryClient } from '@/registry/client';
 
 function terminal(inputTTY = true, outputTTY = true, columns = 48) {
   let rendered = '';

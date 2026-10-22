@@ -1,18 +1,12 @@
-import { AGENTS } from '../agents/catalog.ts';
+import { AGENTS } from '@/agents';
 import type { Command } from 'commander';
-import { RussianCommand } from './command.ts';
-import type {
-  AddOptions,
-  CliContext,
-  MutationOptions,
-  ScopeOptions,
-  UpdateOptions,
-} from './types.ts';
-import { addSkill } from './commands/add.ts';
-import { findSkill } from './commands/find.ts';
-import { listSkills } from './commands/list.ts';
-import { updateSkills } from './commands/update.ts';
-import { removeSkills } from './commands/remove.ts';
+import { RussianCommand } from './command';
+import type { AddOptions, CliContext, MutationOptions, ScopeOptions, UpdateOptions } from './types';
+import { addSkill } from '@/cli/commands/add';
+import { findSkill } from '@/cli/commands/find';
+import { listSkills } from '@/cli/commands/list';
+import { updateSkills } from '@/cli/commands/update';
+import { removeSkills } from '@/cli/commands/remove';
 
 /** Регистрирует русский CLI и переданные потоки; операции начинаются только при parseAsync. */
 export function createProgram(context: CliContext): Command {

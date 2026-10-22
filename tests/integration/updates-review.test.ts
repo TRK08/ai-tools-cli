@@ -2,10 +2,10 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
 
-import { getStatePaths, WORKSPACE_PREFIX } from '../../src/state/paths.ts';
+import { getStatePaths, WORKSPACE_PREFIX } from '@/state/paths';
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';

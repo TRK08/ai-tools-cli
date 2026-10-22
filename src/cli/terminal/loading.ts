@@ -1,8 +1,8 @@
 import { S_BAR } from '@clack/prompts';
 import { styleText } from 'node:util';
-import type { PromptStreams } from './types.ts';
-import { truncateTerminalText } from './text.ts';
-import { createScreen } from './screen.ts';
+import type { PromptStreams } from './types';
+import { truncateTerminalText } from './text';
+import { createScreen } from './screen';
 
 /**
  * Создаёт индикатор с задержкой 200 мс только для пары TTY-потоков; не захватывает ввод и не прерывает

@@ -1,8 +1,14 @@
 import { posix } from 'node:path';
-import type { InstallationScope, FileSystemRoots } from '../runtime.ts';
-import { PROJECT_IN_HOME_MESSAGE, StateError } from './errors.ts';
-import { assertPortableName } from './names.ts';
-import { isPathWithin, nativePath, samePath, validateNativePath } from './native-path.ts';
+import type { InstallationScope, FileSystemRoots } from '@/runtime';
+import { PROJECT_IN_HOME_MESSAGE } from './messages';
+import { StateError } from '@/errors';
+import {
+  assertPortableName,
+  isPathWithin,
+  nativePath,
+  samePath,
+  validateNativePath,
+} from '@/paths';
 
 export const INSTALLER_LOCK_NAME = 'skills-installer-lock.json';
 export const WORKSPACE_PREFIX = '.skills-installer-work-';

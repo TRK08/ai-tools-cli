@@ -1,16 +1,20 @@
 import { join } from 'node:path';
-import { hashDirectory } from '../state/hash.ts';
-import { errorMessage } from '../errors.ts';
-import { getSkillDirectory, resolveConnectionPath } from '../state/paths.ts';
-import { samePath } from '../state/native-path.ts';
-import type { StateTransaction } from '../state/store.ts';
-import type { InstallationRecord, LockFile } from '../state/types.ts';
-import { directoryChain, FileTransaction, type InstallerFileSystem } from './filesystem.ts';
-import type { InstallationInspection } from './inspection.ts';
-import { NoConnections } from './control.ts';
-import { createInstallationRecord, metadataChanged } from './plan.ts';
-import type { AgentId } from '../agents/catalog.ts';
-import type { InstallationChange, InstallPlan } from './types.ts';
+import {
+  hashDirectory,
+  getSkillDirectory,
+  resolveConnectionPath,
+  type StateTransaction,
+  type InstallationRecord,
+  type LockFile,
+} from '@/state';
+import { errorMessage } from '@/errors';
+import { samePath } from '@/paths';
+import { directoryChain, FileTransaction, type InstallerFileSystem } from './filesystem';
+import type { InstallationInspection } from './inspection';
+import { NoConnections } from './control';
+import { createInstallationRecord, metadataChanged } from './plan';
+import type { AgentId } from '@/agents';
+import type { InstallationChange, InstallPlan } from './types';
 
 /**
  * Применяет план под блокировкой области; FileTransaction владеет откатом и очисткой.

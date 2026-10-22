@@ -2,11 +2,11 @@ import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { describe, expect, it, vi } from 'vitest';
-import { selectAgents } from '../../src/cli/commands/selection.ts';
-import { multiselect } from '../../src/cli/terminal/multiselect.ts';
-import { createProgram } from '../../src/cli/program.ts';
+import { selectAgents } from '@/cli/commands/selection';
+import { multiselect } from '@/cli/terminal/multiselect';
+import { createProgram } from '@/cli/program';
 
-import { hashDirectory } from '../../src/state/hash.ts';
+import { hashDirectory } from '@/state/hash';
 import { withTestEnvironment } from '../helpers/test-environment.js';
 
 function terminal(inputTTY = true, outputTTY = true) {

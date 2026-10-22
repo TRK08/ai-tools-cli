@@ -1,11 +1,11 @@
 import { lstat, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { executeCli } from '../../src/cli/run.ts';
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
+import { executeCli } from '@/cli/run';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
+import { getStatePaths } from '@/state/paths';
+import { hashDirectory } from '@/state/hash';
 import { terminal } from '../helpers/terminal.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';

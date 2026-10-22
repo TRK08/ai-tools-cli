@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { BigIntStats } from 'node:fs';
 import { lstat, open, unlink } from 'node:fs/promises';
-import { StateError, hasErrorCode } from './errors.ts';
-import { assertScopeLocation, ensureOwnedDirectory } from './filesystem.ts';
-import type { StatePaths } from './paths.ts';
+import { StateError, hasErrorCode } from '@/errors';
+import { assertScopeLocation, ensureOwnedDirectory } from './filesystem';
+import type { StatePaths } from './paths';
 
 /** Подменяемый I/O блокировки; файловые IDs сравниваются без потери точности. */
 export const scopeLockFileSystem = {

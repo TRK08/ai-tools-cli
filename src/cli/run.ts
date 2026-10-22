@@ -1,7 +1,7 @@
 import { CommanderError } from 'commander';
-import { errorMessage } from '../errors.ts';
-import { createProgram } from './program.ts';
-import type { CliContext } from './types.ts';
+import { errorMessage } from '@/errors';
+import { createProgram } from './program';
+import type { CliContext } from './types';
 
 /** Запускает CLI с явными argv/потоками; возвращает exit 0/1, итоговую ошибку пишет в stderr. */
 export async function executeCli(context: CliContext, args: readonly string[]): Promise<number> {

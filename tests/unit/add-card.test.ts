@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
-import { addCardView } from '../../src/cli/commands/add-card.ts';
-import type { AddPreview } from '../../src/installer/types.ts';
+import { addCardView } from '@/cli/commands/add-card';
+import type { AddPreview } from '@/installer/types';
 import { skillDetail } from '../helpers/discovery.ts';
 
 const preview: AddPreview = {

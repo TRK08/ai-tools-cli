@@ -1,13 +1,10 @@
-import { confirm } from '../terminal/select.ts';
+import { confirm, renderTable, multiselect, type PromptStreams } from '@/cli/terminal';
 import { cancel, intro, log, note, outro } from '@clack/prompts';
-import type { InstallationChange } from '../../installer/types.ts';
-import type { AgentId } from '../../agents/catalog.ts';
-import type { InstallationScope } from '../../runtime.ts';
-import type { InstallationRecord } from '../../state/types.ts';
-import type { PromptStreams } from '../terminal/types.ts';
-import { renderTable } from '../terminal/table.ts';
-import { multiselect } from '../terminal/multiselect.ts';
-import { failureLabel, plural, scopeLabel } from './labels.ts';
+import type { InstallationChange } from '@/installer';
+import type { AgentId } from '@/agents';
+import type { InstallationScope } from '@/runtime';
+import type { InstallationRecord } from '@/state';
+import { failureLabel, plural, scopeLabel } from './labels';
 
 /**
  * Печатает заголовок удаления и создаёт callbacks выбора, общего подтверждения и результатов. Все диалоги

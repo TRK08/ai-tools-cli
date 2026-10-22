@@ -1,12 +1,12 @@
 import type { Stats } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { FileTransaction, installerFileSystem } from '../../src/installer/filesystem.ts';
-import { InstallationInspection } from '../../src/installer/inspection.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
-import type { RuntimeContext } from '../../src/runtime.ts';
+import { FileTransaction, installerFileSystem } from '@/installer/filesystem';
+import { InstallationInspection } from '@/installer/inspection';
+import { getStatePaths } from '@/state/paths';
+import type { RuntimeContext } from '@/runtime';
 
-vi.mock('../../src/state/native-path.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/state/native-path.ts')>();
+vi.mock('@/paths/native-path', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/paths/native-path')>();
   const { win32 } = await import('node:path');
   return { ...actual, ...actual.createPathOperations(win32) };
 });

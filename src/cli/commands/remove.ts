@@ -1,12 +1,11 @@
-import { parseAgents } from '../../agents/resolve.ts';
-import { Installer } from '../../installer/installer.ts';
-import type { InstallationChange } from '../../installer/types.ts';
-import { assertSkillName } from '../../state/paths.ts';
-import { errorMessage } from '../../errors.ts';
-import { createLoading } from '../terminal/loading.ts';
-import { createRemoveUi } from '../ui/remove-ui.ts';
-import { promptStreams, scopeOf } from '../context.ts';
-import type { CliContext, MutationOptions } from '../types.ts';
+import { parseAgents } from '@/agents';
+import { Installer, type InstallationChange } from '@/installer';
+import { assertSkillName } from '@/state';
+import { errorMessage } from '@/errors';
+import { createLoading } from '@/cli/terminal';
+import { createRemoveUi } from '@/cli/ui/remove-ui';
+import { promptStreams, scopeOf } from '@/cli/context';
+import type { CliContext, MutationOptions } from '@/cli/types';
 
 /** Подтверждает список и удаляет только показанные подключения; ошибка элемента не останавливает пакет. */
 export async function removeSkills(

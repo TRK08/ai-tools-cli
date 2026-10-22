@@ -1,6 +1,6 @@
-import type { RegistryFindSearch } from '../find-search.ts';
-import type { AgentId } from '../../agents/catalog.ts';
-import type { Choice } from '../terminal/types.ts';
+import type { RegistryFindSearch } from '@/cli/find-search';
+import type { AgentId } from '@/agents';
+import type { Choice } from '@/cli/terminal';
 
 /** Готовая карточка: источник и область подписаны, назначения объединены по пути. */
 export interface AddCardView {

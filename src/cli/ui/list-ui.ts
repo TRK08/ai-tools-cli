@@ -1,10 +1,9 @@
 import { intro, note, outro } from '@clack/prompts';
-import type { AgentId } from '../../agents/catalog.ts';
-import type { InstallationScope } from '../../runtime.ts';
-import type { InstallationRecord } from '../../state/types.ts';
-import type { PromptStreams } from '../terminal/types.ts';
-import { renderTable } from '../terminal/table.ts';
-import { scopeLabel } from './labels.ts';
+import type { AgentId } from '@/agents';
+import type { InstallationScope } from '@/runtime';
+import type { InstallationRecord } from '@/state';
+import { type PromptStreams, renderTable } from '@/cli/terminal';
+import { scopeLabel } from './labels';
 
 /**
  * Показывает имена, установленные версии и агентов из собственного lock, затем счётчик подключений.

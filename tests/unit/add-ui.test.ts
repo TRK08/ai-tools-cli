@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAddUi } from '../../src/cli/ui/add-ui.ts';
-import { selectScope } from '../../src/cli/commands/selection.ts';
-import type { AddCardView } from '../../src/cli/ui/types.ts';
-import type { RuntimeContext } from '../../src/runtime.ts';
+import { createAddUi } from '@/cli/ui/add-ui';
+import { selectScope } from '@/cli/commands/selection';
+import type { AddCardView } from '@/cli/ui/types';
+import type { RuntimeContext } from '@/runtime';
 import { terminal } from '../helpers/terminal.ts';
 
 const context: RuntimeContext = {

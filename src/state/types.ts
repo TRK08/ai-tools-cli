@@ -1,5 +1,5 @@
-import type { AgentId, ConnectionKind } from '../agents/catalog.ts';
-import type { SourceIdentity } from '../sources/types.ts';
+import type { AgentId, ConnectionKind } from '@/agents';
+import type { SourceIdentity } from '@/sources/types';
 
 export const LOCK_VERSION = 1;
 

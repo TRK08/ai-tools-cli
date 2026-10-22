@@ -1,14 +1,12 @@
-import { parseAgents } from '../../agents/resolve.ts';
-import type { RegistrySelection } from '../../installer/types.ts';
-import { RegistryClient } from '../../registry/client.ts';
-import { getRegistryUrl } from '../../registry/reference.ts';
-import { sortCatalog } from '../../registry/catalog.ts';
-import { renderSearch } from '../ui/discovery-ui.ts';
-import { selectRegistrySkill } from '../ui/find-ui.ts';
-import { canSearchPrefix, MIN_FIND_PREFIX_LENGTH, RegistryFindSearch } from '../find-search.ts';
-import { promptStreams } from '../context.ts';
-import type { AddOptions, CliContext } from '../types.ts';
-import { addSkill } from './add.ts';
+import { parseAgents } from '@/agents';
+import type { RegistrySelection } from '@/installer';
+import { RegistryClient, getRegistryUrl, sortCatalog } from '@/registry';
+import { renderSearch } from '@/cli/ui/discovery-ui';
+import { selectRegistrySkill } from '@/cli/ui/find-ui';
+import { canSearchPrefix, MIN_FIND_PREFIX_LENGTH, RegistryFindSearch } from '@/cli/find-search';
+import { promptStreams } from '@/cli/context';
+import type { AddOptions, CliContext } from '@/cli/types';
+import { addSkill } from './add';
 
 /** Ищет без TTY либо передаёт выбранную registry-версию в общий add с политикой latest. */
 export async function findSkill(

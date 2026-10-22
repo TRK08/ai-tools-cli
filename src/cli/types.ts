@@ -1,5 +1,5 @@
-import type { RuntimeContext } from '../runtime.ts';
-import type { PromptStreams } from './terminal/types.ts';
+import type { RuntimeContext } from '@/runtime';
+import type { PromptStreams } from '@/cli/terminal';
 
 /** Окружение одной команды; реальные зависимости создаются только в точке запуска. */
 export interface CliContext {

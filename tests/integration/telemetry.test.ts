@@ -3,13 +3,13 @@ import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { AGENTS } from '../../src/agents/catalog.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import type { InstallerOptions } from '../../src/installer/types.ts';
-import type { InstallationScope, RuntimeContext } from '../../src/runtime.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
-import { StateStore, defaultStateFileIO } from '../../src/state/store.ts';
-import { Telemetry, type TelemetryEnvelope } from '../../src/telemetry/client.ts';
+import { AGENTS } from '@/agents/catalog';
+import { Installer } from '@/installer/installer';
+import type { InstallerOptions } from '@/installer/types';
+import type { InstallationScope, RuntimeContext } from '@/runtime';
+import { getStatePaths } from '@/state/paths';
+import { StateStore, defaultStateFileIO } from '@/state/store';
+import { Telemetry, type TelemetryEnvelope } from '@/telemetry/client';
 
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';

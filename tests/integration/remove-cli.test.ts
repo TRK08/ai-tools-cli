@@ -2,12 +2,12 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import type { AgentId } from '../../src/agents/catalog.ts';
-import type { InstallationScope } from '../../src/runtime.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
+import type { AgentId } from '@/agents/catalog';
+import type { InstallationScope } from '@/runtime';
 
-import { getStatePaths } from '../../src/state/paths.ts';
+import { getStatePaths } from '@/state/paths';
 import { runCli } from '../helpers/cli.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 

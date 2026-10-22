@@ -1,13 +1,16 @@
 import { log, note } from '@clack/prompts';
 import type { Key } from 'node:readline';
-import type { AddDecision } from '../../installer/types.ts';
-import type { AddCardView } from './types.ts';
-import type { PromptStreams } from '../terminal/types.ts';
-import { terminalText, wrapTerminalText } from '../terminal/text.ts';
-import { renderTable } from '../terminal/table.ts';
-import { createLoading } from '../terminal/loading.ts';
-import { terminalSession } from '../terminal/session.ts';
-import { confirmAdd } from './add-confirm.ts';
+import type { AddDecision } from '@/installer';
+import type { AddCardView } from './types';
+import {
+  type PromptStreams,
+  terminalText,
+  wrapTerminalText,
+  renderTable,
+  createLoading,
+  terminalSession,
+} from '@/cli/terminal';
+import { confirmAdd } from './add-confirm';
 
 /**
  * Показывает выбранную версию, источник, краткое описание и агентов для каждого пути.

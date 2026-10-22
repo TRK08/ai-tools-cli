@@ -2,16 +2,16 @@ import { lstat, mkdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
+import { hashDirectory } from '@/state/hash';
+import { getStatePaths } from '@/state/paths';
 import { catalogItem } from '../helpers/discovery.ts';
 
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';
-import { directorySourceFileSystem } from '../../src/sources/filesystem.ts';
+import { directorySourceFileSystem } from '@/sources/filesystem';
 
 function terminal(tty = true, columns = 160) {
   let rendered = '';

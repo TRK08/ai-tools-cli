@@ -1,7 +1,7 @@
-import { AGENTS } from '../../agents/catalog.ts';
-import type { AddPreview } from '../../installer/types.ts';
-import type { SkillDetail } from '../../registry/catalog.ts';
-import type { AddCardView } from '../ui/types.ts';
+import { AGENTS } from '@/agents';
+import type { AddPreview } from '@/installer';
+import type { SkillDetail } from '@/registry';
+import type { AddCardView } from '@/cli/ui/types';
 
 /** Готовит подписи и группы назначений для UI, сохраняя выбранную Installer версию. */
 export function addCardView(preview: AddPreview, details?: SkillDetail): AddCardView {

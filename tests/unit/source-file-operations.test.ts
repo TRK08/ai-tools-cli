@@ -1,14 +1,14 @@
 import { mkdir, open, readFile, readdir, type FileHandle, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { prepareArchive } from '../../src/sources/archive.ts';
-import { prepareDirectory } from '../../src/sources/directory.ts';
+import { prepareArchive } from '@/sources/archive';
+import { prepareDirectory } from '@/sources/directory';
 import {
   archiveSourceFileSystem,
   directorySourceFileSystem,
   OWNED_WORKSPACE_CLEANUP,
   type ArchiveSourceFileSystem,
-} from '../../src/sources/filesystem.ts';
+} from '@/sources/filesystem';
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 

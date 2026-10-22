@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { hashDirectory } from '../../src/state/hash.ts';
+import { hashDirectory } from '@/state/hash';
 import { withTestEnvironment } from '../helpers/test-environment.js';
 
 describe('content hash', () => {

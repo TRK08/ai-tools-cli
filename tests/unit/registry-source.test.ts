@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
-import { RegistryClient } from '../../src/registry/client.ts';
-import { prepareRegistrySource } from '../../src/sources/registry.ts';
+import { RegistryClient } from '@/registry/client';
+import { prepareRegistrySource } from '@/sources/registry';
 import { artifact, registryBytes } from '../helpers/registry.ts';
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';

@@ -2,7 +2,7 @@
 /** Создаёт единственный контекст с реальными cwd/home/env/HTTP и потоками процесса. */
 import packageJson from '../package.json' with { type: 'json' };
 import { homedir } from 'node:os';
-import { executeCli } from './cli/run.ts';
+import { executeCli } from '@/cli/run';
 
 process.exitCode = await executeCli(
   {

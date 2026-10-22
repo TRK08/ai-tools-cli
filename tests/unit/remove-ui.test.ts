@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRemoveUi } from '../../src/cli/ui/remove-ui.ts';
-import type { InstallationRecord } from '../../src/state/types.ts';
+import { createRemoveUi } from '@/cli/ui/remove-ui';
+import type { InstallationRecord } from '@/state/types';
 import { terminal } from '../helpers/terminal.ts';
 
 const record = (name: string): InstallationRecord => ({

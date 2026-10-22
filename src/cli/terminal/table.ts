@@ -1,6 +1,6 @@
 import stringWidth from 'fast-string-width';
 import type { Writable } from 'node:stream';
-import { wrapTerminalText } from './text.ts';
+import { wrapTerminalText } from './text';
 
 interface TableColumn {
   readonly title: string;

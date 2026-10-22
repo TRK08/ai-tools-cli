@@ -1,5 +1,5 @@
-import { nativePath } from '../state/native-path.ts';
-import type { FileSystemRoots, InstallationScope } from '../runtime.ts';
+import { nativePath } from '@/paths';
+import type { FileSystemRoots, InstallationScope } from '@/runtime';
 
 export type ConnectionKind = 'direct' | 'copy' | 'link';
 

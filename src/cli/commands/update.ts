@@ -1,9 +1,9 @@
-import { parseAgents } from '../../agents/resolve.ts';
-import { Installer } from '../../installer/installer.ts';
-import { Telemetry } from '../../telemetry/client.ts';
-import { createUpdatesUi } from '../ui/updates-ui.ts';
-import { promptStreams, scopeOf } from '../context.ts';
-import type { CliContext, UpdateOptions } from '../types.ts';
+import { parseAgents } from '@/agents';
+import { Installer } from '@/installer';
+import { Telemetry } from '@/telemetry';
+import { createUpdatesUi } from '@/cli/ui/updates-ui';
+import { promptStreams, scopeOf } from '@/cli/context';
+import type { CliContext, UpdateOptions } from '@/cli/types';
 
 /** Обновляет пакет, показывает частичные результаты и ждёт телеметрию даже при ошибке. */
 export async function updateSkills(

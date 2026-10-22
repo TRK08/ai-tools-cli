@@ -19,6 +19,8 @@ Unit не запускает CLI, Installer или HTTP-сервер. Реаль
 временным каталогом допустима. Полные матрицы входов и ошибок проверяются у владельца правила;
 интеграции доказывают передачу данных и сохранность установки. Тесты не используют пользовательские
 home/каталоги агентов. HTTP запрещён fixture, пока транспорт не передан явно.
+Vitest разрешает `@/` в `src/` через собственный alias. Дочерние процессы исходного
+CLI с tsx получают явный `TSX_TSCONFIG_PATH`, чтобы алиас не зависел от временного cwd.
 
 В CI семь jobs и один Linux tgz: в шести OS/Node-комбинациях после сборки выполняются
 оба набора (`test:run`, `test:e2e`), затем короткий package smoke.
@@ -149,7 +151,9 @@ URL. Мок хранит latest, выдаёт версии 1.0.0/2.0.0 и signed
 - Каталог и resolver агентов (`agents/catalog.ts`, `agents/resolve.ts`) — agents-catalog
   и agent-configuration: ID, дедупликация, пути/default/env и защита каталогов источника.
   Интеграции agents-installer/updates-installer проверяют сохранённые назначения после смены env.
-- Валидация путей и имён — native-path и frontmatter; адаптеры проверяют применение этих правил.
+- Валидация путей и имён — модуль paths (native-path/names) и frontmatter;
+  адаптеры проверяют применение этих правил. Моки подменяют leaf paths/native-path,
+  production-потребители используют paths/index. Коды StateError сохраняются в общем errors.
 - Tar/gzip и ограничения распаковки — archive-source; HTTP и артефакты — registry-client.
 - Схема lock, атомарная запись и блокировки — state-schema, state-store и state-mutex.
 - Запись, закрытие handles и очистка — file-operations; изменения файлов и откат — installer-filesystem.

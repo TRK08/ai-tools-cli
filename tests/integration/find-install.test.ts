@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 
 import { expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
+import { createProgram } from '@/cli/program';
 
-import { hashDirectory } from '../../src/state/hash.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
-import type { TelemetryEnvelope } from '../../src/telemetry/client.ts';
+import { hashDirectory } from '@/state/hash';
+import { getStatePaths } from '@/state/paths';
+import type { TelemetryEnvelope } from '@/telemetry/client';
 import { catalogItem } from '../helpers/discovery.ts';
 
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';

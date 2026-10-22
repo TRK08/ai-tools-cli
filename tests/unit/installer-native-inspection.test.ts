@@ -1,16 +1,16 @@
 import { expect, it, vi } from 'vitest';
-import { agentSkillsDirectory } from '../../src/agents/resolve.ts';
-import { InstallationInspection } from '../../src/installer/inspection.ts';
-import { installerFileSystem } from '../../src/installer/filesystem.ts';
-import { selectSource } from '../../src/installer/source.ts';
+import { agentSkillsDirectory } from '@/agents/resolve';
+import { InstallationInspection } from '@/installer/inspection';
+import { installerFileSystem } from '@/installer/filesystem';
+import { selectSource } from '@/installer/source';
 
-import { getStatePaths } from '../../src/state/paths.ts';
+import { getStatePaths } from '@/state/paths';
 
-import { LOCK_VERSION, type LockFile } from '../../src/state/types.ts';
-import type { RuntimeContext } from '../../src/runtime.ts';
+import { LOCK_VERSION, type LockFile } from '@/state/types';
+import type { RuntimeContext } from '@/runtime';
 
-vi.mock('../../src/state/native-path.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/state/native-path.ts')>();
+vi.mock('@/paths/native-path', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/paths/native-path')>();
   const { win32 } = await import('node:path');
   return { ...actual, ...actual.createPathOperations(win32) };
 });

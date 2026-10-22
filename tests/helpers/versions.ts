@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { vi } from 'vitest';
-import type { HttpTransport } from '../../src/runtime.ts';
+import type { HttpTransport } from '@/runtime';
 import { archiveBytes, skillText } from './archive.ts';
 import { artifact } from './registry.ts';
 import { skillDetail } from './discovery.ts';

@@ -7,13 +7,13 @@ import {
   S_STEP_ACTIVE,
   symbol,
 } from '@clack/prompts';
-import { runPrompt } from './prompt.ts';
-import { createFrame } from './screen.ts';
-import { formatChoice } from './style.ts';
-import { terminalText, queryViewport, wrapTerminalText } from './text.ts';
+import { runPrompt } from './prompt';
+import { createFrame } from './screen';
+import { formatChoice } from './style';
+import { terminalText, queryViewport, wrapTerminalText } from './text';
 import stringWidth from 'fast-string-width';
-import { moveSelection, visibleStart, navigationKey } from './navigation.ts';
-import type { MultiselectOptions } from './types.ts';
+import { moveSelection, visibleStart, navigationKey } from './navigation';
+import type { MultiselectOptions } from './types';
 
 /**
  * Выбирает несколько значений с необязательными фильтром и закреплёнными вариантами.

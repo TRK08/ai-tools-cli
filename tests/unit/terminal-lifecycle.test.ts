@@ -1,13 +1,13 @@
-import { RegistryFindSearch } from '../../src/cli/find-search.ts';
+import { RegistryFindSearch } from '@/cli/find-search';
 import { PassThrough, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAddUi } from '../../src/cli/ui/add-ui.ts';
-import { selectScope } from '../../src/cli/commands/selection.ts';
-import { selectRegistrySkill } from '../../src/cli/ui/find-ui.ts';
-import { multiselect } from '../../src/cli/terminal/multiselect.ts';
-import { confirmAdd } from '../../src/cli/ui/add-confirm.ts';
-import { confirm } from '../../src/cli/terminal/select.ts';
-import { RegistryClient } from '../../src/registry/client.ts';
+import { createAddUi } from '@/cli/ui/add-ui';
+import { selectScope } from '@/cli/commands/selection';
+import { selectRegistrySkill } from '@/cli/ui/find-ui';
+import { multiselect } from '@/cli/terminal/multiselect';
+import { confirmAdd } from '@/cli/ui/add-confirm';
+import { confirm } from '@/cli/terminal/select';
+import { RegistryClient } from '@/registry/client';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 function terminal(flowing = false, raw = false) {

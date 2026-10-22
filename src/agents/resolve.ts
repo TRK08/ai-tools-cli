@@ -1,6 +1,6 @@
-import { AGENTS, isAgentId, type AgentId, type AgentConnectionDefinition } from './catalog.ts';
-import type { InstallationScope, RuntimeContext } from '../runtime.ts';
-import { nativePath, validateNativePath } from '../state/native-path.ts';
+import { AGENTS, isAgentId, type AgentId, type AgentConnectionDefinition } from './catalog';
+import type { InstallationScope, RuntimeContext } from '@/runtime';
+import { nativePath, validateNativePath } from '@/paths';
 
 /** Проверяет ID по каталогу и удаляет повторы по первому появлению; неизвестный ID вызывает ошибку. */
 export function parseAgents(values: readonly string[]): AgentId[] {

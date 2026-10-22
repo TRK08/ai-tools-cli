@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import manifest from '../../package.json' with { type: 'json' };
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import type { InstallationRecord } from '../../src/state/types.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
+import type { InstallationRecord } from '@/state/types';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 import { catalogItem } from '../helpers/discovery.ts';
 import { terminal } from '../helpers/terminal.ts';

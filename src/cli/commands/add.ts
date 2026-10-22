@@ -1,14 +1,13 @@
-import { parseAgents } from '../../agents/resolve.ts';
-import { Installer } from '../../installer/installer.ts';
-import type { RegistrySelection } from '../../installer/types.ts';
-import { Telemetry } from '../../telemetry/client.ts';
-import { selectAgents, selectScope } from './selection.ts';
-import { createAddUi } from '../ui/add-ui.ts';
-import { RegistryClient } from '../../registry/client.ts';
-import { addCardView } from './add-card.ts';
-import { failureLabel } from '../ui/labels.ts';
-import { promptStreams } from '../context.ts';
-import type { AddOptions, CliContext } from '../types.ts';
+import { parseAgents } from '@/agents';
+import { Installer, type RegistrySelection } from '@/installer';
+import { Telemetry } from '@/telemetry';
+import { selectAgents, selectScope } from './selection';
+import { createAddUi } from '@/cli/ui/add-ui';
+import { RegistryClient } from '@/registry';
+import { addCardView } from './add-card';
+import { failureLabel } from '@/cli/ui/labels';
+import { promptStreams } from '@/cli/context';
+import type { AddOptions, CliContext } from '@/cli/types';
 
 /** Выполняет общий add/find; до I/O проверяет параметры, после операции ждёт flush и очистку UI. */
 export async function addSkill(

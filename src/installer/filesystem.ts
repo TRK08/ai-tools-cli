@@ -1,9 +1,9 @@
 import { cp, lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
-import { hasErrorCode } from '../state/errors.ts';
-import { WORKSPACE_PREFIX } from '../state/paths.ts';
-import { nativePath, samePath } from '../state/native-path.ts';
-import { OWNED_WORKSPACE_CLEANUP } from '../sources/filesystem.ts';
+import { hasErrorCode } from '@/errors';
+import { WORKSPACE_PREFIX } from '@/state';
+import { nativePath, samePath } from '@/paths';
+import { OWNED_WORKSPACE_CLEANUP } from '@/sources';
 
 /** Подменяемый файловый I/O для проверок обрабатываемых ошибок на временных корнях. */
 export const installerFileSystem = {

@@ -1,6 +1,6 @@
 import path, { type PlatformPath } from 'node:path';
-import { StateError } from './errors.ts';
-import { assertPortableNames, assertWindowsName } from './names.ts';
+import { StateError } from '@/errors';
+import { assertPortableNames, assertWindowsName } from './names';
 
 /**
  * Создаёт операции путей с одной зависимостью node:path; в тестах подменяется только она.

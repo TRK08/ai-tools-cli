@@ -1,20 +1,16 @@
-import type { StateStore } from '../state/store.ts';
-import type { InstallationRecord, ManagedConnection } from '../state/types.ts';
-import type { SourceIdentity } from '../sources/types.ts';
-import type { prepareLocalSource } from '../sources/local.ts';
+import type { StateStore, InstallationRecord, ManagedConnection } from '@/state';
+import type { SourceIdentity, prepareLocalSource } from '@/sources';
 import type {
   RegistryClient,
   RegistryArtifact,
   RegistryClientOptions,
   RegistryDownload,
-} from '../registry/client.ts';
-import type { RegistryReference } from '../registry/reference.ts';
-import type { Telemetry } from '../telemetry/client.ts';
-import type { InstallerFileSystem } from './filesystem.ts';
-import type { AgentId } from '../agents/catalog.ts';
-import type { InstallationScope } from '../runtime.ts';
-export type { AgentId } from '../agents/catalog.ts';
-export type { InstallationScope } from '../runtime.ts';
+  RegistryReference,
+} from '@/registry';
+import type { Telemetry } from '@/telemetry';
+import type { InstallerFileSystem } from './filesystem';
+import type { AgentId } from '@/agents';
+import type { InstallationScope } from '@/runtime';
 
 export interface InstallerOptions {
   readonly scope?: InstallationScope;

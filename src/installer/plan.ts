@@ -1,15 +1,20 @@
-import type { RegistryArtifact } from '../registry/client.ts';
-import { getSkillDirectory, portableSourcePath, type StatePaths } from '../state/paths.ts';
-import type { InstallationRecord, ManagedConnection } from '../state/types.ts';
-import type { SourceIdentity } from '../sources/types.ts';
-import type { InstallationScope } from '../runtime.ts';
+import type { RegistryArtifact } from '@/registry';
+import {
+  getSkillDirectory,
+  portableSourcePath,
+  type StatePaths,
+  type InstallationRecord,
+  type ManagedConnection,
+} from '@/state';
+import type { SourceIdentity } from '@/sources';
+import type { InstallationScope } from '@/runtime';
 import type {
   AddPreview,
   InstalledSnapshot,
   InstallationContent,
   InstallPlan,
   UpdatePreview,
-} from './types.ts';
+} from './types';
 
 /** Разрешает заимствовать копию только при совпадении версии, архива и проверенного хеша. */
 export function findReusableInstallation(

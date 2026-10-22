@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { lstat, open, readdir, readlink } from 'node:fs/promises';
-import { openRegularFile, withFileHandle } from '../regular-file.ts';
-import { StateError } from './errors.ts';
-import { assertResourceNames, childBufferPath, nativePath } from './native-path.ts';
+import { openRegularFile, withFileHandle } from '@/regular-file';
+import { StateError } from '@/errors';
+import { assertResourceNames, childBufferPath, nativePath } from '@/paths';
 
 export interface HashDirectoryOptions {
   readonly signal?: AbortSignal | undefined;

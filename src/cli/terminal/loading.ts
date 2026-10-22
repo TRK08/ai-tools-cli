@@ -1,7 +1,8 @@
 import { S_BAR } from '@clack/prompts';
 import { styleText } from 'node:util';
-import type { PromptStreams } from './agents-prompt.ts';
-import { truncateTerminalText } from './table.ts';
+import type { PromptStreams } from './types';
+import { truncateTerminalText } from './text';
+import { createScreen } from './screen';
 
 /**
  * Создаёт индикатор с задержкой 200 мс только для пары TTY-потоков; не захватывает ввод и не прерывает
@@ -17,6 +18,7 @@ export function createLoading(
   render?: (line: string | null) => void,
   onError?: (cause: unknown) => void,
 ) {
+  const screen = createScreen(streams.output, true);
   const frames = ['◒', '◐', '◓', '◑'];
   let pending: ReturnType<typeof setTimeout> | undefined;
   let animation: ReturnType<typeof setInterval> | undefined;
@@ -32,7 +34,7 @@ export function createLoading(
     if (!visible) return;
     visible = false;
     if (render) render(null);
-    else streams.output.write('\r\u001b[2K\u001b[?25h');
+    else screen.close();
   };
 
   /** Заменяет прежний этап; быстрые операции завершаются до первого кадра без вывода. */
@@ -48,16 +50,15 @@ export function createLoading(
           const line = `${frames[frame++ % frames.length]} ${message}`;
           if (render) render(line);
           else
-            streams.output.write(
-              '\r\u001b[2K' +
-                styleText(
-                  'cyan',
-                  truncateTerminalText(
-                    `${S_BAR} ${line}`,
-                    Math.max(0, (streams.output.columns ?? 80) - 1),
-                  ),
+            screen.write([
+              styleText(
+                'cyan',
+                truncateTerminalText(
+                  `${S_BAR} ${line}`,
+                  Math.max(0, (streams.output.columns ?? 80) - 1),
                 ),
-            );
+              ),
+            ]);
         } catch (cause) {
           failure ??= cause;
           try {
@@ -70,7 +71,7 @@ export function createLoading(
       };
       animation = setInterval(draw, 80);
       try {
-        if (!render) streams.output.write('\u001b[?25l');
+        if (!render) screen.hideCursor();
       } catch (cause) {
         failure ??= cause;
         try {

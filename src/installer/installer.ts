@@ -1,25 +1,27 @@
-import { errorMessage } from '../errors.ts';
-import type { RuntimeContext } from '../runtime.ts';
-import { hasErrorCode } from '../state/errors.ts';
-import { assertScopeLocation } from '../state/filesystem.ts';
-import { assertSkillName, getStatePaths, resolveSourcePath } from '../state/paths.ts';
-import { StateStore } from '../state/store.ts';
-import type { InstallationRecord } from '../state/types.ts';
-import { parseAgents } from './agents.ts';
-import { applyRemoval } from './apply.ts';
-import { AddSkipped, UpdateSkipped } from './control.ts';
-import { inspectPath, installerFileSystem } from './filesystem.ts';
-import { InstallOperation } from './install.ts';
-import { InstallationInspection } from './inspection.ts';
+import { errorMessage, hasErrorCode } from '@/errors';
+import type { RuntimeContext } from '@/runtime';
+import {
+  assertScopeLocation,
+  assertSkillName,
+  getStatePaths,
+  resolveSourcePath,
+  StateStore,
+  type InstallationRecord,
+} from '@/state';
+import { parseAgents, type AgentId } from '@/agents';
+import { applyRemoval } from './apply';
+import { AddSkipped, UpdateSkipped } from './control';
+import { inspectPath, installerFileSystem } from './filesystem';
+import { InstallOperation } from './install';
+import { InstallationInspection } from './inspection';
 import type {
   AddResult,
-  AgentId,
   InstallationChange,
   InstallerOptions,
   RegistrySelection,
   UpdateBatch,
   UpdateChange,
-} from './types.ts';
+} from './types';
 
 /** Фасад жизненного цикла скиллов с одной общей копией и независимыми подключениями. */
 export class Installer {

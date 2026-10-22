@@ -1,19 +1,19 @@
-import { errorMessage } from '../errors.ts';
-import { isCancellation } from '../cancellation.ts';
-import type { RuntimeContext } from '../runtime.ts';
-import { agentConnectionKind, isDirectAgent } from '../agents/catalog.ts';
-import { hashDirectory } from '../state/hash.ts';
+import { errorMessage } from '@/errors';
+import { isCancellation } from '@/cancellation';
+import type { RuntimeContext } from '@/runtime';
+import { agentConnectionKind, isDirectAgent, agentSkillsDirectory, type AgentId } from '@/agents';
 import {
+  hashDirectory,
   getSkillDirectory,
   portableConnectionPath,
   resolveConnectionPath,
   type StatePaths,
-} from '../state/paths.ts';
-import type { InstallationRecord, ManagedConnection } from '../state/types.ts';
-import { isPathWithin, nativePath, relativePathParts, samePath } from '../state/native-path.ts';
-import { agentSkillsDirectory } from './agents.ts';
-import { directoryChain, inspectPath, type InstallerFileSystem } from './filesystem.ts';
-import type { AgentId, InstalledCopy, InstalledSnapshot } from './types.ts';
+  type InstallationRecord,
+  type ManagedConnection,
+} from '@/state';
+import { isPathWithin, nativePath, relativePathParts, samePath } from '@/paths';
+import { directoryChain, inspectPath, type InstallerFileSystem } from './filesystem';
+import type { InstalledCopy, InstalledSnapshot } from './types';
 
 /** Проверки файловых объектов и управляемых путей с подменяемым I/O. */
 export class InstallationInspection {

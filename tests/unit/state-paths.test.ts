@@ -3,16 +3,16 @@ import { symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { assertSourceCompatible, sourceIdentityKey } from '../../src/state/identity.ts';
+import { assertSourceCompatible, sourceIdentityKey } from '@/state/identity';
 import {
   getSkillDirectory,
   getStatePaths,
   resolveConnectionPath,
   resolveSourcePath,
-} from '../../src/state/paths.ts';
-import { parseLockFile, serializeLockFile } from '../../src/state/schema.ts';
-import { StateStore } from '../../src/state/store.ts';
-import { createEmptyLock, type InstallationRecord, type LockFile } from '../../src/state/types.ts';
+} from '@/state/paths';
+import { parseLockFile, serializeLockFile } from '@/state/schema';
+import { StateStore } from '@/state/store';
+import { createEmptyLock, type InstallationRecord, type LockFile } from '@/state/types';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 
 function directoryRecord(fixture: TestEnvironment, name = 'demo'): InstallationRecord {

@@ -1,13 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { access, mkdir, open, readFile, rm, writeFile, type FileHandle } from 'node:fs/promises';
 
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 
-import { getStatePaths } from '../../src/state/paths.ts';
+import { getStatePaths } from '@/state/paths';
 
-import { StateStore, type StateTransaction } from '../../src/state/store.ts';
-import { createEmptyLock, type InstallationRecord, type LockFile } from '../../src/state/types.ts';
+import { StateStore, type StateTransaction } from '@/state/store';
+import { createEmptyLock, type InstallationRecord, type LockFile } from '@/state/types';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 
 function directoryRecord(fixture: TestEnvironment, name = 'demo'): InstallationRecord {
@@ -55,14 +56,18 @@ it('enforces the same scope lock across processes and releases it after callback
     const paths = getStatePaths(fixture.roots, 'project');
     const store = new StateStore(paths);
     await store.write(oneRecord(directoryRecord(fixture, 'alpha')));
-    const script = `import {StateStore} from ${JSON.stringify(new URL('../../src/state/store.ts', import.meta.url).href)}; import {getStatePaths} from ${JSON.stringify(new URL('../../src/state/paths.ts', import.meta.url).href)}; const store=new StateStore(getStatePaths(${JSON.stringify(fixture.roots)},'project')); try {await store.update(previous=>({version:1,skills:{...previous?.skills,beta:${JSON.stringify(directoryRecord(fixture, 'beta'))}}}));} catch(error){console.error(error.code);process.exitCode=1;}`;
+    const script = `import {StateStore} from '@/state/store'; import {getStatePaths} from '@/state/paths'; const store=new StateStore(getStatePaths(${JSON.stringify(fixture.roots)},'project')); try {await store.update(previous=>({version:1,skills:{...previous?.skills,beta:${JSON.stringify(directoryRecord(fixture, 'beta'))}}}));} catch(error){console.error(error.code);process.exitCode=1;}`;
     const child = () =>
       spawnSync(
         process.execPath,
         ['--import', import.meta.resolve('tsx'), '--input-type=module', '--eval', script],
         {
           cwd: fixture.roots.cwd,
-          env: { ...fixture.env, TSX_DISABLE_CACHE: '1' },
+          env: {
+            ...fixture.env,
+            TSX_DISABLE_CACHE: '1',
+            TSX_TSCONFIG_PATH: fileURLToPath(new URL('../../tsconfig.json', import.meta.url)),
+          },
           encoding: 'utf8',
           timeout: 10000,
         },

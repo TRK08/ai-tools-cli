@@ -3,10 +3,10 @@ import { access, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { getStatePaths } from '../../src/state/paths.ts';
+import { getStatePaths } from '@/state/paths';
 
-import { StateStore, defaultStateFileIO } from '../../src/state/store.ts';
-import { type InstallationRecord, type LockFile } from '../../src/state/types.ts';
+import { StateStore, defaultStateFileIO } from '@/state/store';
+import { type InstallationRecord, type LockFile } from '@/state/types';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 
 function directoryRecord(fixture: TestEnvironment, name = 'demo'): InstallationRecord {

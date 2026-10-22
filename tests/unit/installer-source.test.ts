@@ -1,8 +1,8 @@
 import { expect, it, vi } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { prepareSelectedSource, selectSource } from '../../src/installer/source.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
+import { prepareSelectedSource, selectSource } from '@/installer/source';
+import { getStatePaths } from '@/state/paths';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 it('rejects preparation before the registry version is resolved without starting HTTP', async () => {

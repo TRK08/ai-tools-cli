@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import manifest from '../../package.json' with { type: 'json' };
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import type { InstallationRecord } from '../../src/state/types.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
+import type { InstallationRecord } from '@/state/types';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 import { catalogItem } from '../helpers/discovery.ts';
 import { terminal } from '../helpers/terminal.ts';
@@ -61,7 +61,13 @@ describe('command registration and Russian diagnostics', () => {
         list = vi.spyOn(Installer.prototype, 'list');
       let rendered = '';
       const t = terminal(false, false),
-        program = createProgram(manifest.version, context, { write: vi.fn() }, t);
+        program = createProgram({
+          version: manifest.version,
+          runtime: context,
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        });
       for (const command of [program, ...program.commands])
         command.exitOverride().configureOutput({
           writeOut: (value) => {
@@ -95,12 +101,13 @@ describe('CLI orchestration with isolated Installer operations', () => {
         .mockResolvedValue({ name: 'demo', status: 'success' });
       const t = terminal();
       try {
-        const pending = createProgram(
-          'test',
-          { ...fixture, http },
-          { write: vi.fn() },
-          t,
-        ).parseAsync(
+        const pending = createProgram({
+          version: 'test',
+          runtime: { ...fixture, http },
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        }).parseAsync(
           [
             'find',
             'de',
@@ -132,12 +139,13 @@ describe('CLI orchestration with isolated Installer operations', () => {
       const t = terminal(false, false);
       try {
         await expect(
-          createProgram(
-            'test',
-            { ...fixture, http: async () => new Response(null, { status: 503 }) },
-            { write: vi.fn() },
-            t,
-          ).parseAsync(['find', 'demo'], { from: 'user' }),
+          createProgram({
+            version: 'test',
+            runtime: { ...fixture, http: async () => new Response(null, { status: 503 }) },
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['find', 'demo'], { from: 'user' }),
         ).rejects.toThrow('HTTP 503');
         expect(t.rendered()).not.toContain('Скиллы не найдены');
       } finally {
@@ -155,7 +163,13 @@ describe('CLI orchestration with isolated Installer operations', () => {
         const remove = vi.spyOn(Installer.prototype, 'remove'),
           t = terminal();
         try {
-          await createProgram('test', context, { write: vi.fn() }, t).parseAsync(
+          await createProgram({
+            version: 'test',
+            runtime: context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(
             [
               'remove',
               ...(kind === 'filter' ? ['-a', 'pi'] : kind === 'unknown' ? ['missing'] : []),
@@ -179,10 +193,13 @@ describe('CLI orchestration with isolated Installer operations', () => {
         .mockResolvedValue({ status: 'success', results: [] });
       const t = terminal();
       try {
-        await createProgram('test', context, { write: vi.fn() }, t).parseAsync(
-          ['update', '--yes'],
-          { from: 'user' },
-        );
+        await createProgram({
+          version: 'test',
+          runtime: context,
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        }).parseAsync(['update', '--yes'], { from: 'user' });
         expect(update).toHaveBeenCalledExactlyOnceWith(undefined, undefined, []);
         expect(t.input.setRawMode).not.toHaveBeenCalled();
       } finally {
@@ -199,10 +216,15 @@ describe('CLI orchestration with isolated Installer operations', () => {
         const remove = vi.spyOn(Installer.prototype, 'remove');
         const t = terminal();
         try {
-          const pending = createProgram('test', context, { write: vi.fn() }, t).parseAsync(
-            stage === 'selection' ? ['remove', '--yes'] : ['remove', 'demo'],
-            { from: 'user' },
-          );
+          const pending = createProgram({
+            version: 'test',
+            runtime: context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(stage === 'selection' ? ['remove', '--yes'] : ['remove', 'demo'], {
+            from: 'user',
+          });
           await vi.waitFor(() =>
             expect(t.rendered()).toContain(
               stage === 'selection' ? 'Выберите скиллы' : 'Нет, оставить',
@@ -225,7 +247,13 @@ describe('CLI orchestration with isolated Installer operations', () => {
         .mockResolvedValue({ name: 'demo', status: 'success' });
       const t = terminal(false, false);
       try {
-        await createProgram('test', context, { write: vi.fn() }, t).parseAsync(
+        await createProgram({
+          version: 'test',
+          runtime: context,
+          stdin: t.input,
+          stdout: t.output,
+          stderr: t.output,
+        }).parseAsync(
           ['add', 'source', '-a', 'pi', '-a', 'codex', '-a', 'pi', '--force', '--yes'],
           { from: 'user' },
         );
@@ -253,7 +281,13 @@ describe('CLI orchestration with isolated Installer operations', () => {
       const t = terminal(false, false);
       try {
         await expect(
-          createProgram('test', context, { write: vi.fn() }, t).parseAsync(args, { from: 'user' }),
+          createProgram({
+            version: 'test',
+            runtime: context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(args, { from: 'user' }),
         ).rejects.toThrow();
         expect(add).not.toHaveBeenCalled();
         expect(remove).not.toHaveBeenCalled();
@@ -274,10 +308,15 @@ describe('CLI orchestration with isolated Installer operations', () => {
       const t = terminal(false, false);
       try {
         await expect(
-          createProgram('test', context, { write: vi.fn() }, t).parseAsync(
-            ['remove', 'demo', 'demo', 'other', 'missing', '-a', 'codex', '--yes'],
-            { from: 'user' },
-          ),
+          createProgram({
+            version: 'test',
+            runtime: context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['remove', 'demo', 'demo', 'other', 'missing', '-a', 'codex', '--yes'], {
+            from: 'user',
+          }),
         ).rejects.toThrow('Не удалось удалить');
         expect(list).toHaveBeenCalledExactlyOnceWith(['codex']);
         expect(remove.mock.calls).toEqual([
@@ -303,10 +342,13 @@ describe('CLI orchestration with isolated Installer operations', () => {
       const t = terminal(false, false);
       try {
         await expect(
-          createProgram('test', context, { write: vi.fn() }, t).parseAsync(
-            ['update', '--yes', '--force', '-a', 'pi'],
-            { from: 'user' },
-          ),
+          createProgram({
+            version: 'test',
+            runtime: context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['update', '--yes', '--force', '-a', 'pi'], { from: 'user' }),
         ).rejects.toThrow('Не удалось обновить');
         expect(update).toHaveBeenCalledExactlyOnceWith(undefined, true, ['pi']);
         expect(t.rendered()).toContain('Обновлён');

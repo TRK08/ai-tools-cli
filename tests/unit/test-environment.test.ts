@@ -5,7 +5,7 @@ import { isAbsolute, join, relative } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { isolatedEnvironment } from '../../scripts/isolated-runtime.ts';
-import type { HttpTransport } from '../../src/runtime.js';
+import type { HttpTransport } from '@/runtime';
 import { withTestEnvironment } from '../helpers/test-environment.js';
 
 describe('isolated test environment', () => {

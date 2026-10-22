@@ -2,11 +2,12 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import type { AgentId, InstallationScope } from '../../src/installer/types.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
+import type { AgentId } from '@/agents/catalog';
+import type { InstallationScope } from '@/runtime';
 
-import { getStatePaths } from '../../src/state/paths.ts';
+import { getStatePaths } from '@/state/paths';
 import { runCli } from '../helpers/cli.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 
@@ -37,12 +38,13 @@ const approve = '\u001b[C\r';
 const waitFor = (t: ReturnType<typeof terminal>, text: string) =>
   vi.waitFor(() => expect(t.rendered()).toContain(text), { interval: 10 });
 const run = (f: TestEnvironment, t: ReturnType<typeof terminal>, args: string[] = []) =>
-  createProgram('0.1.0', f, { write: (message) => t.output.write(`${message}\n`) }, t).parseAsync([
-    'node',
-    'skills-installer',
-    'remove',
-    ...args,
-  ]);
+  createProgram({
+    version: '0.1.0',
+    runtime: f,
+    stdin: t.input,
+    stdout: t.output,
+    stderr: t.output,
+  }).parseAsync(['node', 'skills-installer', 'remove', ...args]);
 
 async function install(
   f: TestEnvironment,

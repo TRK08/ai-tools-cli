@@ -2,11 +2,11 @@ import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { describe, expect, it, vi } from 'vitest';
-import { selectAgents } from '../../src/cli/agents-prompt.ts';
-import { searchMultiselect } from '../../src/cli/search-multiselect.ts';
-import { createProgram } from '../../src/cli/program.ts';
+import { selectAgents } from '@/cli/commands/selection';
+import { multiselect } from '@/cli/terminal/multiselect';
+import { createProgram } from '@/cli/program';
 
-import { hashDirectory } from '../../src/state/hash.ts';
+import { hashDirectory } from '@/state/hash';
 import { withTestEnvironment } from '../helpers/test-environment.js';
 
 function terminal(inputTTY = true, outputTTY = true) {
@@ -56,10 +56,13 @@ describe('real Clack selection with controlled TTY streams', () => {
     try {
       t.output.columns = 48;
       t.output.rows = 18;
-      const selected = searchMultiselect({
+      const selected = multiselect({
         ...t,
         message: 'Выберите агентов',
-        sharedDirectory: '/temporary/.agents/skills',
+        context: ['Общая папка: /temporary/.agents/skills'],
+        lockedLabel: 'Всегда включены',
+        optionsLabel: 'Дополнительные агенты',
+        search: true,
         locked: [{ value: 'locked', label: 'Закреплённый' }],
         options: Array.from({ length: 12 }, (_, i) => ({
           value: `agent-${i}`,
@@ -243,19 +246,17 @@ describe('real Clack selection with controlled TTY streams', () => {
         const t = terminal();
         const http = vi.fn(context.http);
         const before = await hashDirectory(context.temporaryRoot);
-        const output = { write: vi.fn() };
         try {
-          const run = createProgram('0.1.0', { ...context, http }, output, t).parseAsync([
-            'node',
-            'skills-installer',
-            'add',
-            './missing',
-            '--force',
-            '-g',
-          ]);
+          const run = createProgram({
+            version: '0.1.0',
+            runtime: { ...context, http },
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['node', 'skills-installer', 'add', './missing', '--force', '-g']);
           await keys(t, [key]);
           await run;
-          expect(output.write).toHaveBeenCalledWith('Отменено.');
+          expect(t.rendered()).toContain('Отменено.');
           expect(http).not.toHaveBeenCalled();
           expect(await hashDirectory(context.temporaryRoot)).toBe(before);
         } finally {
@@ -275,12 +276,13 @@ describe('real Clack selection with controlled TTY streams', () => {
       try {
         const before = await hashDirectory(context.temporaryRoot);
         await expect(
-          createProgram('0.1.0', context, { write: vi.fn() }, t).parseAsync([
-            'node',
-            'skills-installer',
-            'add',
-            './missing',
-          ]),
+          createProgram({
+            version: '0.1.0',
+            runtime: context,
+            stdin: t.input,
+            stdout: t.output,
+            stderr: t.output,
+          }).parseAsync(['node', 'skills-installer', 'add', './missing']),
         ).rejects.toThrow(/TTY.*укажите -a/);
         expect(t.rendered()).toBe('');
         expect(await hashDirectory(context.temporaryRoot)).toBe(before);

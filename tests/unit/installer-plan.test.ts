@@ -5,9 +5,9 @@ import {
   localUpdateReason,
   registryUpdateReason,
   createUpdatePreview,
-} from '../../src/installer/plan.ts';
-import type { InstallationRecord } from '../../src/state/types.ts';
-import type { RegistryArtifact } from '../../src/registry/client.ts';
+} from '@/installer/plan';
+import type { InstallationRecord } from '@/state/types';
+import type { RegistryArtifact } from '@/registry/client';
 
 const record: InstallationRecord = {
   name: 'demo',

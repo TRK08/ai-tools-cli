@@ -13,11 +13,11 @@ import {
 import { fileSymlinks, symlink } from '../helpers/links.ts';
 import { basename, dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { prepareDirectory, type PrepareDirectoryOptions } from '../../src/sources/directory.ts';
-import { directorySourceFileSystem } from '../../src/sources/filesystem.ts';
-import * as hashing from '../../src/state/hash.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
-import { getStatePaths, portableSourcePath } from '../../src/state/paths.ts';
+import { prepareDirectory, type PrepareDirectoryOptions } from '@/sources/directory';
+import { directorySourceFileSystem } from '@/sources/filesystem';
+import * as hashing from '@/state/hash';
+import { hashDirectory } from '@/state/hash';
+import { getStatePaths, portableSourcePath } from '@/state/paths';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.js';
 
 const skillText = '---\nname: demo\ndescription: Demo skill\n---\nUse [scripts](scripts/run.sh).\n';

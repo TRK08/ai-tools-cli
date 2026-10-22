@@ -11,8 +11,8 @@ import {
 
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { withScopeLock, scopeLockFileSystem } from '../../src/state/mutex.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
+import { withScopeLock, scopeLockFileSystem } from '@/state/mutex';
+import { getStatePaths } from '@/state/paths';
 
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 

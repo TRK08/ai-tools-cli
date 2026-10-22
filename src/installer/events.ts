@@ -1,13 +1,9 @@
-import type { RegistryDownload } from '../registry/client.ts';
-import type { RegistryEventContext } from '../telemetry/client.ts';
-import { AddSkipped, UpdateSkipped } from './control.ts';
-import type {
-  AgentId,
-  InstallationChange,
-  InstallerOptions,
-  InstallationScope,
-  SourceSelection,
-} from './types.ts';
+import type { RegistryDownload } from '@/registry';
+import type { RegistryEventContext } from '@/telemetry';
+import { AddSkipped, UpdateSkipped } from './control';
+import type { AgentId } from '@/agents';
+import type { InstallationChange, InstallerOptions, SourceSelection } from './types';
+import type { InstallationScope } from '@/runtime';
 
 /** Собирает контекст одной registry-операции; не вмешивается в файловую транзакцию. */
 export class InstallationEvents {

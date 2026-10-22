@@ -1,5 +1,5 @@
-import { RegistryError } from './errors.ts';
-import { isFullSemVer, isRegistrySlug } from './reference.ts';
+import { RegistryError } from './errors';
+import { isFullSemVer, isRegistrySlug } from './reference';
 
 export interface CatalogSkill {
   readonly slug: string;

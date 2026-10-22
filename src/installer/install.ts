@@ -1,15 +1,20 @@
-import { isCancellation } from '../cancellation.ts';
-import type { RuntimeContext } from '../runtime.ts';
-import { assertSourceCompatible, sourceIdentityKey } from '../state/identity.ts';
-import { assertSkillName, resolveConnectionPath } from '../state/paths.ts';
-import type { StateTransaction } from '../state/store.ts';
-import { createEmptyLock, type InstallationRecord } from '../state/types.ts';
-import type { SourceIdentity } from '../sources/types.ts';
-import { directoryChain, FileTransaction, type InstallerFileSystem } from './filesystem.ts';
-import type { InstallationInspection } from './inspection.ts';
-import { applyInstallPlan } from './apply.ts';
-import { AddSkipped, NoConnections, UpdateSkipped } from './control.ts';
-import { InstallationEvents } from './events.ts';
+import { isCancellation } from '@/cancellation';
+import type { RuntimeContext } from '@/runtime';
+import {
+  assertSourceCompatible,
+  sourceIdentityKey,
+  assertSkillName,
+  resolveConnectionPath,
+  createEmptyLock,
+  type InstallationRecord,
+  type StateTransaction,
+} from '@/state';
+import type { SourceIdentity } from '@/sources';
+import { directoryChain, FileTransaction, type InstallerFileSystem } from './filesystem';
+import type { InstallationInspection } from './inspection';
+import { applyInstallPlan } from './apply';
+import { AddSkipped, NoConnections, UpdateSkipped } from './control';
+import { InstallationEvents } from './events';
 import {
   createAddPreview,
   createInstallPlan,
@@ -17,22 +22,22 @@ import {
   findReusableInstallation,
   localUpdateReason,
   registryUpdateReason,
-} from './plan.ts';
+} from './plan';
 import {
   preparationOptions,
   prepareSelectedSource,
   resolveSelectedSource,
   reusableContent,
   selectSource,
-} from './source.ts';
+} from './source';
+import type { AgentId } from '@/agents';
 import type {
-  AgentId,
   InstallationChange,
   InstallerOptions,
   InstalledSnapshot,
   RegistrySelection,
   UpdatePreview,
-} from './types.ts';
+} from './types';
 
 /** Координирует одну установку внутри уже захваченной StateTransaction. */
 export class InstallOperation {

@@ -49,7 +49,9 @@ Registry-идентичность — base URL + slug, без версии и в
 должен быть тот же диск, что у cwd; внешний путь на том же диске допустим.
 Корни без диска, drive-relative, UNC/device и ADS отклоняются до resolve.
 
-Модуль native-path использует обычный node:path текущей ОС. StatePaths хранит
+[Модуль paths](../src/paths/index.ts) не зависит от State; его
+[native-path](../src/paths/native-path.ts) использует обычный node:path текущей ОС,
+а [names](../src/paths/names.ts) проверяет компоненты и коллизии имён. StatePaths хранит
 только пути и область; выбора платформы в State, каталоге агентов и Installer нет.
 Для тестов единственная зависимость модуля подменяется через createPathOperations
 на path.win32 либо path.posix. Остальные модули получают те же операции без

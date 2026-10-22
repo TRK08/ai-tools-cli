@@ -12,7 +12,7 @@ import {
 import { fileSymlinks, symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { hashDirectory } from '../../src/state/hash.ts';
+import { hashDirectory } from '@/state/hash';
 
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 

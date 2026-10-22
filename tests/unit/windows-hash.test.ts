@@ -1,11 +1,11 @@
 import { lstat, mkdir, open, readdir, readlink, writeFile } from 'node:fs/promises';
 import { join, win32 } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { hashDirectory } from '../../src/state/hash.ts';
+import { hashDirectory } from '@/state/hash';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
-vi.mock('../../src/state/native-path.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/state/native-path.ts')>();
+vi.mock('@/paths/native-path', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/paths/native-path')>();
   const { win32 } = await import('node:path');
   return { ...actual, ...actual.createPathOperations(win32) };
 });

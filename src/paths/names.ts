@@ -1,4 +1,4 @@
-import { StateError } from './errors.ts';
+import { StateError } from '@/errors';
 
 const reservedName = /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])$/iu;
 

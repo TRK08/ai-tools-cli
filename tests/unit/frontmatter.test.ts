@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readSkillMetadata } from '../../src/sources/frontmatter.ts';
+import { readSkillMetadata } from '@/sources/frontmatter';
 
 describe('skill frontmatter', () => {
   it('reads quoted strings and a multiline description without returning a rewritten document', () => {

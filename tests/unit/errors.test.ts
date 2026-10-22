@@ -1,8 +1,7 @@
 import { rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { errorMessage } from '../../src/errors.ts';
-import { StateError } from '../../src/state/errors.ts';
+import { errorMessage, StateError } from '@/errors';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 it('localizes a native filesystem failure and preserves its code and both paths', async () => {

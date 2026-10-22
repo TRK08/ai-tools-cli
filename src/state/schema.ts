@@ -1,9 +1,8 @@
-import { agentConnectionKind, isAgentId, isDirectAgent } from '../agents/catalog.ts';
-import type { AgentId } from '../installer/types.ts';
-import type { SourceIdentity } from '../sources/types.ts';
-import { isFullSemVer, isRegistrySlug } from '../registry/reference.ts';
-import { StateError } from './errors.ts';
-import { normalizeRegistryUrl } from './identity.ts';
+import { agentConnectionKind, isAgentId, isDirectAgent, type AgentId } from '@/agents';
+import type { SourceIdentity } from '@/sources/types';
+import { isFullSemVer, isRegistrySlug } from '@/registry';
+import { StateError } from '@/errors';
+import { normalizeRegistryUrl } from './identity';
 import {
   assertSkillName,
   getSkillDirectory,
@@ -12,15 +11,14 @@ import {
   validatePortablePathText,
   validatePathText,
   type StatePaths,
-} from './paths.ts';
-import { assertPortableNames } from './names.ts';
-import { nativePath, pathIdentityKey } from './native-path.ts';
+} from './paths';
+import { assertPortableNames, nativePath, pathIdentityKey } from '@/paths';
 import {
   LOCK_VERSION,
   type InstallationRecord,
   type LockFile,
   type ManagedConnection,
-} from './types.ts';
+} from './types';
 
 function invalid(message: string): never {
   throw new StateError('INVALID_LOCK', message);

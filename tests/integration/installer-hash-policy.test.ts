@@ -2,9 +2,9 @@ import { lstat, mkdir, open, readFile, readdir, readlink, rm, writeFile } from '
 
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { hashDirectory } from '../../src/state/hash.ts';
-import * as hashing from '../../src/state/hash.ts';
-import { Installer } from '../../src/installer/installer.ts';
+import { hashDirectory } from '@/state/hash';
+import * as hashing from '@/state/hash';
+import { Installer } from '@/installer/installer';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 const io = { lstat, readdir, readlink, open };

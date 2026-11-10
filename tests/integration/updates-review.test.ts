@@ -2,10 +2,10 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
 
-import { getStatePaths, WORKSPACE_PREFIX } from '../../src/state/paths.ts';
+import { getStatePaths, WORKSPACE_PREFIX } from '@/state/paths';
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';
@@ -34,12 +34,13 @@ function terminal(inputTTY = true, outputTTY = true) {
 }
 
 const run = (f: TestEnvironment, t: ReturnType<typeof terminal>, args: string[] = []) =>
-  createProgram('0.1.0', f, { write: (message) => t.output.write(`${message}\n`) }, t).parseAsync([
-    'node',
-    'skills-installer',
-    'update',
-    ...args,
-  ]);
+  createProgram({
+    version: '0.1.0',
+    runtime: f,
+    stdin: t.input,
+    stdout: t.output,
+    stderr: t.output,
+  }).parseAsync(['node', 'skills-installer', 'update', ...args]);
 const waitForPrompt = (t: ReturnType<typeof terminal>) =>
   vi.waitFor(() => expect(t.rendered()).toContain('Нет, пропустить'), { interval: 10 });
 const approve = (t: ReturnType<typeof terminal>) => t.input.write('\u001b[C\r');

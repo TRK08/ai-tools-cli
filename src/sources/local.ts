@@ -1,9 +1,9 @@
 import { lstat, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { hasErrorCode } from '../state/errors.ts';
-import { parseRegistryReference } from '../registry/reference.ts';
-import { prepareArchive } from './archive.ts';
-import { prepareDirectory, type PrepareDirectoryOptions } from './directory.ts';
+import { hasErrorCode } from '@/errors';
+import { parseRegistryReference } from '@/registry';
+import { prepareArchive } from './archive';
+import { prepareDirectory, type PrepareDirectoryOptions } from './directory';
 
 /**
  * Определяет registry-ссылку с приоритетом существующего локального пути, включая symlink.

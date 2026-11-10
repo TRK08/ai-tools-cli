@@ -1,18 +1,13 @@
 import { createHash } from 'node:crypto';
-import type { HttpTransport } from '../runtime.ts';
-import { RegistryError } from './errors.ts';
+import type { HttpTransport } from '@/runtime';
+import { RegistryError } from './errors';
 import {
   validateCatalog,
   validateSkillDetail,
   type CatalogSkill,
   type SkillDetail,
-} from './catalog.ts';
-import {
-  getRegistryUrl,
-  isFullSemVer,
-  isRegistrySlug,
-  type RegistryReference,
-} from './reference.ts';
+} from './catalog';
+import { getRegistryUrl, isFullSemVer, isRegistrySlug, type RegistryReference } from './reference';
 
 const MAX_ARTIFACT_BYTES = 20 * 1024 * 1024;
 const MAX_METADATA_BYTES = 64 * 1024;

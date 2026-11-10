@@ -3,8 +3,8 @@ import { stripVTControlCharacters } from 'node:util';
 
 import { afterEach, expect, it, vi } from 'vitest';
 
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
 
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';
@@ -49,9 +49,9 @@ it('shows a delayed update check and clears it before the result table', async (
     const gate = new Promise<void>((done) => (release = done));
     const t = terminal(true, true, 110);
     vi.useFakeTimers();
-    const pending = createProgram(
-      '0.1.0',
-      {
+    const pending = createProgram({
+      version: '0.1.0',
+      runtime: {
         ...f,
         http: async (url, init) => {
           started();
@@ -59,9 +59,10 @@ it('shows a delayed update check and clears it before the result table', async (
           return backend.http(url, init);
         },
       },
-      { write: (message) => t.output.write(`${message}\n`) },
-      t,
-    ).parseAsync(['update'], { from: 'user' });
+      stdin: t.input,
+      stdout: t.output,
+      stderr: t.output,
+    }).parseAsync(['update'], { from: 'user' });
     try {
       await waiting;
       await vi.advanceTimersByTimeAsync(280);

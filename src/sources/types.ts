@@ -1,4 +1,4 @@
-import type { RegistryDownload } from '../registry/client.ts';
+import type { RegistryDownload } from '@/registry';
 
 /** Постоянная идентичность источника; подписанные URL скачивания здесь не сохраняются. */
 export type SourceIdentity =

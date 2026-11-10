@@ -2,12 +2,12 @@ import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AGENTS, agentConnectionKind } from '../../src/agents/catalog.ts';
+import { AGENTS, agentConnectionKind } from '@/agents/catalog';
 
-import { getSkillDirectory, getStatePaths } from '../../src/state/paths.ts';
-import { parseLockFile, serializeLockFile } from '../../src/state/schema.ts';
-import { StateStore } from '../../src/state/store.ts';
-import { createEmptyLock, type InstallationRecord, type LockFile } from '../../src/state/types.ts';
+import { getSkillDirectory, getStatePaths } from '@/state/paths';
+import { parseLockFile, serializeLockFile } from '@/state/schema';
+import { StateStore } from '@/state/store';
+import { createEmptyLock, type InstallationRecord, type LockFile } from '@/state/types';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 
 function directoryRecord(fixture: TestEnvironment, name = 'demo'): InstallationRecord {

@@ -3,8 +3,8 @@ import { chmod, copyFile, lstat, mkdir, readFile, readdir, writeFile } from 'nod
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { it } from 'vitest';
-import { hashDirectory } from '../../src/state/hash.ts';
-import type { LockFile } from '../../src/state/types.ts';
+import { hashDirectory } from '@/state/hash';
+import type { LockFile } from '@/state/types';
 import { runCliSync } from '../helpers/cli.ts';
 import { assertGitResourceAttributes, createGitRunner } from '../helpers/git.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';

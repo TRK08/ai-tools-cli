@@ -1,6 +1,6 @@
 import { withIsolatedRuntime } from '../../scripts/isolated-runtime.ts';
 
-import type { HttpTransport, RuntimeContext } from '../../src/runtime.js';
+import type { HttpTransport, RuntimeContext } from '@/runtime';
 
 export interface TestEnvironment extends RuntimeContext {
   readonly temporaryRoot: string;

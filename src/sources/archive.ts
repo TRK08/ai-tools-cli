@@ -1,27 +1,21 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
-import { openRegularFile, preserveFileMode, withFileHandle, writeAll } from '../regular-file.ts';
-import {
-  assertResourceNames,
-  childBufferPath,
-  isBufferPathWithin,
-  nativePath,
-} from '../state/native-path.ts';
+import { openRegularFile, preserveFileMode, withFileHandle, writeAll } from '@/regular-file';
+import { assertResourceNames, childBufferPath, isBufferPathWithin, nativePath } from '@/paths';
 import { createGunzip } from 'node:zlib';
 import { Header, Parser, ReadEntry } from 'tar';
-import { hasErrorCode } from '../state/errors.ts';
-import { hashDirectory } from '../state/hash.ts';
-import { validatePathText } from '../state/paths.ts';
-import { SourceError } from './errors.ts';
+import { hasErrorCode } from '@/errors';
+import { hashDirectory, validatePathText } from '@/state';
+import { SourceError } from './errors';
 import {
   archiveSourceFileSystem,
   cleanupFailedPreparation,
   OWNED_WORKSPACE_CLEANUP,
   type ArchiveSourceFileSystem,
-} from './filesystem.ts';
-import { readSkillMetadata } from './frontmatter.ts';
-import type { PreparedSource } from './types.ts';
-import { isCancellation } from '../cancellation.ts';
+} from './filesystem';
+import { readSkillMetadata } from './frontmatter';
+import type { PreparedSource } from './types';
+import { isCancellation } from '@/cancellation';
 
 export const ARCHIVE_LIMITS = Object.freeze({
   inputBytes: 20 * 1024 * 1024,

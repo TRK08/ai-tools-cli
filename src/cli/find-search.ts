@@ -1,5 +1,4 @@
-import type { RegistryClient } from '../registry/client.ts';
-import { sortCatalog, type CatalogSkill } from '../registry/catalog.ts';
+import { type RegistryClient, sortCatalog, type CatalogSkill } from '@/registry';
 
 export const MIN_FIND_PREFIX_LENGTH = 2;
 

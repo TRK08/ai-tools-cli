@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { RuntimeContext } from '../../src/runtime.ts';
+import type { RuntimeContext } from '@/runtime';
 import { archiveBytes } from '../helpers/archive.ts';
 import { withE2eRegistry } from '../helpers/e2e-registry.ts';
 import { requireBuiltCli, runBuiltCli } from '../helpers/built-cli.ts';

@@ -2,16 +2,16 @@ import { lstat, mkdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { createProgram } from '../../src/cli/program.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
+import { createProgram } from '@/cli/program';
+import { Installer } from '@/installer/installer';
+import { hashDirectory } from '@/state/hash';
+import { getStatePaths } from '@/state/paths';
 import { catalogItem } from '../helpers/discovery.ts';
 
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';
-import { directorySourceFileSystem } from '../../src/sources/filesystem.ts';
+import { directorySourceFileSystem } from '@/sources/filesystem';
 
 function terminal(tty = true, columns = 160) {
   let rendered = '';
@@ -50,10 +50,13 @@ async function key(t: ReturnType<typeof terminal>, value: string) {
   await new Promise<void>((done) => setImmediate(done));
 }
 const run = (f: TestEnvironment, t: ReturnType<typeof terminal>, args: string[]) =>
-  createProgram('0.1.0', f, { write: (value) => t.output.write(`${value}\n`) }, t).parseAsync(
-    args,
-    { from: 'user' },
-  );
+  createProgram({
+    version: '0.1.0',
+    runtime: f,
+    stdin: t.input,
+    stdout: t.output,
+    stderr: t.output,
+  }).parseAsync(args, { from: 'user' });
 async function source(f: TestEnvironment, archive = false) {
   const path = join(f.roots.cwd, archive ? 'demo.tgz' : 'demo');
   if (archive) await writeFile(path, archiveBytes([{ path: 'SKILL.md', contents: skillText }]));

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createUpdatesUi } from '../../src/cli/updates-ui.ts';
-import type { UpdatePreview } from '../../src/installer/types.ts';
+import { createUpdatesUi } from '@/cli/ui/updates-ui';
+import type { UpdatePreview } from '@/installer/types';
 import { terminal } from '../helpers/terminal.ts';
 
 const preview: UpdatePreview = {
@@ -16,6 +16,30 @@ const preview: UpdatePreview = {
 
 describe('update preview and result UI', () => {
   it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])('restores raw=%s and flowing=%s after confirmation', async (raw, flowing) => {
+    const t = terminal(),
+      ui = createUpdatesUi(t);
+    t.input.isRaw = raw;
+    if (flowing) t.input.resume();
+    else t.input.pause();
+    try {
+      ui.preview(preview, true);
+      const pending = ui.review(preview);
+      await vi.waitFor(() => expect(t.rendered()).toContain('Нет, пропустить'));
+      t.input.write('\r');
+      expect(await pending).toBe('decline');
+      expect([t.input.isRaw, t.input.readableFlowing]).toEqual([raw, flowing]);
+    } finally {
+      ui.finish({ status: 'success', results: [] });
+      t.close();
+    }
+  });
+
+  it.each([
     ['copy', 'Заменить установленное содержимое'],
     ['connections', 'Восстановить подключения'],
     ['artifact', 'Архив изменился'],
@@ -24,11 +48,13 @@ describe('update preview and result UI', () => {
     const t = terminal(),
       ui = createUpdatesUi(t);
     try {
-      const pending = ui.review({
+      const change: UpdatePreview = {
         ...preview,
         sourceKind: reason === 'source' ? 'directory' : 'registry',
         reason,
-      });
+      };
+      ui.preview(change, true);
+      const pending = ui.review(change);
       await vi.waitFor(() => expect(t.rendered()).toContain(text));
       t.input.write('\r');
       expect(await pending).toBe('decline');
@@ -46,6 +72,7 @@ describe('update preview and result UI', () => {
     const t = terminal(),
       ui = createUpdatesUi(t);
     try {
+      ui.preview(preview, true);
       const pending = ui.review(preview);
       await vi.waitFor(() => expect(t.rendered()).toContain('Нет, пропустить'));
       expect(t.rendered()).toMatch(/1\.0\.0.*2\.0\.0/);
@@ -57,36 +84,21 @@ describe('update preview and result UI', () => {
       t.close();
     }
   });
-  it.each([
-    [false, false],
-    [true, false],
-    [false, true],
-  ])('requires --yes with TTY=%s/%s', async (input, output) => {
-    const t = terminal(input, output);
-    try {
-      await expect(createUpdatesUi(t).review(preview)).rejects.toThrow('используйте --yes');
-      const ui = createUpdatesUi(t, true);
-      expect(await ui.review(preview)).toBe('approve');
-      ui.finish({ status: 'success', results: [] });
-      expect(t.input.setRawMode).not.toHaveBeenCalled();
-    } finally {
-      t.close();
-    }
-  });
   it.each(['unchanged', 'pinned'] as const)(
     'renders %s without asking or inventing latest',
     async (status) => {
       const t = terminal(false, false),
         ui = createUpdatesUi(t);
       try {
-        expect(
-          await ui.review({
+        ui.preview(
+          {
             ...preview,
             status,
             reason: status === 'pinned' ? 'pinned' : null,
             latestVersion: status === 'pinned' ? null : '1.0.0',
-          }),
-        ).toBe('approve');
+          },
+          false,
+        );
         ui.finish({
           status: 'success',
           results: [
@@ -106,15 +118,18 @@ describe('update preview and result UI', () => {
     'labels %s updates without a fictitious version',
     async (sourceKind) => {
       const t = terminal(false, false),
-        ui = createUpdatesUi(t, true);
+        ui = createUpdatesUi(t);
       try {
-        await ui.review({
-          ...preview,
-          currentVersion: null,
-          latestVersion: null,
-          sourceKind,
-          reason: 'source',
-        });
+        ui.preview(
+          {
+            ...preview,
+            currentVersion: null,
+            latestVersion: null,
+            sourceKind,
+            reason: 'source',
+          },
+          false,
+        );
         ui.finish({ status: 'success', results: [{ name: 'demo', status: 'success' }] });
         expect(t.rendered()).toContain('локальная');
         expect(t.rendered()).not.toContain('2.0.0');
@@ -125,10 +140,10 @@ describe('update preview and result UI', () => {
   );
   it('renders batch failures, declined and cancelled results', async () => {
     const t = terminal(false, false),
-      ui = createUpdatesUi(t, true, 'global');
+      ui = createUpdatesUi(t, 'global');
     try {
       for (const name of ['demo', 'declined', 'failed', 'cancelled'])
-        await ui.review({ ...preview, name });
+        ui.preview({ ...preview, name }, false);
       ui.finish({
         status: 'failed',
         results: [

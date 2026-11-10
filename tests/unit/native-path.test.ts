@@ -1,10 +1,10 @@
 import { posix } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
-import { InstallationInspection } from '../../src/installer/inspection.ts';
-import { installerFileSystem } from '../../src/installer/filesystem.ts';
+import { InstallationInspection } from '@/installer/inspection';
+import { installerFileSystem } from '@/installer/filesystem';
 
-import { assertPortableName, assertPortableNames, portableNameKey } from '../../src/state/names.ts';
+import { assertPortableName, assertPortableNames, portableNameKey } from '@/paths/names';
 import {
   createPathOperations,
   assertResourceNames,
@@ -16,7 +16,7 @@ import {
   relativePathParts,
   samePath,
   validateNativePath,
-} from '../../src/state/native-path.ts';
+} from '@/paths/native-path';
 import {
   assertSkillName,
   getStatePaths,
@@ -25,14 +25,14 @@ import {
   resolveConnectionPath,
   resolveSourcePath,
   validatePortablePathText,
-} from '../../src/state/paths.ts';
-import { sourceIdentityKey } from '../../src/state/identity.ts';
-import { parseLockFile, serializeLockFile } from '../../src/state/schema.ts';
-import { LOCK_VERSION, type LockFile } from '../../src/state/types.ts';
-import type { RuntimeContext } from '../../src/runtime.ts';
+} from '@/state/paths';
+import { sourceIdentityKey } from '@/state/identity';
+import { parseLockFile, serializeLockFile } from '@/state/schema';
+import { LOCK_VERSION, type LockFile } from '@/state/types';
+import type { RuntimeContext } from '@/runtime';
 
-vi.mock('../../src/state/native-path.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/state/native-path.ts')>();
+vi.mock('@/paths/native-path', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/paths/native-path')>();
   const { win32 } = await import('node:path');
   return { ...actual, ...actual.createPathOperations(win32) };
 });

@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { StateError, hasErrorCode } from './errors.ts';
-import { assertScopeLocation } from './filesystem.ts';
-import { assertSourceCompatible } from './identity.ts';
-import { withScopeLock } from './mutex.ts';
-import { LOCK_TEMP_PREFIX, type StatePaths } from './paths.ts';
-import { parseLockFile, serializeLockFile } from './schema.ts';
-import type { LockFile } from './types.ts';
-import { openRegularFile, withFileHandle, type RegularFileIO } from '../regular-file.ts';
+import { StateError, hasErrorCode } from '@/errors';
+import { assertScopeLocation } from './filesystem';
+import { assertSourceCompatible } from './identity';
+import { withScopeLock } from './mutex';
+import { LOCK_TEMP_PREFIX, type StatePaths } from './paths';
+import { parseLockFile, serializeLockFile } from './schema';
+import type { LockFile } from './types';
+import { openRegularFile, withFileHandle, type RegularFileIO } from '@/regular-file';
 
 export interface StateFileIO extends RegularFileIO<string> {
   readonly writeTemporaryFile: (path: string, content: string) => Promise<void>;

@@ -1,8 +1,8 @@
-import type { SourceIdentity } from '../sources/types.ts';
-import { StateError } from './errors.ts';
-import { resolveSourcePath, type StatePaths } from './paths.ts';
-import { pathIdentityKey } from './native-path.ts';
-import type { LockFile } from './types.ts';
+import type { SourceIdentity } from '@/sources/types';
+import { StateError } from '@/errors';
+import { resolveSourcePath, type StatePaths } from './paths';
+import { pathIdentityKey } from '@/paths';
+import type { LockFile } from './types';
 
 /** Проверяет базовый HTTP(S) URL источника и удаляет завершающие слеши; неверный URL даёт INVALID_LOCK. */
 export function normalizeRegistryUrl(value: string): string {

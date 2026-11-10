@@ -1,12 +1,16 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import type { RegistryArtifact, RegistryClient, RegistryDownload } from '../registry/client.ts';
-import { RegistryError } from '../registry/errors.ts';
-import type { RegistryReference } from '../registry/reference.ts';
-import { prepareArchive, type PrepareArchiveOptions } from './archive.ts';
-import { SourceError } from './errors.ts';
-import type { PreparedSource } from './types.ts';
-import { cleanupFailedPreparation, OWNED_WORKSPACE_CLEANUP } from './filesystem.ts';
+import {
+  type RegistryArtifact,
+  type RegistryClient,
+  type RegistryDownload,
+  type RegistryReference,
+  RegistryError,
+} from '@/registry';
+import { prepareArchive, type PrepareArchiveOptions } from './archive';
+import { SourceError } from './errors';
+import type { PreparedSource } from './types';
+import { cleanupFailedPreparation, OWNED_WORKSPACE_CLEANUP } from './filesystem';
 
 /**
  * Готовит registry-снимок через проверенное скачивание и адаптер архива с той же политикой имён,

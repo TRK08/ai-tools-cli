@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { RuntimeContext } from '../../src/runtime.ts';
+import type { RuntimeContext } from '@/runtime';
 
-import { Telemetry, type RegistryEventContext } from '../../src/telemetry/client.ts';
+import { Telemetry, type RegistryEventContext } from '@/telemetry/client';
 
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 

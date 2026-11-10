@@ -1,6 +1,6 @@
 import { isMap, parseDocument } from 'yaml';
-import { assertSkillName } from '../state/paths.ts';
-import { SourceError } from './errors.ts';
+import { assertSkillName } from '@/state';
+import { SourceError } from './errors';
 
 export interface SkillMetadata {
   readonly name: string;

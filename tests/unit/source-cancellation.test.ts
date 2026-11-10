@@ -2,15 +2,12 @@ import { lstat, mkdir, open, readFile, readdir, readlink, writeFile } from 'node
 import { basename, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { Parser } from 'tar';
-import { prepareDirectory } from '../../src/sources/directory.ts';
-import { prepareArchive } from '../../src/sources/archive.ts';
-import { prepareLocalSource } from '../../src/sources/local.ts';
-import {
-  archiveSourceFileSystem,
-  directorySourceFileSystem,
-} from '../../src/sources/filesystem.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
-import * as hashing from '../../src/state/hash.ts';
+import { prepareDirectory } from '@/sources/directory';
+import { prepareArchive } from '@/sources/archive';
+import { prepareLocalSource } from '@/sources/local';
+import { archiveSourceFileSystem, directorySourceFileSystem } from '@/sources/filesystem';
+import { hashDirectory } from '@/state/hash';
+import * as hashing from '@/state/hash';
 
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';

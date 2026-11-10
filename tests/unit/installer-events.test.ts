@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InstallationEvents } from '../../src/installer/events.ts';
-import { AddSkipped, UpdateSkipped } from '../../src/installer/control.ts';
-import type { InstallationChange, SourceSelection } from '../../src/installer/types.ts';
-import { RegistryClient } from '../../src/registry/client.ts';
-import type { Telemetry } from '../../src/telemetry/client.ts';
+import { InstallationEvents } from '@/installer/events';
+import { AddSkipped, UpdateSkipped } from '@/installer/control';
+import type { InstallationChange, SourceSelection } from '@/installer/types';
+import { RegistryClient } from '@/registry/client';
+import type { Telemetry } from '@/telemetry/client';
 
 const source: SourceSelection = {
   input: 'demo',

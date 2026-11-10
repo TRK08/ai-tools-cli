@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRemoveUi } from '../../src/cli/remove-ui.ts';
-import type { InstallationRecord } from '../../src/state/types.ts';
+import { createRemoveUi } from '@/cli/ui/remove-ui';
+import type { InstallationRecord } from '@/state/types';
 import { terminal } from '../helpers/terminal.ts';
 
 const record = (name: string): InstallationRecord => ({
@@ -14,6 +14,29 @@ const record = (name: string): InstallationRecord => ({
 });
 
 describe('remove UI without filesystem operations', () => {
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])('restores raw=%s and flowing=%s after confirmation', async (raw, flowing) => {
+    const t = terminal(),
+      ui = createRemoveUi(t, 'project', []);
+    t.input.isRaw = raw;
+    if (flowing) t.input.resume();
+    else t.input.pause();
+    try {
+      ui.preview([record('demo')]);
+      const pending = ui.review([record('demo')]);
+      await vi.waitFor(() => expect(t.rendered()).toContain('Нет, оставить'));
+      t.input.write('\r');
+      expect(await pending).toBe(false);
+      expect([t.input.isRaw, t.input.readableFlowing]).toEqual([raw, flowing]);
+    } finally {
+      t.close();
+    }
+  });
+
   it('cancels selection with Escape', async () => {
     const t = terminal(),
       ui = createRemoveUi(t, 'project', []);
@@ -21,6 +44,21 @@ describe('remove UI without filesystem operations', () => {
       const pending = ui.select([record('demo')]);
       t.input.write('\u001b');
       expect(await pending).toBeNull();
+    } finally {
+      t.close();
+    }
+  });
+
+  it('restores the incoming raw and flowing state after selecting skills', async () => {
+    const t = terminal(),
+      ui = createRemoveUi(t, 'project', []);
+    t.input.isRaw = true;
+    t.input.resume();
+    try {
+      const pending = ui.select([record('demo')]);
+      t.input.write(' \r');
+      expect(await pending).toEqual([record('demo')]);
+      expect([t.input.isRaw, t.input.readableFlowing]).toEqual([true, true]);
     } finally {
       t.close();
     }
@@ -45,6 +83,7 @@ describe('remove UI without filesystem operations', () => {
     const t = terminal(),
       ui = createRemoveUi(t, 'project', []);
     try {
+      ui.preview([record('demo')]);
       const pending = ui.review([record('demo')]);
       await vi.waitFor(() => expect(t.rendered()).toContain('Нет, оставить'));
       t.input.write(key);
@@ -57,28 +96,13 @@ describe('remove UI without filesystem operations', () => {
     const t = terminal(),
       ui = createRemoveUi(t, 'global', ['codex']);
     try {
+      ui.preview([record('demo'), record('other')]);
       const pending = ui.review([record('demo'), record('other')]);
       await vi.waitFor(() => expect(t.rendered()).toContain('Нет, оставить'));
       expect(t.rendered()).not.toContain('codex, pi');
       t.input.write('\u001b[C\r');
       expect(await pending).toBe(true);
       expect(t.rendered()).toContain('глобальная');
-    } finally {
-      t.close();
-    }
-  });
-  it.each([
-    [false, false],
-    [true, false],
-    [false, true],
-  ])('requires --yes with TTY=%s/%s', async (input, output) => {
-    const t = terminal(input, output);
-    try {
-      await expect(createRemoveUi(t, 'project', []).review([record('demo')])).rejects.toThrow(
-        'используйте remove',
-      );
-      expect(await createRemoveUi(t, 'project', [], true).review([record('demo')])).toBe(true);
-      expect(t.input.setRawMode).not.toHaveBeenCalled();
     } finally {
       t.close();
     }

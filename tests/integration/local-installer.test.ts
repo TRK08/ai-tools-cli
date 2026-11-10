@@ -5,14 +5,14 @@ import { chmod, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/p
 import { symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { Installer } from '../../src/installer/installer.ts';
-import type { InstallerOptions } from '../../src/installer/types.ts';
-import { installerFileSystem } from '../../src/installer/filesystem.ts';
-import { prepareDirectory } from '../../src/sources/directory.ts';
-import { directorySourceFileSystem } from '../../src/sources/filesystem.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
-import { getStatePaths, WORKSPACE_PREFIX, LOCK_TEMP_PREFIX } from '../../src/state/paths.ts';
-import { defaultStateFileIO, StateStore } from '../../src/state/store.ts';
+import { Installer } from '@/installer/installer';
+import type { InstallerOptions } from '@/installer/types';
+import { installerFileSystem } from '@/installer/filesystem';
+import { prepareDirectory } from '@/sources/directory';
+import { directorySourceFileSystem } from '@/sources/filesystem';
+import { hashDirectory } from '@/state/hash';
+import { getStatePaths, WORKSPACE_PREFIX, LOCK_TEMP_PREFIX } from '@/state/paths';
+import { defaultStateFileIO, StateStore } from '@/state/store';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.js';
 
 const skillText = '---\nname: demo\ndescription: Demo skill\n---\nOriginal\n';
@@ -476,7 +476,11 @@ describe('handled failures and rollback', () => {
           ],
           {
             cwd: context.roots.cwd,
-            env: { ...context.env, TSX_DISABLE_CACHE: '1' },
+            env: {
+              ...context.env,
+              TSX_DISABLE_CACHE: '1',
+              TSX_TSCONFIG_PATH: fileURLToPath(new URL('../../tsconfig.json', import.meta.url)),
+            },
             encoding: 'utf8',
             timeout: 10000,
           },

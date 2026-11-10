@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AGENTS, agentSkillsDirectory, parseAgents } from '../../src/installer/agents.ts';
+import { AGENTS } from '@/agents/catalog';
+import { agentSkillsDirectory, parseAgents } from '@/agents/resolve';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 import { join } from 'node:path';
 

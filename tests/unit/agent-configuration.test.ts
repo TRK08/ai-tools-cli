@@ -1,18 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AGENTS, agentSkillsDirectory } from '../../src/installer/agents.ts';
-import { preparationOptions } from '../../src/installer/source.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
-import type { RuntimeContext } from '../../src/runtime.ts';
-import type { AgentDefinition } from '../../src/agents/catalog.ts';
+import { AGENTS } from '@/agents/catalog';
+import { agentSkillsDirectory } from '@/agents/resolve';
+import { preparationOptions } from '@/installer/source';
+import { getStatePaths } from '@/state/paths';
+import type { RuntimeContext } from '@/runtime';
+import type { AgentDefinition } from '@/agents/catalog';
 
-vi.mock('../../src/state/native-path.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/state/native-path.ts')>();
+vi.mock('@/paths/native-path', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/paths/native-path')>();
   const { win32 } = await import('node:path');
   return { ...actual, ...actual.createPathOperations(win32) };
 });
 
-vi.mock('../../src/agents/catalog.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/agents/catalog.ts')>();
+vi.mock('@/agents/catalog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/agents/catalog')>();
   return {
     ...actual,
     AGENTS: [

@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { Installer } from '../../src/installer/installer.ts';
+import { Installer } from '@/installer/installer';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 import { versionRegistry } from '../helpers/versions.ts';
 import { archiveBytes, skillText } from '../helpers/archive.ts';

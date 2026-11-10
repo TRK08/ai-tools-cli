@@ -4,23 +4,23 @@ import { symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
-import { prepareDirectory } from '../../src/sources/directory.ts';
-import { prepareArchive } from '../../src/sources/archive.ts';
-import { prepareRegistrySource } from '../../src/sources/registry.ts';
-import { RegistryClient } from '../../src/registry/client.ts';
+import { prepareDirectory } from '@/sources/directory';
+import { prepareArchive } from '@/sources/archive';
+import { prepareRegistrySource } from '@/sources/registry';
+import { RegistryClient } from '@/registry/client';
 import { artifact } from '../helpers/registry.ts';
 import {
   archiveSourceFileSystem,
   directorySourceFileSystem,
   OWNED_WORKSPACE_CLEANUP,
-} from '../../src/sources/filesystem.ts';
+} from '@/sources/filesystem';
 import {
   localSourceIdentity,
   prepareLocalSource,
   registryReferenceForSource,
-} from '../../src/sources/local.ts';
-import { preparationOptions } from '../../src/installer/source.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
+} from '@/sources/local';
+import { preparationOptions } from '@/installer/source';
+import { getStatePaths } from '@/state/paths';
 import { archiveBytes, rawTar, skillText, type TarFixtureEntry } from '../helpers/archive.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 

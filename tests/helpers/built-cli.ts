@@ -1,7 +1,7 @@
 import { access } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import type { RuntimeContext } from '../../src/runtime.ts';
+import type { RuntimeContext } from '@/runtime';
 
 const entry = fileURLToPath(new URL('../../dist/cli.mjs', import.meta.url));
 

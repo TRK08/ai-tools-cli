@@ -1,5 +1,5 @@
 import { styleText } from 'node:util';
-import type { PromptStreams } from './agents-prompt.ts';
+import type { PromptStreams } from './types';
 
 /**
  * Выделяет цветом только значок выбора: активный текст обычный, остальные варианты серые.

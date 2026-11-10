@@ -1,7 +1,7 @@
 import type { FileHandle } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
-import { withFileHandle, writeAll } from '../../src/regular-file.ts';
-import { cleanupFailedPreparation, OWNED_WORKSPACE_CLEANUP } from '../../src/sources/filesystem.ts';
+import { withFileHandle, writeAll } from '@/regular-file';
+import { cleanupFailedPreparation, OWNED_WORKSPACE_CLEANUP } from '@/sources/filesystem';
 
 describe('writeAll', () => {
   it('writes every byte across short writes without closing the borrowed handle', async () => {

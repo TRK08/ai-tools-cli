@@ -1,4 +1,4 @@
-import type { InstallationChange, SkippedUpdate, SkippedAdd } from './types.ts';
+import type { InstallationChange, SkippedUpdate, SkippedAdd } from './types';
 
 export class NoConnections extends Error {
   /** Переносит failed-результат через откат FileTransaction, если ни одно подключение не удалось. */

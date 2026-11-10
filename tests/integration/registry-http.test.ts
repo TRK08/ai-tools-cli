@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { RegistryClient } from '../../src/registry/client.ts';
+import { RegistryClient } from '@/registry/client';
 
 import { artifact, registryBytes, withRegistryServer } from '../helpers/registry.ts';
 

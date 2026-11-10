@@ -1,11 +1,10 @@
-import { cancel, confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
-import type { InstallationChange } from '../installer/types.ts';
-import type { AgentId, InstallationScope } from '../installer/types.ts';
-import type { InstallationRecord } from '../state/types.ts';
-import type { PromptStreams } from './agents-prompt.ts';
-import { renderTable } from './table.ts';
-import { multiselect } from './multiselect.ts';
-import { failureLabel, plural, scopeLabel } from './labels.ts';
+import { confirm, renderTable, multiselect, type PromptStreams } from '@/cli/terminal';
+import { cancel, intro, log, note, outro } from '@clack/prompts';
+import type { InstallationChange } from '@/installer';
+import type { AgentId } from '@/agents';
+import type { InstallationScope } from '@/runtime';
+import type { InstallationRecord } from '@/state';
+import { failureLabel, plural, scopeLabel } from './labels';
 
 /**
  * Печатает заголовок удаления и создаёт callbacks выбора, общего подтверждения и результатов. Все диалоги
@@ -15,7 +14,6 @@ export function createRemoveUi(
   streams: PromptStreams,
   scope: InstallationScope,
   agents: readonly AgentId[],
-  yes = false,
 ) {
   const options = { output: streams.output };
   const columns = [
@@ -50,11 +48,12 @@ export function createRemoveUi(
         hint: `${record.version ?? 'локальная'} · ${affected(record).join(', ')}`,
       })),
       initialValues: [],
+      required: true,
       maxItems: 8,
       input: streams.input,
       output: streams.output,
     });
-    if (isCancel(selected) || selected === undefined) {
+    if (selected === null) {
       cancel('Удаление отменено.', options);
       return null;
     }
@@ -62,27 +61,22 @@ export function createRemoveUi(
   };
 
   /**
-   * Показывает весь выбранный список и запрашивает одно подтверждение по умолчанию «Нет».
-   *
-   * @returns true при согласии/--yes, false при отказе/отмене; без TTY требуется --yes.
+   * Показывает весь выбранный список перед подтверждением или удалением с --yes.
    */
-  const review = async (records: readonly InstallationRecord[]) => {
+  const preview = (records: readonly InstallationRecord[]): void => {
     renderTable(columns, records.map(row), streams.output);
-    if (yes) return true;
-    if (!streams.input.isTTY || !streams.output.isTTY)
-      throw new Error(
-        'Для подтверждения удаления нужны stdin и stdout терминала (TTY); в скриптах используйте remove <name> --yes.',
-      );
+  };
+  /** Подтверждает показанный список; TTY и --yes проверяет сценарий до вызова. */
+  const review = async (records: readonly InstallationRecord[]): Promise<boolean> => {
     const accepted = await confirm({
       message: `Удалить ${records.length} ${plural(records.length, 'скилл', 'скилла', 'скиллов')} у перечисленных агентов?`,
-      initialValue: false,
       active: 'Да, удалить',
       inactive: 'Нет, оставить',
       input: streams.input,
       output: streams.output,
     });
-    if (isCancel(accepted) || !accepted) {
-      cancel(isCancel(accepted) ? 'Удаление отменено.' : 'Удаление отклонено.', options);
+    if (!accepted) {
+      cancel(accepted === null ? 'Удаление отменено.' : 'Удаление отклонено.', options);
       return false;
     }
     return true;
@@ -123,6 +117,7 @@ export function createRemoveUi(
 
   return {
     select,
+    preview,
     review,
     finish,
     missing: (name: string) => log.info(`${name} не имеет подходящей установки.`, options),

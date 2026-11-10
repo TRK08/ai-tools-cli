@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RegistryClient } from '../../src/registry/client.ts';
+import { RegistryClient } from '@/registry/client';
 
 import { catalogItem, skillDetail } from '../helpers/discovery.ts';
 

@@ -1,13 +1,13 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { prepareArchive } from '../../src/sources/archive.ts';
-import { archiveSourceFileSystem, OWNED_WORKSPACE_CLEANUP } from '../../src/sources/filesystem.ts';
+import { prepareArchive } from '@/sources/archive';
+import { archiveSourceFileSystem, OWNED_WORKSPACE_CLEANUP } from '@/sources/filesystem';
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
-vi.mock('../../src/state/native-path.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/state/native-path.ts')>();
+vi.mock('@/paths/native-path', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/paths/native-path')>();
   const { win32 } = await import('node:path');
   return { ...actual, ...actual.createPathOperations(win32) };
 });

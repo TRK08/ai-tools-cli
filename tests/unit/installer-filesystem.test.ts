@@ -1,8 +1,8 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { FileTransaction, installerFileSystem } from '../../src/installer/filesystem.ts';
-import { OWNED_WORKSPACE_CLEANUP } from '../../src/sources/filesystem.ts';
+import { FileTransaction, installerFileSystem } from '@/installer/filesystem';
+import { OWNED_WORKSPACE_CLEANUP } from '@/sources/filesystem';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 describe('FileTransaction', () => {

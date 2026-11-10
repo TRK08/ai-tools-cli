@@ -13,9 +13,9 @@ import { fileSymlinks, symlink } from '../helpers/links.ts';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
-import { getStatePaths } from '../../src/state/paths.ts';
-import { StateStore, defaultStateFileIO } from '../../src/state/store.ts';
-import { createEmptyLock } from '../../src/state/types.ts';
+import { getStatePaths } from '@/state/paths';
+import { StateStore, defaultStateFileIO } from '@/state/store';
+import { createEmptyLock } from '@/state/types';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 describe('verified state reads and atomic writes', () => {

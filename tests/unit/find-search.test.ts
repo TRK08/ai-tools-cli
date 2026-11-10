@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RegistryFindSearch } from '../../src/cli/find-search.ts';
-import { RegistryClient } from '../../src/registry/client.ts';
+import { RegistryFindSearch } from '@/cli/find-search';
+import { RegistryClient } from '@/registry/client';
 import { catalogItem } from '../helpers/discovery.ts';
 
 function deferred() {

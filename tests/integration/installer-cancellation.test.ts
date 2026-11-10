@@ -2,13 +2,13 @@ import { lstat, mkdir, open, readFile, readdir, readlink, writeFile } from 'node
 import { basename, join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 
-import { prepareDirectory } from '../../src/sources/directory.ts';
+import { prepareDirectory } from '@/sources/directory';
 
-import { directorySourceFileSystem } from '../../src/sources/filesystem.ts';
-import { hashDirectory } from '../../src/state/hash.ts';
-import * as hashing from '../../src/state/hash.ts';
-import { Installer } from '../../src/installer/installer.ts';
-import { getStatePaths } from '../../src/state/paths.ts';
+import { directorySourceFileSystem } from '@/sources/filesystem';
+import { hashDirectory } from '@/state/hash';
+import * as hashing from '@/state/hash';
+import { Installer } from '@/installer/installer';
+import { getStatePaths } from '@/state/paths';
 import { archiveBytes, skillText } from '../helpers/archive.ts';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 

@@ -1,9 +1,9 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { RegistryClient } from '../../src/registry/client.ts';
-import { getRegistryUrl, parseRegistryReference } from '../../src/registry/reference.ts';
-import { registryReferenceForSource } from '../../src/sources/local.ts';
+import { RegistryClient } from '@/registry/client';
+import { getRegistryUrl, parseRegistryReference } from '@/registry/reference';
+import { registryReferenceForSource } from '@/sources/local';
 
 import { artifact, registryBytes } from '../helpers/registry.ts';
 import { withTestEnvironment } from '../helpers/test-environment.ts';

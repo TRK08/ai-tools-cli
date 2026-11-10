@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { RegistryArtifact } from '../../src/registry/client.ts';
+import type { RegistryArtifact } from '@/registry/client';
 import { archiveBytes, skillText } from './archive.ts';
 import { skillDetail } from './discovery.ts';
 

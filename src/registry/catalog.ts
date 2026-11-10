@@ -1,87 +1,144 @@
+import { assertPortableName } from '@/paths';
 import { RegistryError } from './errors';
-import { isFullSemVer, isRegistrySlug } from './reference';
+import { isFullSemVer, isRegistrySlug, type RegistryReference } from './reference';
+
+export const MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
+export const MAX_RELEASE_COMPONENTS = 50;
+const CATALOG_PAGE_SIZE = 100;
 
 export interface CatalogSkill {
-  readonly slug: string;
+  readonly packageSlug: string;
   readonly name: string;
-  readonly shortDescription: string;
-  readonly tags: readonly string[];
-  readonly currentVersion: string;
-  readonly installCount: number;
-}
-
-export interface SkillDetail extends CatalogSkill {
-  readonly longDescription: string;
   readonly version: string;
-  readonly versions: readonly string[];
+  readonly title: string;
+  readonly description: string;
+  readonly installName: string;
+  readonly size: number;
+  readonly sha256: string;
 }
 
-function object(value: unknown): Record<string, unknown> {
+export interface CatalogPage {
+  readonly items: readonly CatalogSkill[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export interface PackageRelease {
+  readonly slug: string;
+  readonly version: string;
+  readonly title: string;
+  readonly skills: readonly CatalogSkill[];
+}
+
+/** Отклоняет неожиданный ответ до использования его идентификаторов или метаданных. */
+export function invalidResponse(detail: string): never {
+  throw new RegistryError('INVALID_RESPONSE', `Некорректный ответ реестра: ${detail}.`);
+}
+
+/** Проверяет форму JSON-объекта до чтения полей ответа. */
+export function registryObject(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
-    throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректные метаданные каталога.');
+    invalidResponse('ожидался объект');
   return value as Record<string, unknown>;
 }
 
-/** Проверяет поля одного результата registry и возвращает неизменяемую копию метаданных. */
-export function validateCatalogSkill(value: unknown): CatalogSkill {
-  const data = object(value);
+/** Проверяет размер и digest ZIP по ограничениям core. */
+export function archiveIdentity(value: unknown): { size: number; sha256: string } {
+  const { size, sha256 } = registryObject(value);
   if (
-    typeof data.slug !== 'string' ||
-    !isRegistrySlug(data.slug) ||
-    typeof data.name !== 'string' ||
-    typeof data.shortDescription !== 'string' ||
-    !Array.isArray(data.tags) ||
-    !data.tags.every((tag) => typeof tag === 'string') ||
-    typeof data.currentVersion !== 'string' ||
-    !isFullSemVer(data.currentVersion) ||
-    typeof data.installCount !== 'number' ||
-    !Number.isSafeInteger(data.installCount) ||
-    data.installCount < 0
+    typeof size !== 'number' ||
+    !Number.isSafeInteger(size) ||
+    size < 1 ||
+    size > MAX_ARCHIVE_BYTES ||
+    typeof sha256 !== 'string' ||
+    sha256.length !== 64 ||
+    !/^[a-f0-9]+$/.test(sha256)
   )
-    throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректные поля каталога.');
-  return Object.freeze({
-    slug: data.slug,
-    name: data.name,
-    shortDescription: data.shortDescription,
-    tags: Object.freeze([...data.tags] as string[]),
-    currentVersion: data.currentVersion,
-    installCount: data.installCount,
-  });
+    invalidResponse('неверный размер или SHA-256 ZIP');
+  return { size, sha256 };
 }
 
-/** Проверяет ответ каталога и каждую запись items; неверный ответ не считается пустым поиском. */
-export function validateCatalog(value: unknown): readonly CatalogSkill[] {
-  const data = object(value);
-  if (!Array.isArray(data.items))
-    throw new RegistryError('INVALID_RESPONSE', 'Каталог реестра должен содержать массив items.');
-  return Object.freeze(data.items.map(validateCatalogSkill));
-}
-
-/** Проверяет карточку, соответствие slug/выбранной версии и список доступных версий. */
-export function validateSkillDetail(value: unknown, slug: string, version?: string): SkillDetail {
-  const data = object(value);
-  const skill = validateCatalogSkill(value);
+/** Проверяет идентичность, переносимое installName и данные архива одной записи. */
+function skill(value: unknown): CatalogSkill {
+  const { packageSlug, kind, name, version, metadata, spec } = registryObject(value);
+  const { title, shortDescription } = registryObject(metadata);
+  const { installName, archive } = registryObject(spec);
   if (
-    skill.slug !== slug ||
-    typeof data.longDescription !== 'string' ||
-    typeof data.version !== 'string' ||
-    (version !== undefined && data.version !== version) ||
-    !isFullSemVer(data.version) ||
-    !Array.isArray(data.versions) ||
-    !data.versions.every((version) => typeof version === 'string' && isFullSemVer(version)) ||
-    !data.versions.includes(data.currentVersion) ||
-    !data.versions.includes(data.version)
+    typeof packageSlug !== 'string' ||
+    !isRegistrySlug(packageSlug) ||
+    kind !== 'skill' ||
+    typeof name !== 'string' ||
+    !isRegistrySlug(name) ||
+    typeof version !== 'string' ||
+    !isFullSemVer(version) ||
+    typeof installName !== 'string' ||
+    !isRegistrySlug(installName) ||
+    typeof title !== 'string' ||
+    typeof shortDescription !== 'string'
   )
-    throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректные поля карточки скилла.');
-  return Object.freeze({
-    ...skill,
-    longDescription: data.longDescription,
-    version: data.version,
-    versions: Object.freeze([...data.versions] as string[]),
-  });
+    invalidResponse('неверные данные скилла');
+  try {
+    assertPortableName(installName);
+  } catch {
+    invalidResponse('непереносимое имя установки скилла');
+  }
+  return {
+    packageSlug,
+    name,
+    version,
+    title,
+    description: shortDescription,
+    installName,
+    ...archiveIdentity(archive),
+  };
 }
 
-/** Возвращает новый список по убыванию installCount, затем по slug; исходный массив сохраняет. */
-export function sortCatalog(items: readonly CatalogSkill[]): readonly CatalogSkill[] {
-  return [...items].sort((a, b) => b.installCount - a.installCount || a.slug.localeCompare(b.slug));
+/** Привязывает все скиллы ответа к одному запрошенному релизу и проверяет уникальность. */
+export function validateRelease(value: unknown, requested: RegistryReference): PackageRelease {
+  const { slug, version, metadata, components } = registryObject(value);
+  const { title } = registryObject(metadata);
+  if (
+    slug !== requested.slug ||
+    typeof version !== 'string' ||
+    !isFullSemVer(version) ||
+    (requested.version !== undefined && requested.version !== version) ||
+    typeof title !== 'string' ||
+    !Array.isArray(components) ||
+    components.length > MAX_RELEASE_COMPONENTS
+  )
+    invalidResponse('неверная идентичность или состав релиза');
+  const skills = components.map(skill);
+  if (
+    skills.some((item) => item.packageSlug !== slug || item.version !== version) ||
+    new Set(skills.map((item) => item.name)).size !== skills.length ||
+    new Set(skills.map((item) => item.installName)).size !== skills.length
+  )
+    invalidResponse('чужие или повторяющиеся компоненты релиза');
+  return { slug: requested.slug, version, title, skills };
+}
+
+/** Проверяет одну страницу результатов и не смешивает одноимённые скиллы разных пакетов. */
+export function validateCatalog(value: unknown): CatalogPage {
+  const { items, total, limit, offset } = registryObject(value);
+  if (
+    !Array.isArray(items) ||
+    typeof limit !== 'number' ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > CATALOG_PAGE_SIZE ||
+    items.length > limit ||
+    typeof total !== 'number' ||
+    !Number.isSafeInteger(total) ||
+    total < items.length ||
+    typeof offset !== 'number' ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    (items.length > 0 && offset + items.length > total)
+  )
+    invalidResponse('неверная страница каталога скиллов');
+  const skills = items.map(skill);
+  if (new Set(skills.map((item) => `${item.packageSlug}/${item.name}`)).size !== skills.length)
+    invalidResponse('повторяющиеся результаты каталога');
+  return { items: skills, total, limit, offset };
 }

@@ -1,7 +1,7 @@
 import { RegistryFindSearch } from '@/cli/find-search';
 import { PassThrough, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAddUi } from '@/cli/ui/add-ui';
+import { runAddPreparation } from '@/cli/ui/add-ui';
 import { selectScope } from '@/cli/commands/selection';
 import { selectRegistrySkill } from '@/cli/ui/find-ui';
 import { multiselect } from '@/cli/terminal/multiselect';
@@ -60,7 +60,7 @@ describe.each(['find', 'agents', 'confirm', 'scope', 'plain-confirm', 'multisele
         });
       if (kind === 'scope')
         return selectScope(
-          false,
+          { agent: [] },
           { roots: { cwd: '/fixture', home: '/fixture-home' }, env: {}, http: fetch },
           t,
         );
@@ -88,7 +88,7 @@ describe.each(['find', 'agents', 'confirm', 'scope', 'plain-confirm', 'multisele
             }),
             changed,
           ),
-        'de',
+        'dem',
         t,
       );
     }
@@ -205,15 +205,16 @@ describe('add preparation and confirmation lifecycle', () => {
     vi.useFakeTimers();
     await withTestEnvironment(async (_f) => {
       const t = terminal(true, true);
-      const ui = createAddUi(t);
+      let activeSignal!: AbortSignal;
       let cleaned = false,
         settle!: () => void;
       const cleanup = new Promise<void>((resolve) => {
         settle = resolve;
       });
-      const pending = ui.run(async () => {
+      const pending = runAddPreparation(t, 'Подготовка', async (signal) => {
+        activeSignal = signal;
         await new Promise<void>((resolve) =>
-          ui.signal.addEventListener('abort', () => resolve(), { once: true }),
+          signal.addEventListener('abort', () => resolve(), { once: true }),
         );
         await cleanup;
         cleaned = true;
@@ -233,7 +234,7 @@ describe('add preparation and confirmation lifecycle', () => {
           '',
           event === 'escape' ? { name: 'escape' } : { name: 'c', ctrl: true },
         );
-      expect(ui.signal.aborted).toBe(true);
+      expect(activeSignal.aborted).toBe(true);
       expect(cleaned).toBe(false);
       settle();
       await expectation;
@@ -251,7 +252,6 @@ describe('add preparation and confirmation lifecycle', () => {
       await withTestEnvironment(async (_f) => {
         const t = terminal();
         const failure = new Error('render/setup failed');
-        const ui = createAddUi(t);
         if (stage === 'raw')
           t.input.setRawMode.mockImplementationOnce(() => {
             throw failure;
@@ -260,10 +260,12 @@ describe('add preparation and confirmation lifecycle', () => {
           vi.spyOn(t.input, 'resume').mockImplementationOnce(() => {
             throw failure;
           });
-        const pending = ui.run(
-          async () =>
+        const pending = runAddPreparation(
+          t,
+          'Подготовка',
+          async (signal) =>
             new Promise<void>((resolve) =>
-              ui.signal.addEventListener('abort', () => resolve(), { once: true }),
+              signal.addEventListener('abort', () => resolve(), { once: true }),
             ),
         );
         const rejected = expect(pending).rejects.toBe(failure);
@@ -285,23 +287,12 @@ describe('add preparation and confirmation lifecycle', () => {
     vi.useFakeTimers();
     await withTestEnvironment(async (_f) => {
       const t = terminal();
-      const ui = createAddUi(t, true);
+      let activeSignal!: AbortSignal;
       let commit!: () => void,
         committed = false;
-      const pending = ui.run(async () => {
-        expect(
-          await ui.review({
-            name: 'demo',
-            installationName: 'demo',
-            tags: [],
-            version: null,
-            description: '',
-            source: './demo',
-            scope: 'локальная — текущий проект',
-            sharedDirectory: '/fixture/shared',
-            destinations: [],
-          }),
-        ).toBe('approve');
+      const pending = runAddPreparation(t, 'Подготовка', async (signal, stop) => {
+        activeSignal = signal;
+        stop();
         await new Promise<void>((resolve) => {
           commit = resolve;
         });
@@ -311,7 +302,7 @@ describe('add preparation and confirmation lifecycle', () => {
       const failure = new Error('output failed after approval');
       const rejected = expect(pending).rejects.toBe(failure);
       t.output.emit('error', failure);
-      expect(ui.signal.aborted).toBe(false);
+      expect(activeSignal.aborted).toBe(false);
       expect(committed).toBe(false);
       commit();
       await rejected;

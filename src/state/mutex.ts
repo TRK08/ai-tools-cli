@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import type { BigIntStats } from 'node:fs';
 import { lstat, open, unlink } from 'node:fs/promises';
@@ -24,16 +25,38 @@ export async function withScopeLock<T>(
 ): Promise<T> {
   await assertScopeLocation(paths);
   await ensureOwnedDirectory(paths.root);
-  const handle = await fs.open(paths.operationLockPath, 'wx', 0o600).catch((cause: unknown) => {
-    if (hasErrorCode(cause, 'EEXIST')) {
-      throw new StateError(
-        'SCOPE_BUSY',
-        `Область занята другой операцией: ${paths.operationLockPath}.`,
-        { cause },
-      );
+  return withFileLock(paths.operationLockPath, run, {}, fs);
+}
+
+/**
+ * Удерживает файловую wx-блокировку до очистки callback; ожидание отменяемо, чужой/stale lock не удаляет.
+ * При тайм-ауте сообщает путь для ручной диагностики; освобождает только свой inode без signal.
+ */
+export async function withFileLock<T>(
+  path: string,
+  run: () => Promise<T>,
+  options: { signal?: AbortSignal; waitMs?: number } = {},
+  fs = scopeLockFileSystem,
+): Promise<T> {
+  const deadline = Date.now() + (options.waitMs ?? 0);
+  const acquire = async () => {
+    for (;;) {
+      options.signal?.throwIfAborted();
+      try {
+        return await fs.open(path, 'wx', 0o600);
+      } catch (cause) {
+        if (!hasErrorCode(cause, 'EEXIST')) throw cause;
+        if (Date.now() >= deadline)
+          throw new StateError(
+            'SCOPE_BUSY',
+            `Область занята другой операцией или осталась блокировка: ${path}. Проверьте владельца и recovery-каталоги; автоматического удаления нет.`,
+            { cause },
+          );
+        await delay(50, undefined, { signal: options.signal });
+      }
     }
-    throw cause;
-  });
+  };
+  const handle = await acquire();
   let owner: BigIntStats | undefined;
   let result!: T;
   const errors: unknown[] = [];
@@ -47,12 +70,12 @@ export async function withScopeLock<T>(
   } finally {
     try {
       if (owner?.isFile()) {
-        const current = await fs.lstat(paths.operationLockPath).catch((cause: unknown) => {
+        const current = await fs.lstat(path).catch((cause: unknown) => {
           if (hasErrorCode(cause, 'ENOENT')) return null;
           throw cause;
         });
         if (current?.isFile() && current.dev === owner.dev && current.ino === owner.ino)
-          await fs.unlink(paths.operationLockPath);
+          await fs.unlink(path);
       }
     } catch (cause) {
       errors.push(cause);

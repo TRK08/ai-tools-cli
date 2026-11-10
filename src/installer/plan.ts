@@ -1,173 +1,80 @@
-import type { RegistryArtifact } from '@/registry';
-import {
-  getSkillDirectory,
-  portableSourcePath,
-  type StatePaths,
-  type InstallationRecord,
-  type ManagedConnection,
-} from '@/state';
-import type { SourceIdentity } from '@/sources';
-import type { InstallationScope } from '@/runtime';
-import type {
-  AddPreview,
-  InstalledSnapshot,
-  InstallationContent,
-  InstallPlan,
-  UpdatePreview,
-} from './types';
+import { getSkillDirectory, type InstalledSkill } from '@/state';
+import type { CatalogSkill } from '@/registry';
+import type { AgentId } from '@/agents';
+import type { InstallationInspection } from './inspection';
+import type { SkillPlan, SkillPreview } from './types';
 
-/** Разрешает заимствовать копию только при совпадении версии, архива и проверенного хеша. */
-export function findReusableInstallation(
-  previous: InstallationRecord | undefined,
-  artifact: RegistryArtifact | null,
-  installedHash: string | null,
-): InstallationRecord | null {
-  return artifact &&
-    previous &&
-    previous.version === artifact.version &&
-    previous.archiveHash === artifact.sha256 &&
-    installedHash === previous.contentHash
-    ? previous
-    : null;
-}
-
-/** Сравнивает сохраняемые метаданные отдельно от физических изменений файлов. */
-export function metadataChanged(
-  previous: InstallationRecord | undefined,
-  content: Pick<InstallationContent, 'version' | 'contentHash' | 'archiveHash'>,
-  policy: InstallationRecord['policy'],
-): boolean {
-  return (
-    previous?.contentHash !== content.contentHash ||
-    previous.version !== content.version ||
-    previous.archiveHash !== content.archiveHash ||
-    previous.policy !== policy
+/** Планирует установку, обновление или восстановление копий, проверив владение путями. */
+export async function planInstall(
+  inspection: InstallationInspection,
+  component: CatalogSkill,
+  before: InstalledSkill | undefined,
+  agents: readonly AgentId[],
+  versionChanged: boolean,
+  signal?: AbortSignal,
+): Promise<SkillPlan | undefined> {
+  const { name, installName, sha256 } = component;
+  if (before && before.installName !== installName)
+    throw new Error(`Имя установки компонента ${name} изменилось в реестре.`);
+  if (before && !versionChanged && sha256 !== before.archiveHash)
+    throw new Error(`ZIP компонента ${name} изменился в пределах одного релиза.`);
+  const previous = before?.connections ?? [];
+  const target = [...new Set([...previous.map((item) => item.agent), ...agents])].map((agent) =>
+    inspection.connection(installName, agent, before),
   );
-}
-
-/** Рассчитывает намерение по снимку; не читает файлы и не изменяет переданные данные. */
-export function createInstallPlan(
-  content: InstallationContent,
-  snapshot: InstalledSnapshot,
-  identity: SourceIdentity,
-  policy: InstallationRecord['policy'],
-  force = false,
-): InstallPlan {
-  const intact =
-    snapshot.copies.every((copy) => copy.contentHash === content.contentHash) &&
-    !snapshot.connectionsNeedRepair &&
-    !snapshot.errors.length &&
-    snapshot.candidates.length > 0 &&
-    snapshot.candidates.every((candidate) =>
-      snapshot.previous?.connections.some((connection) => connection.agent === candidate.agent),
-    );
+  const snapshot = await inspection.snapshot(installName, before, target, signal);
+  const download =
+    versionChanged || !snapshot.shared || snapshot.shared.contentHash !== before?.contentHash;
+  const repair = snapshot.destinations.some(({ snapshot: found }) => !found);
+  if (!download && !repair && target.length === previous.length) return undefined;
   return {
-    kind: intact
-      ? metadataChanged(snapshot.previous, content, policy)
-        ? 'metadata-only'
-        : 'unchanged'
-      : 'apply',
-    content,
+    kind: 'install',
+    before,
+    after: { name, installName, archiveHash: sha256, connections: target },
     snapshot,
-    identity,
-    policy,
-    force,
+    component,
+    download,
   };
 }
 
-/** Формирует карточку из уже выбранной версии и заранее вычисленных путей без I/O. */
-export function createAddPreview(
-  content: Pick<InstallationContent, 'name' | 'version' | 'description' | 'identity'>,
-  paths: StatePaths,
-  policy: InstallationRecord['policy'],
-  destinations: AddPreview['destinations'],
-): AddPreview {
+/** Планирует снятие выбранных подключений. Снятие последнего удаляет и общую копию. */
+export async function planRemoval(
+  inspection: InstallationInspection,
+  before: InstalledSkill,
+  agents: readonly AgentId[],
+  signal?: AbortSignal,
+): Promise<SkillPlan | undefined> {
+  const remaining = before.connections.filter((item) => !agents.includes(item.agent));
+  if (remaining.length === before.connections.length) return undefined;
+  const snapshot = await inspection.snapshot(before.installName, before, [], signal);
   return {
-    name: content.name,
-    version: content.version,
-    description: content.description,
-    source: content.identity,
-    scope: paths.scope,
-    policy,
-    sharedDirectory: getSkillDirectory(paths, content.name),
-    destinations,
+    kind: 'remove',
+    before,
+    after: remaining.length ? { ...before, connections: remaining } : undefined,
+    snapshot,
   };
 }
 
-/** Формирует строку обновления; pinned и unchanged не требуют подтверждения изменений. */
-export function createUpdatePreview(
-  record: InstallationRecord,
-  scope: InstallationScope,
-  latestVersion: string | null,
-  reason: UpdatePreview['reason'],
-): UpdatePreview {
+/** Показывает изменяемые связи и только те ручные правки, которые будут потеряны. */
+export function skillPreview(plan: SkillPlan, inspection: InstallationInspection): SkillPreview {
+  const { before, after, snapshot } = plan;
+  const install = plan.kind === 'install';
+  const record = after ?? before!;
+  const modifiedPaths: string[] = [];
+  if (
+    snapshot.shared &&
+    before &&
+    (!after || (install && plan.download)) &&
+    snapshot.shared.contentHash !== before.contentHash
+  )
+    modifiedPaths.push(getSkillDirectory(inspection.paths, record.installName));
+  const affected = install
+    ? plan.after.connections
+    : plan.before.connections.filter((item) => !after?.connections.includes(item));
   return {
     name: record.name,
-    currentVersion: record.version,
-    latestVersion,
-    sourceKind: record.source.kind,
-    scope,
-    agents: record.agents,
-    status: reason === 'pinned' ? 'pinned' : reason === null ? 'unchanged' : 'available',
-    reason,
-  };
-}
-
-/** Выбирает наиболее существенную причину registry-обновления в прежнем порядке. */
-export function registryUpdateReason(
-  record: InstallationRecord,
-  artifact: RegistryArtifact,
-  installedHash: string | null,
-  connectionsNeedRepair: boolean,
-): UpdatePreview['reason'] {
-  return record.version !== artifact.version
-    ? 'version'
-    : record.archiveHash !== artifact.sha256
-      ? 'artifact'
-      : installedHash !== record.contentHash
-        ? 'copy'
-        : connectionsNeedRepair
-          ? 'connections'
-          : null;
-}
-
-/** Отличает ручную правку копии от нового локального снимка и восстановления подключений. */
-export function localUpdateReason(
-  record: InstallationRecord,
-  content: InstallationContent,
-  snapshot: InstalledSnapshot,
-): UpdatePreview['reason'] {
-  return snapshot.copies.some((copy) => copy.contentHash !== record.contentHash)
-    ? 'copy'
-    : content.contentHash !== record.contentHash
-      ? 'source'
-      : content.archiveHash !== record.archiveHash
-        ? 'artifact'
-        : snapshot.connectionsNeedRepair
-          ? 'connections'
-          : null;
-}
-
-/** Собирает запись lock только из фактически сохранённых подключений и выбранного источника. */
-export function createInstallationRecord(
-  plan: InstallPlan,
-  paths: StatePaths,
-  connections: readonly ManagedConnection[],
-): InstallationRecord {
-  const { content, identity, snapshot, policy } = plan;
-  return {
-    name: content.name,
-    source:
-      identity.kind === 'registry'
-        ? identity
-        : { ...identity, path: portableSourcePath(identity.path, paths) },
-    version: content.version,
-    policy,
-    contentHash: content.contentHash,
-    ...(content.archiveHash === undefined ? {} : { archiveHash: content.archiveHash }),
-    agents: [
-      ...new Set([...(snapshot.previous?.agents ?? []), ...connections.map((item) => item.agent)]),
-    ],
-    connections,
+    action: !after ? 'remove' : !install ? 'disconnect' : before ? 'update' : 'add',
+    agents: affected.map((item) => item.agent),
+    modifiedPaths,
   };
 }

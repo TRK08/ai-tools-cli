@@ -1,23 +1,22 @@
-import { type RegistryClient, sortCatalog, type CatalogSkill } from '@/registry';
+import { type RegistryClient, type CatalogPage, type CatalogSkill } from '@/registry';
 
-export const MIN_FIND_PREFIX_LENGTH = 2;
-
-/** Проверяет минимальную длину префикса в кодовых точках Unicode без его изменения. */
-export function canSearchPrefix(prefix: string): boolean {
-  return [...prefix].length >= MIN_FIND_PREFIX_LENGTH;
+/** Проверяет минимум три Unicode-символа после trim без изменения запроса. */
+export function canSearchQuery(query: string): boolean {
+  return [...query.trim()].length >= 3;
 }
 
 export type FindSearchState = {
-  readonly prefix: string;
+  readonly query: string;
   readonly items: readonly CatalogSkill[];
+  readonly total: number;
 } & (
   | { readonly status: 'idle' | 'loading' | 'ready' }
   | { readonly status: 'error'; readonly message: string }
 );
 
-/** Управляет запросами UI; буквальный префикс с учётом регистра интерпретирует только backend. */
+/** Управляет запросами UI; поисковый запрос интерпретирует core. */
 export class RegistryFindSearch {
-  state: FindSearchState = { prefix: '', items: [], status: 'idle' };
+  state: FindSearchState = { query: '', items: [], total: 0, status: 'idle' };
   private revision = 0;
   private closed = false;
   private timer?: ReturnType<typeof setTimeout>;
@@ -31,45 +30,46 @@ export class RegistryFindSearch {
   ) {}
 
   /**
-   * Очищает результаты, отменяет предыдущий запрос и планирует поиск для достаточного префикса.
+   * Очищает результаты, отменяет предыдущий запрос и планирует поиск для запроса от трёх символов.
    *
    * @param immediate - Запустить HTTP сразу, пропустив debounce.
    */
-  setPrefix(prefix: string, immediate = false): void {
+  setQuery(query: string, immediate = false): void {
     if (this.closed) return;
     const revision = ++this.revision;
     clearTimeout(this.timer);
     this.controller?.abort();
-    const searchable = canSearchPrefix(prefix);
-    this.state = { prefix, items: [], status: searchable ? 'loading' : 'idle' };
+    const searchable = canSearchQuery(query);
+    this.state = { query, items: [], total: 0, status: searchable ? 'loading' : 'idle' };
     this.changed();
     if (!searchable || this.closed) return;
     const controller = new AbortController();
     this.controller = controller;
-    if (immediate) void this.request(prefix, controller, revision);
+    if (immediate) void this.request(query, controller, revision);
     else
       this.timer = setTimeout(() => {
-        void this.request(prefix, controller, revision);
+        void this.request(query, controller, revision);
       }, this.delayMs);
   }
 
   /**
-   * Получает и сортирует серверные результаты; публикует только ответ текущей ревизии. Ошибка становится
-   * отдельным состоянием error, а не пустым результатом.
+   * Получает до 10 популярных результатов, сохраняя серверный порядок; публикует только ответ текущей ревизии.
+   * Ошибка становится отдельным состоянием error, а не пустым результатом.
    */
   private async request(
-    prefix: string,
+    query: string,
     controller: AbortController,
     revision: number,
   ): Promise<void> {
-    let items: readonly CatalogSkill[];
+    let page: CatalogPage;
     try {
-      items = await this.client.listSkills(prefix, controller.signal);
+      page = await this.client.listSkills(query.trim(), controller.signal);
     } catch (cause) {
       if (this.closed || revision !== this.revision) return;
       this.state = {
-        prefix,
+        query,
         items: [],
+        total: 0,
         status: 'error',
         message: cause instanceof Error ? cause.message : 'Не удалось выполнить запрос к реестру.',
       };
@@ -77,13 +77,13 @@ export class RegistryFindSearch {
       return;
     }
     if (this.closed || revision !== this.revision) return;
-    this.state = { prefix, items: sortCatalog(items), status: 'ready' };
+    this.state = { query, items: page.items, total: page.total, status: 'ready' };
     this.changed();
   }
 
-  /** Повторяет поиск текущего префикса сразу, без задержки debounce. */
+  /** Повторяет поиск текущего запроса сразу, без задержки debounce. */
   retry(): void {
-    this.setPrefix(this.state.prefix, true);
+    this.setQuery(this.state.query, true);
   }
 
   /** Отменяет таймер и HTTP, запрещает новые запросы и публикацию запоздалых ответов. */

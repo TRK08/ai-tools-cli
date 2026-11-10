@@ -2,33 +2,22 @@ import { createHash } from 'node:crypto';
 import type { HttpTransport } from '@/runtime';
 import { RegistryError } from './errors';
 import {
+  archiveIdentity,
+  invalidResponse,
+  MAX_ARCHIVE_BYTES,
+  registryObject,
   validateCatalog,
-  validateSkillDetail,
+  validateRelease,
+  type CatalogPage,
   type CatalogSkill,
-  type SkillDetail,
+  type PackageRelease,
 } from './catalog';
 import { getRegistryUrl, isFullSemVer, isRegistrySlug, type RegistryReference } from './reference';
 
-const MAX_ARTIFACT_BYTES = 20 * 1024 * 1024;
-const MAX_METADATA_BYTES = 64 * 1024;
-
-/** Временный URL существует только в ответе и не входит в постоянную идентичность установки. */
-export interface RegistryArtifact {
-  readonly slug: string;
-  readonly version: string;
-  readonly sha256: string;
-  readonly size: number;
-  readonly format: 'tar.gz';
+/** Подписанный URL существует только на время загрузки выбранного компонента. */
+interface RegistryArtifact {
   readonly url: string;
   readonly expiresAt: string;
-}
-
-export interface RegistryDownload {
-  readonly registryUrl: string;
-  readonly slug: string;
-  readonly version: string;
-  readonly archiveHash: string;
-  readonly size: number;
 }
 
 export interface RegistryClientOptions {
@@ -40,15 +29,25 @@ export interface RegistryClientOptions {
  * Читает тело HTTP-ответа в память с проверкой фактического числа байтов. В finally отменяет оставшееся
  * чтение и освобождает reader; превышение лимита даёт INVALID_RESPONSE.
  */
-async function readBounded(response: Response, maximum: number): Promise<Buffer> {
+async function readBounded(
+  response: Response,
+  maximum: number,
+  signal?: AbortSignal,
+): Promise<Buffer> {
   if (!response.body)
     throw new RegistryError('INVALID_RESPONSE', 'В HTTP-ответе отсутствует тело.');
   const reader = response.body.getReader();
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
     for (;;) {
+      signal?.throwIfAborted();
       const { value, done } = await reader.read();
+      signal?.throwIfAborted();
       if (done) break;
       size += value.byteLength;
       if (size > maximum)
@@ -57,68 +56,50 @@ async function readBounded(response: Response, maximum: number): Promise<Buffer>
     }
     return Buffer.concat(chunks, size);
   } finally {
+    signal?.removeEventListener('abort', cancel);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
 
-/**
- * Проверяет идентичность, версию, digest, размер, формат и временный URL артефакта. Возвращает
- * неизменяемые метаданные; срок действия отдельно проверяется при скачивании.
- */
-function validateArtifact(value: unknown, reference: RegistryReference): RegistryArtifact {
-  if (value === null || typeof value !== 'object' || Array.isArray(value))
-    throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректные метаданные артефакта.');
-  const data = value as Record<string, unknown>;
+/** Сверяет идентичность и ZIP с выбранным релизом и проверяет подписанный URL. */
+function validateArtifact(value: unknown, selected: CatalogSkill): RegistryArtifact {
+  const { packageSlug, kind, name, version, url, expiresAt } = registryObject(value);
+  const { size, sha256 } = archiveIdentity(value);
   if (
-    data.slug !== reference.slug ||
-    typeof data.version !== 'string' ||
-    !isFullSemVer(data.version) ||
-    (reference.version !== undefined && data.version !== reference.version) ||
-    typeof data.sha256 !== 'string' ||
-    data.sha256.length !== 64 ||
-    !/^[a-f0-9]{64}$/.test(data.sha256) ||
-    typeof data.size !== 'number' ||
-    !Number.isSafeInteger(data.size) ||
-    data.size <= 0 ||
-    data.size > MAX_ARTIFACT_BYTES ||
-    data.format !== 'tar.gz' ||
-    typeof data.expiresAt !== 'string' ||
-    /\p{Cc}/u.test(data.expiresAt) ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(data.expiresAt) ||
-    !Number.isFinite(Date.parse(data.expiresAt)) ||
-    typeof data.url !== 'string'
+    packageSlug !== selected.packageSlug ||
+    kind !== 'skill' ||
+    name !== selected.name ||
+    version !== selected.version ||
+    size !== selected.size ||
+    sha256 !== selected.sha256
   )
     throw new RegistryError(
-      'INVALID_RESPONSE',
-      'Реестр вернул некорректные данные артефакта (slug, версия, SHA-256, размер, формат или срок действия).',
+      'ARTIFACT_MISMATCH',
+      'Артефакт не соответствует скиллу выбранного релиза.',
     );
+  if (
+    typeof expiresAt !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(expiresAt) ||
+    /\p{Cc}/u.test(expiresAt) ||
+    !Number.isFinite(Date.parse(expiresAt)) ||
+    typeof url !== 'string' ||
+    /\p{Cc}/u.test(url)
+  )
+    invalidResponse('неверный URL или срок действия артефакта');
   try {
-    const url = new URL(data.url);
+    const parsed = new URL(url);
     if (
-      /\p{Cc}/u.test(data.url) ||
-      !['http:', 'https:'].includes(url.protocol) ||
-      url.username ||
-      url.password ||
-      url.hash
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      parsed.hash
     )
-      throw new Error('Некорректный URL.');
-  } catch (cause) {
-    throw new RegistryError(
-      'INVALID_RESPONSE',
-      'Реестр вернул некорректный URL скачивания артефакта.',
-      { cause },
-    );
+      invalidResponse('небезопасный URL скачивания');
+  } catch {
+    invalidResponse('некорректный URL скачивания');
   }
-  return Object.freeze({
-    slug: reference.slug,
-    version: data.version,
-    sha256: data.sha256,
-    size: data.size,
-    format: 'tar.gz',
-    url: data.url,
-    expiresAt: data.expiresAt,
-  });
+  return { url, expiresAt };
 }
 
 /** Независимый от UI клиент: разрешение метаданных отделено от проверенного скачивания. */
@@ -138,61 +119,56 @@ export class RegistryClient {
     this.now = options.now ?? Date.now;
   }
 
-  /**
-   * Разрешает latest или явно указанную полную версию до подтверждения установки.
-   *
-   * @returns Проверенные метаданные выбранного артефакта с временным URL.
-   * @remarks signal отменяет запрос метаданных; ошибки и отмена пробрасываются как RegistryError.
-   */
-  async resolveArtifact(
-    reference: RegistryReference,
-    signal?: AbortSignal,
-  ): Promise<RegistryArtifact> {
+  /** Получает текущий или точный релиз пакета, не запрашивая подписанных URL. */
+  async getPackage(reference: RegistryReference, signal?: AbortSignal): Promise<PackageRelease> {
     if (
       !isRegistrySlug(reference.slug) ||
       (reference.version !== undefined && !isFullSemVer(reference.version))
     )
       throw new RegistryError(
         'INVALID_REFERENCE',
-        'Некорректный slug реестра или полная версия SemVer.',
+        'Некорректный slug пакета или полная версия SemVer.',
       );
-    const url = new URL(
-      `${this.registryUrl}/api/v1/skills/${encodeURIComponent(reference.slug)}/artifact`,
-    );
+    const url = new URL(`${this.registryUrl}/api/v1/packages/${reference.slug}`);
     if (reference.version !== undefined) url.searchParams.set('version', reference.version);
-    const missing =
-      reference.version === undefined
-        ? `Скилл ${reference.slug}`
-        : `Скилл ${reference.slug}@${reference.version}`;
-    return validateArtifact(
-      await this.requestJson(url, MAX_METADATA_BYTES, missing, signal),
+    return validateRelease(
+      await this.requestJson(
+        url,
+        4 * 1024 * 1024,
+        `Пакет ${reference.slug}${reference.version ? '@' + reference.version : ''}`,
+        signal,
+      ),
       reference,
     );
   }
 
-  /**
-   * Получает каталог с буквальным серверным slugPrefix; локальную фильтрацию не выполняет. Ошибки
-   * API/валидации пробрасываются и не заменяются пустым списком.
-   */
-  async listSkills(slugPrefix?: string, signal?: AbortSignal): Promise<readonly CatalogSkill[]> {
-    const url = new URL(`${this.registryUrl}/api/v1/skills`);
-    if (slugPrefix !== undefined) url.searchParams.set('slugPrefix', slugPrefix);
+  /** Запрашивает одну страницу с фиксированными sort=popular и limit=10, сохраняя серверный порядок и total. */
+  async listSkills(query: string, signal?: AbortSignal): Promise<CatalogPage> {
+    const url = new URL(`${this.registryUrl}/api/v1/components`);
+    url.searchParams.set('kind', 'skill');
+    url.searchParams.set('q', query);
+    url.searchParams.set('sort', 'popular');
+    url.searchParams.set('limit', '10');
     return validateCatalog(await this.requestJson(url, 8 * 1024 * 1024, 'Каталог', signal));
   }
 
-  /** Получает и проверяет карточку slug для указанной версии либо текущей версии registry. */
-  async getSkill(slug: string, version?: string, signal?: AbortSignal): Promise<SkillDetail> {
-    if (!isRegistrySlug(slug) || (version !== undefined && !isFullSemVer(version)))
-      throw new RegistryError(
-        'INVALID_REFERENCE',
-        'Для карточки скилла нужен slug реестра; при указании версии требуется полная версия SemVer.',
-      );
-    const url = new URL(`${this.registryUrl}/api/v1/skills/${encodeURIComponent(slug)}`);
-    if (version !== undefined) url.searchParams.set('version', version);
-    return validateSkillDetail(
-      await this.requestJson(url, 4 * 1024 * 1024, `Скилл ${slug}`, signal),
-      slug,
-      version,
+  /** Запрашивает подписанный URL только для точной выбранной версии и сверяет его метаданные. */
+  private async resolveArtifact(
+    selected: CatalogSkill,
+    signal?: AbortSignal,
+  ): Promise<RegistryArtifact> {
+    const url = new URL(
+      `${this.registryUrl}/api/v1/packages/${selected.packageSlug}/components/skill/${selected.name}/artifact`,
+    );
+    url.searchParams.set('version', selected.version);
+    return validateArtifact(
+      await this.requestJson(
+        url,
+        64 * 1024,
+        `Скилл ${selected.packageSlug}/${selected.name}`,
+        signal,
+      ),
+      selected,
     );
   }
 
@@ -206,11 +182,14 @@ export class RegistryClient {
     missing: string,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    signal?.throwIfAborted();
     try {
+      const requestSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)])
+        : AbortSignal.timeout(this.timeoutMs);
+      requestSignal.throwIfAborted();
       const response = await this.http(url, {
-        signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)])
-          : AbortSignal.timeout(this.timeoutMs),
+        signal: requestSignal,
         redirect: 'error',
         credentials: 'omit',
       });
@@ -219,19 +198,21 @@ export class RegistryClient {
         throw new RegistryError(
           response.status === 404 ? 'NOT_FOUND' : 'REGISTRY_UNAVAILABLE',
           response.status === 404
-            ? `${missing} не найден (HTTP 404: скилл или версия не найдены).`
-            : `Реестр недоступен (HTTP ${response.status}${response.status === 503 ? ': сервис временно недоступен' : ''}).`,
+            ? `${missing} не найден (HTTP 404).`
+            : `Ошибка реестра (HTTP ${response.status}${response.status === 410 ? ': релиз заблокирован' : ''}).`,
           undefined,
           response.status,
         );
       }
-      const bytes = await readBounded(response, maximum);
+      const bytes = await readBounded(response, maximum, requestSignal);
+      signal?.throwIfAborted();
       try {
         return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
       } catch {
         throw new RegistryError('INVALID_RESPONSE', 'Реестр вернул некорректный JSON.');
       }
     } catch (cause) {
+      signal?.throwIfAborted();
       if (cause instanceof RegistryError) throw cause;
       throw new RegistryError(
         'REGISTRY_UNAVAILABLE',
@@ -243,62 +224,37 @@ export class RegistryClient {
     }
   }
 
-  /**
-   * Скачивает выбранный артефакт и проверяет размер и SHA-256 до передачи адаптеру.
-   *
-   * @remarks Истёкший URL или ответ 401/403 обновляются один раз для той же версии; смена digest/размера
-   * отклоняется.
-   * @returns Байты архива и постоянные данные download без подписанного URL.
-   */
-  async downloadArtifact(
-    original: RegistryArtifact,
-  ): Promise<{ readonly bytes: Buffer; readonly download: RegistryDownload }> {
-    const selected = validateArtifact(original, { slug: original.slug, version: original.version });
-    let artifact = selected;
-    let refreshed = false;
-    /** Обновляет URL той же версии, проверяя неизменность digest/размера и новый срок действия. */
-    const refresh = async () => {
-      refreshed = true;
-      const fresh = await this.resolveArtifact({ slug: selected.slug, version: selected.version });
-      if (fresh.sha256 !== selected.sha256 || fresh.size !== selected.size)
-        throw new RegistryError(
-          'ARTIFACT_MISMATCH',
-          'Данные артефакта в реестре изменились при обновлении URL скачивания.',
-        );
-      if (Date.parse(fresh.expiresAt) <= this.now())
-        throw new RegistryError(
-          'URL_EXPIRED',
-          'После обновления реестр вернул URL скачивания с истёкшим сроком действия.',
-        );
-      return fresh;
-    };
-    if (Date.parse(artifact.expiresAt) <= this.now()) artifact = await refresh();
-    let bytes: Buffer;
-    try {
-      bytes = await this.download(artifact);
-    } catch (cause) {
-      if (refreshed || !(cause instanceof RegistryError) || ![401, 403].includes(cause.status ?? 0))
-        throw cause;
-      artifact = await refresh();
-      bytes = await this.download(artifact);
+  /** Скачивает точный ZIP. Истёкший URL или HTTP 401/403 допускают одно обновление ссылки. */
+  async downloadArtifact(selected: CatalogSkill, signal?: AbortSignal): Promise<Buffer> {
+    let artifact = await this.resolveArtifact(selected, signal);
+    const expired = () => Date.parse(artifact.expiresAt) <= this.now();
+    if (!expired()) {
+      try {
+        return await this.download(artifact.url, selected, signal);
+      } catch (cause) {
+        if (!(cause instanceof RegistryError) || ![401, 403].includes(cause.status ?? 0))
+          throw cause;
+      }
     }
-    return {
-      bytes,
-      download: Object.freeze({
-        registryUrl: this.registryUrl,
-        slug: selected.slug,
-        version: selected.version,
-        archiveHash: selected.sha256,
-        size: bytes.length,
-      }),
-    };
+    artifact = await this.resolveArtifact(selected, signal);
+    if (expired())
+      throw new RegistryError('URL_EXPIRED', 'Реестр вернул просроченный URL скачивания.');
+    return this.download(artifact.url, selected, signal);
   }
 
   /** Читает архив с тайм-аутом и лимитом; несоответствие размера/digest даёт ARTIFACT_MISMATCH. */
-  private async download(artifact: RegistryArtifact): Promise<Buffer> {
+  private async download(
+    url: string,
+    selected: CatalogSkill,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
     try {
-      const response = await this.http(artifact.url, {
-        signal: AbortSignal.timeout(this.timeoutMs),
+      const requestSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)])
+        : AbortSignal.timeout(this.timeoutMs);
+      requestSignal.throwIfAborted();
+      const response = await this.http(url, {
+        signal: requestSignal,
         redirect: 'error',
         credentials: 'omit',
       });
@@ -311,19 +267,20 @@ export class RegistryClient {
           response.status,
         );
       }
-      const bytes = await readBounded(response, MAX_ARTIFACT_BYTES);
-      if (bytes.length !== artifact.size)
+      const bytes = await readBounded(response, MAX_ARCHIVE_BYTES, requestSignal);
+      if (bytes.length !== selected.size)
         throw new RegistryError(
           'ARTIFACT_MISMATCH',
           'Размер артефакта не соответствует метаданным реестра.',
         );
-      if (createHash('sha256').update(bytes).digest('hex') !== artifact.sha256)
+      if (createHash('sha256').update(bytes).digest('hex') !== selected.sha256)
         throw new RegistryError(
           'ARTIFACT_MISMATCH',
           'SHA-256 артефакта не соответствует метаданным реестра.',
         );
       return bytes;
     } catch (cause) {
+      signal?.throwIfAborted();
       if (cause instanceof RegistryError) throw cause;
       throw new RegistryError(
         'DOWNLOAD_FAILED',

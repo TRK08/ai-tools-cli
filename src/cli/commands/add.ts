@@ -1,80 +1,82 @@
+import { resolveRegistryUrl } from '@/config';
 import { parseAgents } from '@/agents';
-import { Installer, type RegistrySelection } from '@/installer';
+import { Installer } from '@/installer';
 import { Telemetry } from '@/telemetry';
-import { selectAgents, selectScope } from './selection';
-import { createAddUi } from '@/cli/ui/add-ui';
-import { RegistryClient } from '@/registry';
-import { addCardView } from './add-card';
-import { failureLabel } from '@/cli/ui/labels';
-import { promptStreams } from '@/cli/context';
+import { parseRegistryReference, RegistryClient } from '@/registry';
+import { requireMutationTty, selectAgents, selectScope } from './selection';
+import { confirmAdd } from '@/cli/ui/add-confirm';
+import { runAddPreparation } from '@/cli/ui/add-ui';
+import { chooseAll, showPackagePreview, showPackageResult } from '@/cli/ui/package-ui';
+import { promptStreams, scopeOf } from '@/cli/context';
 import type { AddOptions, CliContext } from '@/cli/types';
 
-/** Выполняет общий add/find; до I/O проверяет параметры, после операции ждёт flush и очистку UI. */
+/**
+ * Проверяет релиз и явный состав до установочных вопросов, затем добавляет выбранные скиллы.
+ * Find использует тот же путь с точной версией; полученные метаданные повторно не запрашиваются.
+ */
 export async function addSkill(
   context: CliContext,
-  source: string,
+  input: string,
   options: AddOptions,
-  reference?: RegistrySelection,
 ): Promise<void> {
   const streams = promptStreams(context);
-  parseAgents(options.agent);
-  const scope = await selectScope(options.global, context.runtime, streams);
-  if (scope === null) {
-    context.stdout.write('Отменено.\n');
-    return;
+  const reference = parseRegistryReference(input);
+  if (!reference) throw new Error('Укажите пакет реестра в форме <package>[@version].');
+  requireMutationTty(streams, options.yes);
+  scopeOf(options);
+  const explicit = parseAgents(options.agent);
+  if (options.yes && !explicit.length) throw new Error('Для add --yes явно укажите -a <agent>.');
+  const cancelled = () => showPackageResult(null, '', context.stdout);
+  const client = new RegistryClient(
+    await resolveRegistryUrl(options.registry, context.runtime),
+    context.runtime.http,
+  );
+  const release = await runAddPreparation(
+    streams,
+    'Получение релиза… Esc / Ctrl+C — отмена',
+    (signal) => client.getPackage(reference, signal),
+    options.yes,
+  );
+  if (release === null) return cancelled();
+  if (!release.skills.length)
+    throw new Error(`В релизе ${release.slug}@${release.version} нет скиллов.`);
+  for (const name of options.skill) {
+    if (!release.skills.some((item) => item.name === name))
+      throw new Error(`Скилл ${name} отсутствует в релизе ${release.slug}@${release.version}.`);
   }
-  const agents = await selectAgents(options.agent, context.runtime, scope, streams);
-  if (agents === null) {
-    context.stdout.write('Отменено.\n');
-    return;
-  }
-  if ((!streams.input.isTTY || !streams.output.isTTY) && !options.yes)
-    throw new Error(
-      'Для подтверждения установки нужны stdin и stdout терминала (TTY); в скриптах используйте --yes.',
-    );
-  const ui = createAddUi(streams, options.yes);
-  const telemetry = new Telemetry(context.runtime, context.version, {
-    disabled: !!options.withoutStat,
-  });
-  const target = new Installer(context.runtime, {
-    scope,
-    report: ui.report,
-    telemetry,
-    /** Загружает выбранную карточку внутри ui.run; отмена ждёт освобождения Installer и терминала. */
-    reviewAdd: async (preview) => {
-      let details;
-      try {
-        if (preview.source.kind === 'registry')
-          details = await new RegistryClient(
-            preview.source.registryUrl,
-            context.runtime.http,
-          ).getSkill(preview.source.slug, preview.version!, ui.signal);
-      } catch (cause) {
-        if (ui.signal.aborted) return 'cancel';
-        throw cause;
-      }
-      return ui.review(addCardView(preview, details));
-    },
-    signal: ui.signal,
-    ...(options.registry === undefined ? {} : { registry: options.registry }),
-  });
-  const result = await ui
-    .run(() =>
-      reference
-        ? target.addRegistry(reference, options.force, agents)
-        : target.add(source, options.force, agents),
-    )
-    .finally(() => telemetry.flush());
-  if (result.status === 'skipped') {
-    context.stdout.write(result.reason === 'cancelled' ? 'Отменено.\n' : 'Установка отклонена.\n');
-    return;
-  }
-  if (result.status !== 'failed')
-    context.stdout.write(
-      result.status === 'partial'
-        ? `Частично установлен ${result.name}.\n`
-        : `${result.status === 'unchanged' ? 'Без изменений' : 'Установлен'} ${result.name} (${agents.join(', ')}).\n`,
-    );
-  if (result.status === 'partial' || result.status === 'failed')
-    throw new Error(`${failureLabel(result.status)}: ${result.errors.join('; ')}`);
+  const scope = await selectScope(options, context.runtime, streams);
+  if (scope === null) return cancelled();
+  const chosen =
+    options.yes || options.skill.length
+      ? options.skill
+      : await chooseAll(
+          `Выберите скиллы пакета ${release.slug}@${release.version}`,
+          release.skills.map((item) => ({ value: item.name, label: item.name, hint: item.title })),
+          streams,
+        );
+  if (chosen === null) return cancelled();
+  const agents = await selectAgents(explicit, context.runtime, scope, streams);
+  if (agents === null) return cancelled();
+  const telemetry = new Telemetry(context.runtime, { disabled: !!options.withoutStat });
+  const installer = new Installer(context.runtime, { scope, telemetry });
+  const result = await runAddPreparation(
+    streams,
+    'Проверка установок… Esc / Ctrl+C — отмена',
+    (signal, stop) =>
+      installer.add(
+        client,
+        release,
+        chosen,
+        agents,
+        async (preview) => {
+          stop();
+          signal.throwIfAborted();
+          showPackagePreview(preview, context.stdout);
+          return options.yes ? 'approve' : confirmAdd(release.slug, streams, signal);
+        },
+        signal,
+      ),
+    options.yes,
+  ).finally(() => telemetry.flush());
+  showPackageResult(result, `Установлен пакет ${release.slug}@${release.version}.`, context.stdout);
 }

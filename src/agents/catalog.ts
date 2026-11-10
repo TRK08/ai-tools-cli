@@ -1,9 +1,12 @@
 import { nativePath } from '@/paths';
 import type { FileSystemRoots, InstallationScope } from '@/runtime';
 
-export type ConnectionKind = 'direct' | 'copy' | 'link';
+export type ConnectionKind = 'direct' | 'link';
 
-/** Каталог по умолчанию зависит только от корней; env задаёт альтернативную базу и суффикс в своей области. */
+/**
+ * Каталог зависит только от корней; проектный путь также служит контрактом валидации lock.
+ * Для глобального подключения env задаёт альтернативную базу; сохранённый путь читается без пересчёта.
+ */
 export interface AgentConnectionDefinition {
   readonly kind: ConnectionKind;
   readonly directory: (roots: FileSystemRoots) => string;
@@ -40,7 +43,7 @@ export const AGENTS = [
     label: 'Claude Code',
     helpOrder: 0,
     project: {
-      kind: 'copy',
+      kind: 'link',
       directory: (roots: FileSystemRoots) => nativePath.join(roots.cwd, '.claude', 'skills'),
     },
     global: {

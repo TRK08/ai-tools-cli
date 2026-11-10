@@ -14,7 +14,7 @@ Workflow публикации вызывает тот же reusable CI для в
 
 - `prepare` на Ubuntu/Node 24 проверяет release-version, типы, lint, форматирование,
   собирает CLI, запускает publint и один раз выполняет обычный `npm pack --ignore-scripts`.
-- `check` на Linux/macOS/Windows × Node 22.20.0/24 собирает CLI, выполняет `test:run` и восемь e2e собранного CLI (`test:e2e`),
+- `check` на Linux/macOS/Windows × Node 22.20.0/24 выполняет `test:run` и `test:e2e`, который сначала собирает CLI,
   скачивает общий архив и запускает `npm run package:smoke -- artifacts/npm/package.tgz`.
 
 Общий [setup-cli](../.github/actions/setup-cli/action.yml) устанавливает Node,
@@ -36,24 +36,24 @@ Release-version проверяется после установки завис�
 ### Git и функциональные тесты
 
 Git roundtrip — обычный [Vitest-тест](../tests/integration/git-roundtrip.test.ts).
-На каждой ОС проверяются четыре сценария NFC/NFD × core.autocrlf=false/true,
-core.symlinks=false, обе проектные копии, bytes/hash, ignore/attributes,
-no-op без переписывания, ручные правки/force и работа CLI без внешнего source.
+На каждой ОС проверяются оба значения core.autocrlf, общая проектная копия и symlink Claude режима 120000,
+байты ресурсов и переносимые пути lock. List и remove выполняются после clone.
 Настоящие commit/clone ограничены временными репозиториями; Git config/hooks,
 автор и home изолированы. Межплатформенных bundles и producer/consumer jobs нет.
 
 ```sh
 npm run test:run
-npm run build
 npm run test:e2e
 npm run test:git
 ```
 
 `test:git` — алиас фильтра Vitest для Git-тестов, без produce/consume и без
 предварительного build. CLI/Installer-тесты проверяют полный add/list/update/remove,
-обе области, агентов, сложные cwd/source и буквальную передачу аргументов через Node.
+обе области, агентов, и буквальную передачу аргументов через Node.
 [.gitattributes](../.gitattributes) закрепляет LF для кода; ресурсы `.agents/skills/**`
-и `.claude/skills/**` сохраняют исходные bytes.
+сохраняют исходные bytes; подключения `.claude/skills/*` коммитятся как относительные ссылки.
+`test:e2e` останавливается при ошибке build; фильтры после `--` передаются Vitest.
+Отдельная сборка в prepare нужна для общего npm-архива; в check её выполняет E2E-script.
 
 ### Проверка готового npm-архива
 

@@ -80,7 +80,9 @@ describe('Windows junctions with modeled I/O', () => {
       const inspection = new InstallationInspection(context, paths, fs);
       const connection = inspection.connection('demo', 'claude-code');
       expect(connection).toEqual({ agent: 'claude-code', kind: 'link', path: link });
-      expect(await inspection.inspectConnection(connection, 'demo', true)).toBe(true);
+      expect(await inspection.destination(connection, 'demo', true)).toEqual({
+        identity: expect.any(String),
+      });
       const pending = FileTransaction.run(paths.agentsDirectory, fs, async (files) => {
         await files.unlink(link, target);
         if (rollback) throw new Error('commit failed');
@@ -105,12 +107,12 @@ describe('Windows junctions with modeled I/O', () => {
     const inspection = new InstallationInspection(context, paths, fs);
     const connection = inspection.connection('demo', 'claude-code');
     links.set(link, 'C:\\Other\\demo');
-    await expect(inspection.inspectConnection(connection, 'demo', true)).rejects.toThrow(
+    await expect(inspection.destination(connection, 'demo', true)).rejects.toThrow(
       'чужим объектом',
     );
     links.set(link, target);
     links.set('D:\\Claude', 'E:\\Elsewhere');
-    await expect(inspection.inspectConnection(connection, 'demo', true)).rejects.toThrow(
+    await expect(inspection.destination(connection, 'demo', true)).rejects.toThrow(
       'Ожидался обычный каталог',
     );
     expect(fs.rm).not.toHaveBeenCalled();
@@ -137,4 +139,24 @@ describe('Windows junctions with modeled I/O', () => {
       retryDelay: 100,
     });
   });
+});
+
+it('creates a relative directory symlink for a Windows project and restores it on rollback', async () => {
+  const { fs } = fixture();
+  const destination = 'C:\\Project\\.claude\\skills\\demo';
+  const shared = 'C:\\Project\\.agents\\skills\\demo';
+  fs.symlink.mockImplementation(async () => {});
+  vi.mocked(fs.readlink).mockResolvedValue('../../.agents/skills/demo');
+  await FileTransaction.run('C:\\Project\\.agents', fs, async (files) => {
+    await files.link(shared, destination, 'project');
+  });
+  expect(fs.symlink).toHaveBeenCalledWith('../../.agents/skills/demo', destination, 'dir');
+  fs.symlink.mockClear();
+  await expect(
+    FileTransaction.run('C:\\Project\\.agents', fs, async (files) => {
+      await files.unlink(destination, shared, 'project');
+      throw new Error('rollback');
+    }),
+  ).rejects.toThrow('rollback');
+  expect(fs.symlink).toHaveBeenCalledWith('../../.agents/skills/demo', destination, 'dir');
 });

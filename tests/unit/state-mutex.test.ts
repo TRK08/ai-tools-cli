@@ -153,3 +153,28 @@ describe('scope lock ownership and failures', () => {
     });
   });
 });
+
+it('cancels waiting for a store key without removing the current owner lock', async () => {
+  await withTestEnvironment(async (f) => {
+    const { withFileLock } = await import('@/state/mutex');
+    const path = join(f.roots.home, 'store-key.lock');
+    await withFileLock(path, async () => {
+      const original = await readFile(path);
+      const controller = new AbortController();
+      const waiting = withFileLock(
+        path,
+        async () => {
+          throw new Error('must not acquire');
+        },
+        { signal: controller.signal, waitMs: 1000 },
+      );
+      controller.abort();
+      await expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
+      expect(await readFile(path)).toEqual(original);
+    });
+    await expect(access(path)).rejects.toMatchObject({ code: 'ENOENT' });
+    await writeFile(path, 'stale owner');
+    await expect(withFileLock(path, async () => {})).rejects.toThrow('осталась блокировка');
+    expect(await readFile(path, 'utf8')).toBe('stale owner');
+  });
+});

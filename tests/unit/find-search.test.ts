@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RegistryFindSearch } from '@/cli/find-search';
 import { RegistryClient } from '@/registry/client';
-import { catalogItem } from '../helpers/discovery.ts';
+import { registrySkill } from '../helpers/registry.ts';
 
 function deferred() {
   let resolve!: (value: Response) => void;
@@ -12,16 +12,22 @@ function deferred() {
   });
   return { promise, resolve, reject };
 }
-const reply = (slug: string) => Response.json({ items: [catalogItem({ slug })] });
+const reply = (slug: string) =>
+  Response.json({
+    items: [registrySkill('demo', slug, '1.0.0').wire],
+    total: 1,
+    limit: 10,
+    offset: 0,
+  });
 const settle = async () => {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 };
 afterEach(() => vi.useRealTimers());
 
 describe('backend find request lifecycle', () => {
-  it.each(['', 'a', '🚀'])(
-    'keeps short prefix %j idle without HTTP, including immediate search and retry',
-    async (prefix) => {
+  it.each(['', ' ', '\t', 'd', 'de', ' de '])(
+    'keeps short query %j idle without HTTP, including immediate search and retry',
+    async (query) => {
       vi.useFakeTimers();
       const http = vi.fn<typeof fetch>();
       const search = new RegistryFindSearch(
@@ -29,11 +35,11 @@ describe('backend find request lifecycle', () => {
         vi.fn(),
       );
       try {
-        search.setPrefix(prefix);
+        search.setQuery(query);
         await vi.advanceTimersByTimeAsync(300);
-        search.setPrefix(prefix, true);
+        search.setQuery(query, true);
         search.retry();
-        expect(search.state).toEqual({ prefix, status: 'idle', items: [] });
+        expect(search.state).toEqual({ query, status: 'idle', items: [], total: 0 });
         expect(http).not.toHaveBeenCalled();
       } finally {
         search.close();
@@ -41,7 +47,7 @@ describe('backend find request lifecycle', () => {
     },
   );
 
-  it('starts searching with the second character and clears its pending debounce when shortened', async () => {
+  it('starts searching with three characters and clears the pending debounce for an empty query', async () => {
     vi.useFakeTimers();
     const http = vi.fn<typeof fetch>(async () => reply('demo'));
     const search = new RegistryFindSearch(
@@ -49,23 +55,23 @@ describe('backend find request lifecycle', () => {
       vi.fn(),
     );
     try {
-      search.setPrefix('de');
+      search.setQuery('dem');
       await vi.advanceTimersByTimeAsync(100);
-      search.setPrefix('d');
+      search.setQuery('');
       await vi.advanceTimersByTimeAsync(300);
       expect(http).not.toHaveBeenCalled();
-      search.setPrefix('de');
+      search.setQuery('dem');
       await vi.advanceTimersByTimeAsync(200);
       expect(http).toHaveBeenCalledTimes(1);
       expect(search.state.items).toHaveLength(1);
-      search.setPrefix('d');
-      expect(search.state).toEqual({ prefix: 'd', status: 'idle', items: [] });
+      search.setQuery('');
+      expect(search.state).toEqual({ query: '', status: 'idle', items: [], total: 0 });
     } finally {
       search.close();
     }
   });
 
-  it('waits 200ms after the last edit and sends one request with the unchanged prefix', async () => {
+  it('waits 200ms after the last edit and sends one request with the unchanged query', async () => {
     vi.useFakeTimers();
     const http = vi.fn<typeof fetch>(async () => reply('api-check'));
     const changed = vi.fn();
@@ -74,20 +80,20 @@ describe('backend find request lifecycle', () => {
       changed,
     );
     try {
-      search.setPrefix('A');
+      search.setQuery('A');
       await vi.advanceTimersByTimeAsync(100);
-      search.setPrefix('API-');
+      search.setQuery('API-');
       await vi.advanceTimersByTimeAsync(199);
       expect(http).not.toHaveBeenCalled();
-      expect(search.state).toMatchObject({ status: 'loading', prefix: 'API-', items: [] });
+      expect(search.state).toMatchObject({ status: 'loading', query: 'API-', items: [], total: 0 });
       await vi.advanceTimersByTimeAsync(1);
       expect(http).toHaveBeenCalledTimes(1);
       expect(String(http.mock.calls[0]![0])).toBe(
-        'https://registry.example.test/api/v1/skills?slugPrefix=API-',
+        'https://registry.example.test/api/v1/components?kind=skill&q=API-&sort=popular&limit=10',
       );
       expect(search.state).toMatchObject({
         status: 'ready',
-        items: [expect.objectContaining({ slug: 'api-check' })],
+        items: [expect.objectContaining({ name: 'api-check' })],
       });
     } finally {
       search.close();
@@ -108,8 +114,8 @@ describe('backend find request lifecycle', () => {
         vi.fn(),
       );
       try {
-        search.setPrefix('ap', true);
-        search.setPrefix('api-', true);
+        search.setQuery('api', true);
+        search.setQuery('api-', true);
         expect(http.mock.calls[0]![1]!.signal!.aborted).toBe(true);
         expect(search.state.items).toEqual([]);
         second.resolve(reply('api-check'));
@@ -119,14 +125,14 @@ describe('backend find request lifecycle', () => {
         else first.reject(new Error('obsolete failure'));
         await settle();
         expect(search.state).toBe(current);
-        expect(search.state.items[0]!.slug).toBe('api-check');
+        expect(search.state.items[0]!.name).toBe('api-check');
       } finally {
         search.close();
       }
     },
   );
 
-  it('clears selectable results immediately on edit and fetches again for a previously used prefix', async () => {
+  it('clears selectable results immediately on edit and fetches again for a previously used query', async () => {
     vi.useFakeTimers();
     const pending = deferred();
     const http = vi
@@ -139,20 +145,20 @@ describe('backend find request lifecycle', () => {
       vi.fn(),
     );
     try {
-      search.setPrefix('dem', true);
+      search.setQuery('dem', true);
       await settle();
       expect(search.state.items).toHaveLength(1);
-      search.setPrefix('demo-', true);
+      search.setQuery('demo-', true);
       expect(search.state.items).toEqual([]);
-      search.setPrefix('d');
-      expect(search.state).toEqual({ prefix: 'd', status: 'idle', items: [] });
+      search.setQuery('');
+      expect(search.state).toEqual({ query: '', status: 'idle', items: [], total: 0 });
       expect(http.mock.calls[1]![1]!.signal!.aborted).toBe(true);
       pending.resolve(reply('obsolete'));
       await settle();
       expect(search.state.status).toBe('idle');
-      search.setPrefix('dem', true);
+      search.setQuery('dem', true);
       await settle();
-      expect(search.state.items[0]!.slug).toBe('demo-new');
+      expect(search.state.items[0]!.name).toBe('demo-new');
       expect(http).toHaveBeenCalledTimes(3);
     } finally {
       search.close();
@@ -163,13 +169,13 @@ describe('backend find request lifecycle', () => {
     const http = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
-      .mockResolvedValueOnce(Response.json({ items: [] }));
+      .mockResolvedValueOnce(Response.json({ items: [], total: 0, limit: 10, offset: 0 }));
     const search = new RegistryFindSearch(
       new RegistryClient('https://registry.example.test', http),
       vi.fn(),
     );
     try {
-      search.setPrefix('demo', true);
+      search.setQuery('demo', true);
       await settle();
       expect(search.state).toMatchObject({
         status: 'error',
@@ -178,7 +184,7 @@ describe('backend find request lifecycle', () => {
       });
       search.retry();
       await settle();
-      expect(search.state).toMatchObject({ status: 'ready', items: [] });
+      expect(search.state).toMatchObject({ status: 'ready', items: [], total: 0 });
       expect(http).toHaveBeenCalledTimes(2);
     } finally {
       search.close();
@@ -194,7 +200,7 @@ describe('backend find request lifecycle', () => {
       new RegistryClient('https://registry.example.test', http),
       changed,
     );
-    search.setPrefix('demo');
+    search.setQuery('demo');
     search.close();
     await vi.advanceTimersByTimeAsync(300);
     expect(http).not.toHaveBeenCalled();
@@ -202,7 +208,7 @@ describe('backend find request lifecycle', () => {
       new RegistryClient('https://registry.example.test', http),
       changed,
     );
-    next.setPrefix('demo', true);
+    next.setQuery('demo', true);
     next.close();
     const calls = changed.mock.calls.length;
     pending.resolve(reply('demo'));

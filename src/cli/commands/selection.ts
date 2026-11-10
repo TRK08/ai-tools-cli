@@ -1,30 +1,44 @@
-import { AGENTS, isDirectAgent, agentSkillsDirectory, parseAgents, type AgentId } from '@/agents';
+import { AGENTS, isDirectAgent, agentSkillsDirectory, type AgentId } from '@/agents';
 import { getStatePaths } from '@/state';
 import type { InstallationScope, RuntimeContext } from '@/runtime';
 import type { PromptStreams } from '@/cli/terminal';
 import { scopeLabel } from '@/cli/ui/labels';
 import { selectAgentChoices } from '@/cli/ui/agents-prompt';
 import { selectAddScope } from '@/cli/ui/add-confirm';
+import { scopeOf } from '@/cli/context';
+import type { ScopeOptions } from '@/cli/types';
 
-/** Выбирает область add/find; -g и отсутствие пары TTY обходят меню, отмена возвращает null. */
+/** Проверяет пару TTY. Изменяющим командам без неё нужен явный --yes. */
+export function requireMutationTty(streams: PromptStreams, yes?: boolean): void {
+  if (!yes && (!streams.input.isTTY || !streams.output.isTTY))
+    throw new Error('Для изменения установок без TTY укажите --yes.');
+}
+
+/** Выбирает область. Явный флаг, --yes и отсутствие пары TTY обходят меню. */
 export async function selectScope(
-  global: boolean | undefined,
+  options: ScopeOptions & { readonly yes?: boolean },
   context: RuntimeContext,
   streams: PromptStreams,
 ): Promise<InstallationScope | null> {
-  if (global) return 'global';
-  if (!streams.input.isTTY || !streams.output.isTTY) return 'project';
+  const scope = scopeOf(options);
+  if (
+    options.project ||
+    options.global ||
+    options.yes ||
+    !streams.input.isTTY ||
+    !streams.output.isTTY
+  )
+    return scope;
   return selectAddScope({ project: context.roots.cwd, global: context.roots.home }, streams);
 }
 
 /** Проверяет явных агентов либо готовит меню; без списка и TTY бросает ошибку до чтения источника. */
 export async function selectAgents(
-  explicit: readonly string[],
+  agents: readonly AgentId[],
   context: RuntimeContext,
   scope: InstallationScope,
   streams: PromptStreams,
 ): Promise<AgentId[] | null> {
-  const agents = parseAgents(explicit);
   if (agents.length)
     return AGENTS.filter((agent) => agents.includes(agent.id)).map((agent) => agent.id);
   if (!streams.input.isTTY || !streams.output.isTTY)

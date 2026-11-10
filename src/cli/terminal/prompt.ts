@@ -13,8 +13,9 @@ export function runPrompt<Value>(
   options: { readonly signal?: AbortSignal; readonly clearOnExit?: boolean } = {},
 ): Promise<Value | null> {
   const { input, output } = streams;
+  const signal = options.signal ?? streams.signal;
   const unavailable = () =>
-    options.signal?.aborted ||
+    signal?.aborted ||
     input.destroyed ||
     input.readableEnded ||
     output.destroyed ||
@@ -31,7 +32,7 @@ export function runPrompt<Value>(
     function finish(value: Value | null, error?: unknown) {
       if (closed) return;
       closed = true;
-      options.signal?.removeEventListener('abort', cancel);
+      signal?.removeEventListener('abort', cancel);
       const cleanup = [
         () => {
           if (error === undefined) handlers?.settled?.(value);
@@ -85,7 +86,7 @@ export function runPrompt<Value>(
         error: (cause) => finish(null, cause),
         resize: render,
       });
-      options.signal?.addEventListener('abort', cancel, { once: true });
+      signal?.addEventListener('abort', cancel, { once: true });
       session.start();
       if (closed) return;
       if (unavailable()) return cancel();

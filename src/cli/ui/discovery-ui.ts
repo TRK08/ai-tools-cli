@@ -1,24 +1,27 @@
-import type { Writable } from 'node:stream';
-import type { CatalogSkill } from '@/registry';
-import { renderTable } from '@/cli/terminal';
+import type { CatalogPage } from '@/registry';
+import type { PromptStreams } from '@/cli/terminal';
 
-/** Печатает результаты серверного поиска без установки; пустой список показывает отдельным сообщением. */
+/** Выводит идентичность каждого результата и готовую команду установки одного скилла. */
 export function renderSearch(
-  skills: readonly CatalogSkill[],
-  output: Writable & { readonly columns?: number },
+  page: CatalogPage,
+  registryUrl: string,
+  flags: readonly string[],
+  output: PromptStreams['output'],
 ): void {
-  if (!skills.length) {
+  const { items, total } = page;
+  output.write(`Найдено: ${total}. Показано: ${items.length}.\n`);
+  if (!items.length) {
     output.write('Скиллы не найдены.\n');
     return;
   }
-  renderTable(
-    [
-      { title: 'Slug', maximum: 36 },
-      { title: 'Версия', maximum: 24 },
-      { title: 'Установок', maximum: 16 },
-    ],
-    skills.map((skill) => [skill.slug, skill.currentVersion, String(skill.installCount)]),
-    output,
-  );
-  output.write(`Найдено скиллов: ${skills.length}.\n`);
+  // Базовый URL может содержать пробелы и shell-метасимволы в пути.
+  const registry = /^[a-zA-Z0-9:/._-]+$/.test(registryUrl)
+    ? registryUrl
+    : "'" + registryUrl.replaceAll("'", "'\\''") + "'";
+  for (const item of items) {
+    output.write(`${item.name}  ${item.packageSlug}  ${item.version}\n`);
+    output.write(
+      `  skills-installer add ${item.packageSlug}@${item.version} --skill ${item.name} --registry ${registry} ${flags.join(' ')}\n`,
+    );
+  }
 }

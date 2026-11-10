@@ -15,8 +15,7 @@ export async function selectAgentChoices(
     optionsLabel: 'Дополнительные агенты',
     locked: view.locked,
     options: view.options,
-    input: streams.input,
-    output: streams.output,
+    ...streams,
   });
   return selected;
 }

@@ -2,7 +2,6 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { FileTransaction, installerFileSystem } from '@/installer/filesystem';
-import { OWNED_WORKSPACE_CLEANUP } from '@/sources/filesystem';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
 describe('FileTransaction', () => {
@@ -109,7 +108,12 @@ describe('FileTransaction', () => {
           cause: commit ? cleanup : { errors: [cause, cleanup] },
         });
         expect(await readFile(commit ? destination : source, 'utf8')).toBe('keep');
-        expect(rm).toHaveBeenCalledExactlyOnceWith(workspace, OWNED_WORKSPACE_CLEANUP);
+        expect(rm).toHaveBeenCalledExactlyOnceWith(workspace, {
+          recursive: true,
+          force: true,
+          maxRetries: 3,
+          retryDelay: 100,
+        });
         await mkdir(join(workspace, 'retained-for-recovery'));
       });
     },

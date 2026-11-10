@@ -6,29 +6,31 @@ import { describe, expect, it } from 'vitest';
 import { getStatePaths } from '@/state/paths';
 
 import { StateStore, defaultStateFileIO } from '@/state/store';
-import { type InstallationRecord, type LockFile } from '@/state/types';
+import { type InstalledSkill, type LockFile } from '@/state/types';
 import { withTestEnvironment, type TestEnvironment } from '../helpers/test-environment.ts';
 
-function directoryRecord(fixture: TestEnvironment, name = 'demo'): InstallationRecord {
+function skill(fixture: TestEnvironment): InstalledSkill {
   return {
-    name,
-    source: { kind: 'directory', path: join(fixture.roots.cwd, 'sources', name) },
-    version: null,
-    policy: 'local',
+    name: 'demo',
+    installName: 'pkg-demo',
     contentHash: 'a'.repeat(64),
-    agents: ['codex', 'claude-code'],
+    archiveHash: 'b'.repeat(64),
     connections: [
       {
         agent: 'codex',
-        kind: 'direct' as const,
-        path: join(fixture.roots.cwd, '.agents', 'skills', name),
+        kind: 'direct',
+        path: join(fixture.roots.cwd, '.agents', 'skills', 'pkg-demo'),
       },
     ],
   };
 }
-
-function oneRecord(record: InstallationRecord): LockFile {
-  return { version: 1, skills: { [record.name]: record } };
+function oneRecord(record: InstalledSkill): LockFile {
+  return {
+    version: 1,
+    packages: [
+      { slug: 'pkg', version: '1.0.0', registryUrl: 'http://registry.test', skills: [record] },
+    ],
+  };
 }
 
 describe('atomic writes and scope locking', () => {
@@ -38,7 +40,7 @@ describe('atomic writes and scope locking', () => {
       await withTestEnvironment(async (fixture) => {
         const paths = getStatePaths(fixture.roots, 'project');
         const store = new StateStore(paths);
-        const record = directoryRecord(fixture);
+        const record = skill(fixture);
         await store.write(oneRecord(record));
         const old = await readFile(paths.lockPath, 'utf8');
         const failure = new Error(`injected ${failureAt} failure`);
@@ -61,7 +63,7 @@ describe('atomic writes and scope locking', () => {
           failing.write(oneRecord({ ...record, contentHash: 'b'.repeat(64) })),
         ).rejects.toBe(failure);
         expect(await readFile(paths.lockPath, 'utf8')).toBe(old);
-        expect((await store.read())?.skills.demo?.contentHash).toBe(record.contentHash);
+        expect((await store.read())?.packages[0]?.skills[0]?.contentHash).toBe(record.contentHash);
         expect(
           (await readdir(paths.root)).filter((name) => name.startsWith('.skills-installer-lock-')),
         ).toEqual([]);
@@ -73,19 +75,19 @@ describe('atomic writes and scope locking', () => {
   it('cannot read a partial new lock before rename', async () => {
     await withTestEnvironment(async (fixture) => {
       const paths = getStatePaths(fixture.roots, 'project');
-      const previous = oneRecord(directoryRecord(fixture));
+      const previous = oneRecord(skill(fixture));
       const store = new StateStore(paths);
       await store.write(previous);
       const writing = new StateStore(paths, {
         ...defaultStateFileIO,
         writeTemporaryFile: async (path, content) => {
           await writeFile(path, content.slice(0, 10));
-          expect((await store.read())?.skills.demo?.contentHash).toBe('a'.repeat(64));
+          expect((await store.read())?.packages[0]?.skills[0]?.contentHash).toBe('a'.repeat(64));
           await writeFile(path, content);
         },
       });
-      await writing.write(oneRecord({ ...directoryRecord(fixture), contentHash: 'b'.repeat(64) }));
-      expect((await store.read())?.skills.demo?.contentHash).toBe('b'.repeat(64));
+      await writing.write(oneRecord({ ...skill(fixture), contentHash: 'b'.repeat(64) }));
+      expect((await store.read())?.packages[0]?.skills[0]?.contentHash).toBe('b'.repeat(64));
     });
   });
 });

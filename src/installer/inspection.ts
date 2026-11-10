@@ -1,266 +1,150 @@
-import { errorMessage } from '@/errors';
-import { isCancellation } from '@/cancellation';
+import { hasErrorCode } from '@/errors';
 import type { RuntimeContext } from '@/runtime';
-import { agentConnectionKind, isDirectAgent, agentSkillsDirectory, type AgentId } from '@/agents';
+import { agentConnectionKind, agentSkillsDirectory, type AgentId } from '@/agents';
 import {
+  WORKSPACE_PREFIX,
   hashDirectory,
   getSkillDirectory,
   portableConnectionPath,
   resolveConnectionPath,
   type StatePaths,
-  type InstallationRecord,
+  type InstalledSkill,
   type ManagedConnection,
 } from '@/state';
 import { isPathWithin, nativePath, relativePathParts, samePath } from '@/paths';
 import { directoryChain, inspectPath, type InstallerFileSystem } from './filesystem';
-import type { InstalledCopy, InstalledSnapshot } from './types';
+import type { PathSnapshot, SkillSnapshot } from './types';
 
-/** Проверки файловых объектов и управляемых путей с подменяемым I/O. */
+/** Проверяет объекты и управляемые пути без изменения установки. */
 export class InstallationInspection {
-  /** Связывает пути области, окружение агентов и подменяемый I/O для последующих проверок. */
+  /** Связывает область, окружение агентов и подменяемый файловый I/O. */
   constructor(
     private readonly context: RuntimeContext,
     readonly paths: StatePaths,
     private readonly fs: InstallerFileSystem,
   ) {}
 
-  /** Проверяет соответствие сохранённых подключений правилам агентов и области. */
-  assertSupported(record: InstallationRecord): void {
-    const { join } = nativePath;
-    for (const connection of record.connections) {
-      const path = resolveConnectionPath(connection.path, this.paths);
-      const shared = getSkillDirectory(this.paths, record.name);
-      const direct = isDirectAgent(connection.agent, this.paths.scope);
-      if (
-        (direct && !samePath(path, shared)) ||
-        (!direct && samePath(path, shared)) ||
-        (this.paths.scope === 'project' &&
-          !samePath(
-            path,
-            join(agentSkillsDirectory(this.context, 'project', connection.agent), record.name),
-          ))
-      )
-        throw new Error(`Некорректное управляемое подключение для ${connection.agent}: ${path}.`);
-    }
+  /** Проверяет или создаёт родителей общего каталога без прохождения через ссылки. */
+  async sharedParents(create = false): Promise<void> {
+    await directoryChain(this.base, ['.agents', 'skills'], this.fs, create);
   }
 
-  /** Проверяет родителей общей копии; create разрешает создать отсутствующие каталоги. */
-  async checkParents(create = false): Promise<void> {
-    await directoryChain(
-      this.paths.scope === 'project' ? this.paths.cwd : this.paths.home,
-      ['.agents', 'skills'],
-      this.fs,
-      create,
+  /** Создаёт только родителя workspace, проверив, что он обычный каталог. */
+  async workspaceParent(): Promise<void> {
+    await directoryChain(this.base, ['.agents'], this.fs, true);
+    const leftovers = (await this.fs.readdir(this.paths.agentsDirectory)).filter((name) =>
+      name.startsWith(WORKSPACE_PREFIX),
     );
+    if (leftovers.length)
+      throw new Error(
+        `Остались каталоги восстановления: ${leftovers.map((name) => nativePath.join(this.paths.agentsDirectory, name)).join(', ')}. Проверьте их вручную.`,
+      );
   }
 
-  /** Проверяет каждый родитель пути агента, включая env-пути вне home. */
+  private get base(): string {
+    return this.paths.scope === 'project' ? this.paths.cwd : this.paths.home;
+  }
+
+  /** Проверяет или создаёт родителей подключения, включая env-путь Claude вне home. */
   async connectionParents(path: string, create = false): Promise<void> {
-    const { dirname, parse } = nativePath;
-    // Для env-пути вне home проверяем каждый родитель до мутаций.
-    const parent = dirname(path);
-    const root = this.paths.scope === 'project' ? this.paths.cwd : parse(parent).root;
+    const parent = nativePath.dirname(path);
+    const root = this.paths.scope === 'project' ? this.paths.cwd : nativePath.parse(parent).root;
     await directoryChain(root, relativePathParts(root, parent), this.fs, create);
   }
 
-  /** Проверяет наличие управляемого обычного каталога; чужие объекты отклоняет. */
-  async inspectCopy(name: string, record?: InstallationRecord): Promise<boolean> {
-    const path = getSkillDirectory(this.paths, name);
-    const stats = await inspectPath(path, this.fs);
-    if (!stats) return false;
-    if (!record || !stats.isDirectory() || stats.isSymbolicLink()) {
-      throw new Error(`Общий каталог занят чужим объектом: ${path}.`);
-    }
-    return true;
+  /** Сохраняет путь уже подключённого агента либо вычисляет новое назначение. */
+  connection(installName: string, agent: AgentId, previous?: InstalledSkill): ManagedConnection {
+    const saved = previous?.connections.find((item) => item.agent === agent);
+    if (saved) return saved;
+    const kind = agentConnectionKind(agent, this.paths.scope);
+    const target = nativePath.join(
+      agentSkillsDirectory(this.context, this.paths.scope, agent),
+      installName,
+    );
+    if (kind !== 'direct' && isPathWithin(this.paths.skillsDirectory, target))
+      throw new Error(`Путь агента пересекается с общим каталогом скиллов: ${target}.`);
+    return { agent, kind, path: portableConnectionPath(target, this.paths) };
   }
 
-  /** Сверяет физическую копию с общим эталоном; force разрешает только замену её содержимого. */
-  private async hashCopy(
-    path: string,
-    name: string,
-    record: InstallationRecord,
-    force: boolean,
-    signal?: AbortSignal,
-  ): Promise<string | null> {
-    let contentHash: string;
-    try {
-      contentHash = await hashDirectory(path, {
-        signal,
-        portableNames: this.paths.scope === 'project',
-      });
-    } catch (cause) {
-      if (isCancellation(cause, signal) || signal?.aborted) throw cause;
-      if (force) return null;
-      throw new Error(
-        `Не удалось проверить установленный скилл ${name}; используйте --force для замены его содержимого.`,
-        {
-          cause,
-        },
-      );
-    }
-    if (!force && contentHash !== record.contentHash) {
-      throw new Error(
-        `Установленный скилл ${name} изменён локально; используйте --force для замены его содержимого.`,
-      );
-    }
-    return contentHash;
-  }
-
-  /** Возвращает сохранённый путь или вычисляет новый; запрещает пересечения. */
-  connection(name: string, agent: AgentId, previous?: InstallationRecord): ManagedConnection {
-    const { join } = nativePath;
-    const connection = previous?.connections.find((item) => item.agent === agent) ?? {
-      agent,
-      kind: agentConnectionKind(agent, this.paths.scope),
-      path: portableConnectionPath(
-        join(agentSkillsDirectory(this.context, this.paths.scope, agent), name),
-        this.paths,
-      ),
-    };
-    const path = resolveConnectionPath(connection.path, this.paths);
-    const directAgent = isDirectAgent(agent, this.paths.scope);
-    if (!directAgent && isPathWithin(this.paths.skillsDirectory, path)) {
-      throw new Error(`Путь агента пересекается с общим хранилищем скиллов: ${path}.`);
-    }
-    return connection;
-  }
-
-  /** Проверяет владение каталогом или ссылкой и её цель без изменения файлов. */
-  async inspectConnection(
-    connection: ManagedConnection,
-    name: string,
+  /** Снимает inode и хеш общей копии. Существующий неуправляемый объект отклоняется. */
+  async shared(
+    installName: string,
     owned: boolean,
-  ): Promise<boolean> {
-    const { resolve, dirname } = nativePath;
+    signal?: AbortSignal,
+  ): Promise<PathSnapshot | null> {
+    await this.sharedParents();
+    const path = getSkillDirectory(this.paths, installName);
+    return this.directory(path, owned, signal);
+  }
+
+  /** Проверяет цель ссылки и запоминает физическое состояние для повторной сверки. */
+  async destination(
+    connection: ManagedConnection,
+    installName: string,
+    owned: boolean,
+    signal?: AbortSignal,
+  ): Promise<PathSnapshot | null> {
+    signal?.throwIfAborted();
     const path = resolveConnectionPath(connection.path, this.paths);
     await this.connectionParents(path);
     const stats = await inspectPath(path, this.fs);
-    if (!stats) return false;
-    const shared = getSkillDirectory(this.paths, name);
-    if (samePath(path, shared)) {
-      if (!owned || !stats.isDirectory() || stats.isSymbolicLink())
-        throw new Error(`Общий каталог занят чужим объектом: ${path}.`);
-    } else if (connection.kind === 'copy') {
-      if (!owned || !stats.isDirectory() || stats.isSymbolicLink())
-        throw new Error(`Путь агента занят чужим объектом: ${path}.`);
-    } else if (
+    if (!stats) return null;
+    const target = stats.isSymbolicLink() ? await this.fs.readlink(path) : '';
+    if (
       !owned ||
       !stats.isSymbolicLink() ||
-      !samePath(resolve(dirname(path), await this.fs.readlink(path)), shared)
-    ) {
+      (this.paths.scope === 'project' && nativePath.isAbsolute(target)) ||
+      !samePath(
+        nativePath.resolve(nativePath.dirname(path), target),
+        getSkillDirectory(this.paths, installName),
+      )
+    )
       throw new Error(`Путь агента занят чужим объектом: ${path}.`);
-    }
-    return true;
+    return { identity: `${stats.dev}/${stats.ino}` };
   }
 
-  /** Проверяет каталог copy-агента, родителей и общий эталон; отмена не подавляется force. */
-  async connectionCopy(
-    connection: ManagedConnection,
-    record: InstallationRecord,
-    force: boolean,
-    signal?: AbortSignal,
-  ): Promise<InstalledCopy> {
-    const exists = await this.inspectConnection(connection, record.name, true);
-    const path = resolveConnectionPath(connection.path, this.paths);
-    return {
-      path,
-      owned: true,
-      exists,
-      contentHash: exists ? await this.hashCopy(path, record.name, record, force, signal) : null,
-    };
-  }
-
-  /** Проверяет все физические копии независимо от фильтра агентов. */
-  private async copies(
-    name: string,
-    previous: InstallationRecord | undefined,
-    force: boolean,
-    signal?: AbortSignal,
-  ): Promise<InstalledCopy[]> {
-    await this.checkParents();
-    const path = getSkillDirectory(this.paths, name);
-    const exists = await this.inspectCopy(name, previous);
-    const copies: InstalledCopy[] = [
-      {
-        path,
-        owned: !!previous,
-        exists,
-        contentHash: exists ? await this.hashCopy(path, name, previous!, force, signal) : null,
-      },
-    ];
-    for (const connection of previous?.connections ?? []) {
-      signal?.throwIfAborted();
-      if (connection.kind === 'copy')
-        copies.push(await this.connectionCopy(connection, previous!, force, signal));
-    }
-    return copies;
-  }
-
-  /** Собирает все прежние назначения и допустимые новые; ошибка прежнего объекта фатальна. */
+  /** Собирает состояние общей копии и физических подключений до подтверждения и применения. */
   async snapshot(
-    name: string,
-    previous: InstallationRecord | undefined,
-    force: boolean,
-    requested: readonly AgentId[],
+    installName: string,
+    previous: InstalledSkill | undefined,
+    connections: readonly ManagedConnection[],
     signal?: AbortSignal,
-  ): Promise<InstalledSnapshot> {
-    const copies = await this.copies(name, previous, force, signal);
-    const candidates: ManagedConnection[] = [];
-    const errors: string[] = [];
-    const destinations: InstalledSnapshot['destinations'][number][] = [];
-    for (const agent of new Set([
-      ...(previous?.connections.map((item) => item.agent) ?? []),
-      ...requested,
-    ])) {
+  ): Promise<SkillSnapshot> {
+    const shared = await this.shared(installName, previous !== undefined, signal);
+    const destinations: SkillSnapshot['destinations'][number][] = [];
+    const physical = new Map(
+      [...(previous?.connections ?? []), ...connections]
+        .filter((item) => item.kind !== 'direct')
+        .map((item) => [item.agent, item]),
+    );
+    for (const connection of physical.values()) {
       signal?.throwIfAborted();
-      const owned = !!previous?.connections.some((item) => item.agent === agent);
-      try {
-        const connection = this.connection(name, agent, previous);
-        const exists = await this.inspectConnection(
-          connection,
-          name,
-          owned || (connection.kind === 'direct' && !!previous),
-        );
-        destinations.push({ connection, exists });
-        if (requested.includes(agent)) candidates.push(connection);
-      } catch (cause) {
-        if (owned || isCancellation(cause, signal) || signal?.aborted) throw cause;
-        errors.push(`${agent}: ${errorMessage(cause)}`);
-      }
+      const owned = previous?.connections.some((item) => item.agent === connection.agent) ?? false;
+      destinations.push({
+        connection,
+        snapshot: await this.destination(connection, installName, owned, signal),
+      });
     }
-    return {
-      previous,
-      contentHash: copies[0]!.contentHash,
-      copies,
-      destinations,
-      candidates,
-      errors,
-      connectionsNeedRepair: destinations.some((item) => !item.exists),
-    };
+    return { shared, destinations };
   }
 
-  /** Повторяет проверки перед мутациями; гонка после preview отменяет весь план, включая force/reuse. */
-  async assertUnchanged(
-    name: string,
-    snapshot: InstalledSnapshot,
-    force: boolean,
+  /** Хеширует управляемый каталог. При небезопасном или нечитаемом дереве прекращает операцию. */
+  private async directory(
+    path: string,
+    owned: boolean,
     signal?: AbortSignal,
-  ): Promise<void> {
-    const current = await this.snapshot(
-      name,
-      snapshot.previous,
-      force,
-      snapshot.candidates.map((item) => item.agent),
-      signal,
-    );
-    if (
-      current.errors.length ||
-      JSON.stringify(current.copies) !== JSON.stringify(snapshot.copies) ||
-      JSON.stringify(current.destinations) !== JSON.stringify(snapshot.destinations)
-    ) {
-      throw new Error(
-        `Установленный скилл ${name} изменился во время подготовки или подтверждения (содержимое или подключения); повторите операцию.`,
-      );
-    }
+  ): Promise<PathSnapshot | null> {
+    const stats = await inspectPath(path, this.fs);
+    if (!stats) return null;
+    if (!owned || !stats.isDirectory() || stats.isSymbolicLink())
+      throw new Error(`Каталог занят чужим объектом: ${path}.`);
+    return {
+      identity: `${stats.dev}/${stats.ino}`,
+      contentHash: await hashDirectory(path, { signal }).catch((cause: unknown) => {
+        if (!hasErrorCode(cause, 'INVALID_PATH')) throw cause;
+        // Ручная правка может добавить допустимое на POSIX, но непереносимое имя.
+        return hashDirectory(path, { signal, portableNames: false });
+      }),
+    };
   }
 }

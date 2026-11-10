@@ -7,6 +7,5 @@ export { createFrame } from './screen';
 export { confirm, select } from './select';
 export { terminalSession } from './session';
 export { formatChoice } from './style';
-export { renderTable } from './table';
 export { queryViewport, terminalText, wrapTerminalText } from './text';
 export type { Choice, PromptStreams } from './types';

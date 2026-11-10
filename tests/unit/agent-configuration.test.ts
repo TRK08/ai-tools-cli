@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AGENTS } from '@/agents/catalog';
 import { agentSkillsDirectory } from '@/agents/resolve';
-import { preparationOptions } from '@/installer/source';
-import { getStatePaths } from '@/state/paths';
 import type { RuntimeContext } from '@/runtime';
 import type { AgentDefinition } from '@/agents/catalog';
 
@@ -22,7 +20,7 @@ vi.mock('@/agents/catalog', async (importOriginal) => {
         label: 'Example agent',
         helpOrder: 0,
         project: {
-          kind: 'copy',
+          kind: 'link',
           directory: () => 'C:\\project\\.example\\skills',
         },
         global: {
@@ -85,23 +83,5 @@ describe('catalog-driven agent configuration', () => {
         agent,
       ),
     ).toThrowError(expect.objectContaining({ code: 'INVALID_PATH' }));
-  });
-
-  it('excludes default and configured agent directories from source preparation', () => {
-    const custom = { ...context, env: { EXAMPLE_CONFIG_DIR: 'D:\\custom' } };
-    const options = preparationOptions(
-      custom,
-      getStatePaths(context.roots, 'global'),
-      'C:\\workspace',
-    );
-    expect(options.excludedPaths).toEqual(
-      expect.arrayContaining([
-        'C:\\project\\.example\\skills',
-        'C:\\home\\.example\\skills',
-        'D:\\custom\\extensions\\skills',
-        'C:\\project\\.agents\\skills',
-        'C:\\home\\.agents\\skills',
-      ]),
-    );
   });
 });

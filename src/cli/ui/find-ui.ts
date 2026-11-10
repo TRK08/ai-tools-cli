@@ -22,22 +22,8 @@ import {
   moveSelection,
   visibleStart,
 } from '@/cli/terminal';
-import { MIN_FIND_PREFIX_LENGTH } from '@/cli/find-search';
-import { plural } from './labels';
-
-/** Форматирует счётчик установок с русским склонением и сокращениями тыс./млн. */
-function installs(count: number): string {
-  const value =
-    count >= 1_000_000
-      ? `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '').replace('.', ',')} млн`
-      : count >= 1_000
-        ? `${(count / 1_000).toFixed(1).replace(/\.0$/, '').replace('.', ',')} тыс.`
-        : String(count);
-  return `${value} ${count >= 1_000 ? 'установок' : plural(count, 'установка', 'установки', 'установок')}`;
-}
-
 /**
- * Ведёт асинхронный выбор registry-скилла с редактированием префикса и прокруткой.
+ * Ведёт асинхронный выбор registry-скилла с редактированием запроса и прокруткой.
  *
  * @returns Полный объект результата либо null при отмене/закрытии потоков.
  * @remarks Ошибка setup/render/потока отклоняет Promise после очистки; исходная причина сохраняется.
@@ -45,13 +31,13 @@ function installs(count: number): string {
  */
 export async function selectRegistrySkill(
   createSearch: FindSearchFactory,
-  initialPrefix: string,
+  initialQuery: string,
   streams: PromptStreams,
 ): Promise<CatalogSkill | null> {
   return runPrompt<CatalogSkill>(streams, (prompt) => {
     let selectedIndex = 0,
-      cursor = [...initialPrefix].length;
-    let query = [...initialPrefix];
+      cursor = [...initialQuery].length;
+    let query = [...initialQuery];
     let loadingLine: string | null = null;
     let canSubmit = false;
     const loading = createLoading(
@@ -84,14 +70,14 @@ export async function selectRegistrySkill(
         if (maximum > 0 && width > 0) add('Увеличьте окно терминала');
         if (maximum > 1 && width > 0) add('Esc / Ctrl+C — отмена');
       } else {
-        add(`${S_STEP_ACTIVE} Найдите скилл для установки · префикс slug`, 'bold');
-        const queryLabel = `${S_BAR} Префикс slug: `;
+        add(`${S_STEP_ACTIVE} Найдите скилл для установки`, 'bold');
+        const queryLabel = `${S_BAR} Запрос: `;
         const prefix = queryViewport(
           terminalText(query.slice(0, cursor).join('')),
           terminalText(query.slice(cursor).join('')),
           width - stringWidth(queryLabel),
         );
-        add(`${queryLabel}${query.length ? prefix : 'Введите префикс slug…'}`, (line) =>
+        add(`${queryLabel}${query.length ? prefix : 'Введите запрос…'}`, (line) =>
           query.length
             ? line
             : line.slice(0, queryLabel.length) +
@@ -99,24 +85,24 @@ export async function selectRegistrySkill(
         );
         const state = search.state;
         if (state.status !== 'ready' || !state.items.length) section('Результаты');
-        if (state.status === 'idle')
-          add(`${S_BAR} Для поиска введите от ${MIN_FIND_PREFIX_LENGTH} символов.`, 'gray');
+        if (state.status === 'idle') add(`${S_BAR} Введите минимум 3 символа.`, 'gray');
         else if (state.status === 'loading')
           add(`${S_BAR} ${loadingLine ?? 'Поиск в реестре…'}`, 'gray');
         else if (state.status === 'error') {
           add(`${S_BAR} Не удалось выполнить поиск: ${terminalText(state.message)}`);
-        } else if (!state.items.length)
-          add(`${S_BAR} Скиллы с таким префиксом не найдены.`, 'gray');
+        } else if (!state.items.length) add(`${S_BAR} Скиллы не найдены.`, 'gray');
         else {
           const count = Math.min(8, maximum - fixedRows, state.items.length);
           const start = visibleStart(selectedIndex, count, state.items.length);
-          section(`Совпадений: ${state.items.length} · ${start + 1}–${start + count}`);
+          section(
+            `Найдено: ${state.total} · Показано: ${state.items.length} · ${start + 1}–${start + count}`,
+          );
           for (let i = start; i < Math.min(start + count, state.items.length); i++) {
             const skill = state.items[i]!,
               selected = i === selectedIndex;
             const marker = selected ? S_RADIO_ACTIVE : S_RADIO_INACTIVE;
             add(
-              `${S_BAR} ${marker} ${skill.slug}@${skill.currentVersion} · ${installs(skill.installCount)}`,
+              `${S_BAR} ${marker} ${skill.name} · ${skill.packageSlug}@${skill.version}`,
               (line) => formatChoice(line, marker, selected, false, streams.output),
             );
           }
@@ -124,11 +110,11 @@ export async function selectRegistrySkill(
         section('Управление');
         if (expandedHelp) {
           add(
-            `${S_BAR} ${state.status === 'error' ? 'Enter — повторить поиск; или измените префикс.' : '↑/↓ — выбор · Enter — установить'}`,
+            `${S_BAR} ${state.status === 'error' ? 'Enter — повторить поиск; или измените запрос.' : '↑/↓ — выбор · Enter — установить'}`,
             'gray',
           );
           add(
-            `${S_BAR} ${state.status === 'error' ? 'Esc / Ctrl+C — отмена' : 'Введите префикс slug · Esc/Ctrl+C — отмена'}`,
+            `${S_BAR} ${state.status === 'error' ? 'Esc / Ctrl+C — отмена' : 'Введите запрос · Esc/Ctrl+C — отмена'}`,
             'gray',
           );
         } else
@@ -189,14 +175,14 @@ export async function selectRegistrySkill(
         query.splice(cursor, 0, ...parts);
         cursor += parts.length;
       }
-      if (query.join('') !== before) search.setPrefix(query.join(''));
+      if (query.join('') !== before) search.setQuery(query.join(''));
     }
     return {
       key: onKey,
       render,
       start() {
         intro('Поиск скиллов', { output: streams.output });
-        search.setPrefix(initialPrefix, true);
+        search.setQuery(initialQuery, true);
       },
       cleanup: [() => search.close(), () => loading.stop()],
     };

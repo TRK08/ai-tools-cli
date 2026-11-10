@@ -1,14 +1,15 @@
+import { configureRegistry } from '@/cli/commands/config';
 import { AGENTS } from '@/agents';
 import type { Command } from 'commander';
 import { RussianCommand } from './command';
-import type { AddOptions, CliContext, MutationOptions, ScopeOptions, UpdateOptions } from './types';
+import type { AddOptions, CliContext, FindOptions, MutationOptions, ScopeOptions } from './types';
 import { addSkill } from '@/cli/commands/add';
 import { findSkill } from '@/cli/commands/find';
 import { listSkills } from '@/cli/commands/list';
 import { updateSkills } from '@/cli/commands/update';
 import { removeSkills } from '@/cli/commands/remove';
 
-/** Регистрирует русский CLI и переданные потоки; операции начинаются только при parseAsync. */
+/** Регистрирует пять пакетных команд, их параметры и переданные потоки. */
 export function createProgram(context: CliContext): Command {
   const program = new RussianCommand();
   program.configureOutput({
@@ -23,7 +24,7 @@ export function createProgram(context: CliContext): Command {
   });
   program
     .name('skills-installer')
-    .description('Установка и управление скиллами для пяти агентов в проекте или глобально.')
+    .description('Установка скиллов из реестра в проект или глобально.')
     .version(context.version, '-V, --version', 'показать версию CLI')
     .helpCommand('help [command]', 'показать справку по команде')
     .option('--without-stat', 'отключить статистику реестра для этой команды')
@@ -31,67 +32,99 @@ export function createProgram(context: CliContext): Command {
     .action(() => {
       program.outputHelp();
     });
-  const collectAgent = (agent: string, previous: string[]) => [...previous, agent];
+
   const agentHelp = `${[...AGENTS]
     .sort((a, b) => a.helpOrder - b.helpOrder)
     .map((agent) => agent.id)
     .join(', ')}; можно указать несколько раз`;
-  program
-    .command('add')
-    .description('Установить скилл из папки, архива или реестра; без -a выбрать агентов')
-    .argument('<source>', 'локальная папка, .tar.gz/.tgz, slug или slug@version')
-    .option('-a, --agent <agent>', agentHelp, collectAgent, [])
-    .option('-g, --global', 'использовать глобальную область')
-    .option('--force', 'заменить изменённое содержимое управляемого скилла')
-    .option('--registry <url>', 'базовый HTTP(S) URL реестра (приоритет выше SKILLS_API_URL)')
-    .option('--without-stat', 'отключить статистику скачиваний и установок из реестра')
-    .option('-y, --yes', 'установить без итогового подтверждения (обязательно без TTY)')
-    .action((source: string, _options: AddOptions, command: Command) =>
-      addSkill(context, source, command.optsWithGlobals<AddOptions>()),
+  const scope = (command: Command) =>
+    command
+      .option(
+        '-a, --agent <agent>',
+        agentHelp,
+        (agent: string, previous: string[]) => [...previous, agent],
+        [],
+      )
+      .option('-p, --project', 'использовать текущий проект')
+      .option('-g, --global', 'использовать глобальную область');
+  const yes = (command: Command) => command.option('-y, --yes', 'выполнить без диалогов');
+  const skill = (command: Command) =>
+    command.option(
+      '--skill <name...>',
+      'выбрать скиллы пакета; можно указать несколько имён или повторить флаг',
+      [],
+    );
+  const registry = (command: Command) =>
+    command.option(
+      '--registry <url>',
+      'базовый HTTP(S) URL реестра (приоритет выше SKILLS_API_URL)',
     );
 
-  program
-    .command('list')
-    .description('Показать установленные скиллы, версии и агентов')
-    .option('-a, --agent <agent>', agentHelp, collectAgent, [])
-    .option('-g, --global', 'использовать глобальную область')
-    .action((options: ScopeOptions) => listSkills(context, options));
+  registry(
+    yes(
+      skill(
+        scope(
+          program
+            .command('add')
+            .description('Установить выбранные скиллы пакета из реестра')
+            .argument('<package>', 'пакет или пакет@версия'),
+        ),
+      ),
+    ),
+  ).action((slug: string, _options: AddOptions, command: Command) =>
+    addSkill(context, slug, command.optsWithGlobals<AddOptions>()),
+  );
 
-  program
-    .command('find')
-    .description('Найти скилл в реестре, выбрать и установить в терминале')
-    .argument('[slug-prefix]', 'префикс slug с учётом регистра (от 2 символов); обязателен без TTY')
-    .option('-a, --agent <agent>', agentHelp, collectAgent, [])
-    .option('-g, --global', 'установить выбранный скилл глобально')
-    .option('--force', 'заменить изменённое содержимое после выбора скилла')
-    .option('--registry <url>', 'базовый HTTP(S) URL реестра (приоритет выше SKILLS_API_URL)')
-    .option('--without-stat', 'отключить статистику выбранной установки')
-    .option('-y, --yes', 'установить без итогового подтверждения')
-    .action((prefix: string | undefined, _options: AddOptions, command: Command) =>
-      findSkill(context, prefix, command.optsWithGlobals<AddOptions>()),
+  scope(
+    program.command('list').description('Показать установленные пакеты, версии, скиллы и агентов'),
+  ).action((options: ScopeOptions) => listSkills(context, options));
+
+  registry(
+    yes(
+      scope(
+        program
+          .command('find')
+          .description('Найти скилл в реестре и выбрать для установки')
+          .argument('[query]', 'текст поиска от 3 символов; обязателен без диалогов'),
+      ),
+    ),
+  ).action((query: string | undefined, _options: FindOptions, command: Command) =>
+    findSkill(context, query, command.optsWithGlobals<FindOptions>()),
+  );
+
+  yes(
+    skill(
+      scope(
+        program
+          .command('update')
+          .description('Обновить установленные скиллы пакета до текущего релиза')
+          .argument('[package]', 'пакет; без имени — все подходящие пакеты'),
+      ),
+    ),
+  ).action((slug: string | undefined, _options: MutationOptions, command: Command) =>
+    updateSkills(context, slug, command.optsWithGlobals<MutationOptions>()),
+  );
+
+  yes(
+    skill(
+      scope(
+        program
+          .command('remove')
+          .description('Удалить выбранные подключения скиллов пакета')
+          .argument('[package]', 'установленный пакет; обязателен с --yes'),
+      ),
+    ),
+  ).action((slug: string | undefined, options: MutationOptions) =>
+    removeSkills(context, slug, options),
+  );
+
+  const config = program.command('config').description('Настроить реестр');
+  for (const action of ['set', 'get', 'unset'] as const) {
+    const command = config.command(action).argument('<key>', 'registry');
+    if (action === 'set') command.argument('<url>', 'базовый HTTP(S) URL');
+    command.action((key: string, value: string | undefined) =>
+      configureRegistry(context, action, key, value),
     );
-
-  program
-    .command('update')
-    .description('Обновить скиллы из сохранённых источников; пропустить закреплённые версии')
-    .argument('[name]', 'имя установленного скилла; без имени — все подходящие скиллы')
-    .option('-a, --agent <agent>', agentHelp, collectAgent, [])
-    .option('-g, --global', 'использовать глобальную область')
-    .option('--force', 'заменить изменённое содержимое; закреплённые версии остаются закреплёнными')
-    .option('-y, --yes', 'обновить без подтверждения (обязательно для изменений без TTY)')
-    .option('--without-stat', 'отключить статистику скачиваний и установок из реестра')
-    .action((name: string | undefined, _options: UpdateOptions, command: Command) =>
-      updateSkills(context, name, command.optsWithGlobals<UpdateOptions>()),
-    );
-
-  program
-    .command('remove')
-    .description('Выбрать скиллы и подтвердить удаление; без -a удалить все подключения')
-    .argument('[names...]', 'имена установленных скиллов; без имён — интерактивный выбор')
-    .option('-a, --agent <agent>', agentHelp, collectAgent, [])
-    .option('-g, --global', 'использовать глобальную область')
-    .option('-y, --yes', 'удалить без подтверждения (обязательно без TTY)')
-    .action((names: string[], options: MutationOptions) => removeSkills(context, names, options));
-
+  }
   return program;
 }

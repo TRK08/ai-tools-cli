@@ -5,10 +5,10 @@ import type { RuntimeContext } from '@/runtime';
 
 const entry = fileURLToPath(new URL('../../dist/cli.mjs', import.meta.url));
 
-/** Проверяет готовую сборку; отсутствие dist — ошибка с командой подготовки, а не пропуск e2e. */
+/** Диагностирует отсутствие bin при прямом запуске Vitest; npm run test:e2e всегда собирает его заново. */
 export async function requireBuiltCli(): Promise<void> {
   await access(entry).catch((cause) => {
-    throw new Error('Перед e2e выполните npm run build.', { cause });
+    throw new Error('Нет сборки CLI. Запустите npm run test:e2e для сборки и проверки.', { cause });
   });
 }
 

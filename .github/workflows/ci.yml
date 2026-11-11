@@ -78,7 +78,6 @@ jobs:
       - uses: ./.github/actions/setup-cli
         with:
           node-version: ${{ matrix.node }}
-      - run: npm run build
       - run: npm run test:run
       - run: npm run test:e2e
       - name: Download the common npm archive

@@ -1,11 +1,3 @@
-/** Фасад установки и контракты команд; планирование, инспекция и транзакции остаются внутренними. */
+/** Фасад пакетных операций и модели для подтверждения. */
 export { Installer } from './installer';
-export type {
-  AddDecision,
-  AddPreview,
-  InstallationChange,
-  RegistrySelection,
-  UpdateBatch,
-  UpdateDecision,
-  UpdatePreview,
-} from './types';
+export type { Decision, PackagePreview, PackageResult } from './types';

@@ -1,10 +1,10 @@
 import { S_BAR, S_RADIO_ACTIVE, S_RADIO_INACTIVE, S_STEP_ACTIVE, symbol } from '@clack/prompts';
 import { runPrompt } from './prompt';
-import { wrapTerminalText, terminalText } from './text';
+import { wrapTerminalText, terminalText, truncateTerminalText } from './text';
 import { formatChoice } from './style';
 import type { SelectOptions, ConfirmOptions } from './types';
 import { createFrame } from './screen';
-import { moveSelection, navigationKey } from './navigation';
+import { moveSelection, navigationKey, visibleStart } from './navigation';
 
 /** Выбирает одно значение, сохраняя финальный кадр; EOF/отмена дают null после восстановления TTY. */
 export function select<Value>(options: SelectOptions<Value>): Promise<Value | null> {
@@ -20,18 +20,38 @@ export function select<Value>(options: SelectOptions<Value>): Promise<Value | nu
         render() {
           const frame = createFrame(options.output);
           const width = Math.max(1, frame.width);
+          const title = wrapTerminalText(`${S_STEP_ACTIVE} ${options.message}`, width);
+          const count = Math.min(
+            8,
+            options.options.length,
+            Math.max(0, frame.height - title.length - 1),
+          );
+          const start = visibleStart(selected, count, options.options.length);
           const lines = [
-            ...wrapTerminalText(`${S_STEP_ACTIVE} ${options.message}`, width),
-            ...options.options.flatMap((choice, index) => {
-              const active = index === selected;
+            ...title,
+            ...options.options.slice(start, start + count).map((choice, index) => {
+              const active = index + start === selected;
               const marker = active ? S_RADIO_ACTIVE : S_RADIO_INACTIVE;
-              return wrapTerminalText(
-                `${S_BAR} ${marker} ${terminalText(choice.label)}`,
-                width,
-              ).map((line) => formatChoice(line, marker, active, false, options.output));
+              return formatChoice(
+                truncateTerminalText(
+                  `${S_BAR} ${marker} ${terminalText(choice.label)}${choice.hint ? ' · ' + terminalText(choice.hint) : ''}`,
+                  width,
+                ),
+                marker,
+                active,
+                false,
+                options.output,
+              );
             }),
           ];
-          canSubmit = frame.width >= 12 && lines.length <= frame.height;
+          if (count < options.options.length)
+            lines.push(
+              truncateTerminalText(
+                `${S_BAR} ${start + 1}–${start + count} / ${options.options.length} · ↑/↓ · Enter`,
+                width,
+              ),
+            );
+          canSubmit = frame.width >= 12 && count > 0 && lines.length <= frame.height;
           if (canSubmit) prompt.screen.write(lines);
           else {
             if (frame.height > 0) frame.add('Увеличьте окно терминала');

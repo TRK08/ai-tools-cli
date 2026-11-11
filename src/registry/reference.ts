@@ -15,9 +15,11 @@ export interface RegistryReference {
 }
 
 /** Проверяет slug из строчных латинских букв, цифр и одиночных дефисов без управляющих символов. */
-export const isRegistrySlug = (value: string) => !/\p{Cc}/u.test(value) && slugPattern.test(value);
+export const isRegistrySlug = (value: string) =>
+  value.length <= 64 && !/\p{Cc}/u.test(value) && slugPattern.test(value);
 /** Проверяет полную SemVer без префикса v, включая prerelease/build и правила ведущих нулей. */
-export const isFullSemVer = (value: string) => !/\p{Cc}/u.test(value) && versionPattern.test(value);
+export const isFullSemVer = (value: string) =>
+  value.length <= 128 && !/\p{Cc}/u.test(value) && versionPattern.test(value);
 
 /**
  * Разбирает slug или slug@version, не принимая синтаксис пути/URL.
@@ -38,21 +40,29 @@ export function parseRegistryReference(input: string): RegistryReference | null 
 }
 
 /**
- * Выбирает URL: явный параметр → SKILLS_API_URL → localhost:8000, затем нормализует его.
+ * Выбирает URL: явный параметр → SKILLS_API_URL → сохранённая настройка. Сети не касается.
  *
  * @throws RegistryError — URL не является базовым HTTP(S) адресом или содержит учётные данные, query либо
  * fragment.
  */
-export function getRegistryUrl(explicit: string | undefined, env: Environment): string {
-  const input = explicit?.trim() || env.SKILLS_API_URL?.trim() || 'http://localhost:8000';
+export function getRegistryUrl(
+  explicit: string | undefined,
+  env: Environment,
+  saved?: string,
+): string {
+  const input = explicit?.trim() || env.SKILLS_API_URL?.trim() || saved?.trim();
+  if (!input)
+    throw new RegistryError(
+      'INVALID_REGISTRY',
+      'Реестр не настроен. Выполните skills-installer config set registry https://registry.example или укажите --registry / SKILLS_API_URL.',
+    );
   try {
     const url = new URL(input);
     if (
       !['http:', 'https:'].includes(url.protocol) ||
       url.username ||
       url.password ||
-      url.search ||
-      url.hash
+      /[?#\p{Cc}]/u.test(input)
     )
       throw new Error('Некорректный базовый URL.');
     return url.href.replace(/\/+$/, '');

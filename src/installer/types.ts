@@ -1,161 +1,61 @@
-import type { StateStore, InstallationRecord, ManagedConnection } from '@/state';
-import type { SourceIdentity, prepareLocalSource } from '@/sources';
-import type {
-  RegistryClient,
-  RegistryArtifact,
-  RegistryClientOptions,
-  RegistryDownload,
-  RegistryReference,
-} from '@/registry';
-import type { Telemetry } from '@/telemetry';
-import type { InstallerFileSystem } from './filesystem';
-import type { AgentId } from '@/agents';
 import type { InstallationScope } from '@/runtime';
+import type { AgentId } from '@/agents';
+import type { CatalogSkill } from '@/registry';
+import type { InstalledSkill, ManagedConnection } from '@/state';
 
-export interface InstallerOptions {
-  readonly scope?: InstallationScope;
-  readonly fileSystem?: InstallerFileSystem;
-  readonly store?: StateStore;
-  readonly prepare?: typeof prepareLocalSource;
-  readonly report?: (message: string) => void;
-  readonly registry?: string;
-  readonly registryClientOptions?: RegistryClientOptions;
-  readonly onDownload?: (download: RegistryDownload) => void;
-  readonly telemetry?: Telemetry;
-  readonly reviewUpdate?: (preview: UpdatePreview) => Promise<UpdateDecision>;
-  readonly reviewAdd?: (preview: AddPreview) => Promise<AddDecision>;
-  /** Отменяет подготовку и метаданные до подтверждения add; затем установка транзакционная. */
-  readonly signal?: AbortSignal;
-}
-
-export type AddDecision = 'approve' | 'decline' | 'cancel';
-
-/** Фиксирует подтверждённую версию отдельно от политики последующих обновлений. */
-export interface RegistrySelection extends RegistryReference {
-  readonly policy?: 'latest' | 'exact';
-}
-
-export interface AddPreview {
+export interface SkillPreview {
   readonly name: string;
-  readonly version: string | null;
-  readonly description: string | null;
-  readonly source: SourceIdentity;
-  readonly scope: InstallationScope;
-  readonly policy: InstallationRecord['policy'];
-  readonly sharedDirectory: string;
-  readonly destinations: readonly { readonly agent: AgentId; readonly path: string }[];
-}
-
-export interface SkippedAdd {
-  readonly name: string;
-  readonly status: 'skipped';
-  readonly reason: 'declined' | 'cancelled';
-  readonly download?: never;
-  readonly changes?: never;
-}
-
-export type AddResult = InstallationChange | SkippedAdd;
-
-export type UpdateDecision = 'approve' | 'decline' | 'cancel';
-
-export interface UpdatePreview {
-  readonly name: string;
-  readonly currentVersion: string | null;
-  readonly latestVersion: string | null;
-  readonly sourceKind: InstallationRecord['source']['kind'];
-  readonly scope: InstallationScope;
+  readonly action: 'add' | 'update' | 'remove' | 'disconnect';
   readonly agents: readonly AgentId[];
-  readonly status: 'available' | 'unchanged' | 'pinned';
-  readonly reason: 'version' | 'artifact' | 'source' | 'copy' | 'connections' | 'pinned' | null;
+  readonly modifiedPaths: readonly string[];
 }
 
-export interface SkippedUpdate {
-  readonly name: string;
-  readonly status: 'skipped';
-  readonly reason: 'declined' | 'cancelled';
+export interface PackagePreview {
+  readonly slug: string;
+  readonly previousVersion?: string;
+  readonly version: string;
+  readonly scope: InstallationScope;
+  readonly skills: readonly SkillPreview[];
 }
 
-export type InstallationChange = {
-  readonly name: string;
-  readonly download?: RegistryDownload;
-  /** Разделяет реальные изменения установки и изменения только lock для телеметрии. */
-  readonly changes?: {
-    readonly content: boolean;
-    readonly connections: boolean;
-    readonly metadata: boolean;
-  };
-} & (
-  | { readonly status: 'success' | 'unchanged' }
-  | { readonly status: 'partial' | 'failed'; readonly errors: readonly string[] }
-);
+export type Decision = 'approve' | 'decline' | 'cancel';
+export type PackageResult = 'success' | 'unchanged' | 'declined' | 'cancelled';
 
-export type UpdateChange =
-  | InstallationChange
-  | SkippedUpdate
-  | {
-      readonly name: string;
-      readonly status: 'pinned';
-      readonly version: string;
-    };
-
-export interface UpdateBatch {
-  readonly status: 'success' | 'failed';
-  readonly results: readonly UpdateChange[];
+export interface UpdateFailure {
+  readonly slug: string;
+  readonly error: string;
 }
 
-/** Выбранный источник; артефакт фиксирует фактическую версию, URL живёт только в памяти. */
-export interface SourceSelection {
-  readonly input: string;
-  readonly identity: SourceIdentity;
-  readonly policy: InstallationRecord['policy'];
-  readonly registry: {
-    readonly reference: RegistryReference;
-    readonly client: RegistryClient;
-  } | null;
-  readonly artifact: RegistryArtifact | null;
+export interface UpdateResult {
+  readonly updated: readonly string[];
+  readonly failures: readonly UpdateFailure[];
+  readonly cancelled: boolean;
 }
 
-/** Проверенный физический каталог; один contentHash записи служит эталоном всех копий. */
-export interface InstalledCopy {
-  readonly path: string;
-  readonly owned: boolean;
-  readonly exists: boolean;
-  readonly contentHash: string | null;
+export interface PathSnapshot {
+  readonly identity: string;
+  readonly contentHash?: string;
 }
 
-/** Проверенное состояние всех копий и назначений до подтверждения и применения. */
-export interface InstalledSnapshot {
-  readonly previous: InstallationRecord | undefined;
-  readonly contentHash: string | null;
-  readonly copies: readonly InstalledCopy[];
+export interface SkillSnapshot {
+  readonly shared: PathSnapshot | null;
   readonly destinations: readonly {
     readonly connection: ManagedConnection;
-    readonly exists: boolean;
+    readonly snapshot: PathSnapshot | null;
   }[];
-  readonly candidates: readonly ManagedConnection[];
-  readonly errors: readonly string[];
-  readonly connectionsNeedRepair: boolean;
 }
 
-/** Данные снимка; reuse заимствует установленную копию и не передаёт владение ею. */
-export interface InstallationContent {
-  readonly ownership: 'prepared' | 'reuse';
-  readonly directory: string;
-  readonly name: string;
-  readonly description: string | null;
-  readonly identity: SourceIdentity;
-  readonly version: string | null;
-  readonly contentHash: string;
-  readonly archiveHash?: string;
-  readonly download?: RegistryDownload;
-}
-
-/** Намерение установки без I/O-зависимостей; итоговые изменения определяет исполнитель. */
-export interface InstallPlan {
-  readonly kind: 'unchanged' | 'metadata-only' | 'apply';
-  readonly content: InstallationContent;
-  readonly snapshot: InstalledSnapshot;
-  readonly identity: SourceIdentity;
-  readonly policy: InstallationRecord['policy'];
-  readonly force: boolean;
-}
+export type SkillPlan = { readonly snapshot: SkillSnapshot } & (
+  | {
+      readonly kind: 'install';
+      readonly before: InstalledSkill | undefined;
+      readonly after: Omit<InstalledSkill, 'contentHash'>;
+      readonly component: CatalogSkill;
+      readonly download: boolean;
+    }
+  | {
+      readonly kind: 'remove';
+      readonly before: InstalledSkill;
+      readonly after: InstalledSkill | undefined;
+    }
+);

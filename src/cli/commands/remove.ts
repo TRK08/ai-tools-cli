@@ -1,73 +1,85 @@
-import { parseAgents } from '@/agents';
-import { Installer, type InstallationChange } from '@/installer';
-import { assertSkillName } from '@/state';
-import { errorMessage } from '@/errors';
-import { createLoading } from '@/cli/terminal';
-import { createRemoveUi } from '@/cli/ui/remove-ui';
-import { promptStreams, scopeOf } from '@/cli/context';
+import { AGENTS, parseAgents } from '@/agents';
+import { Installer } from '@/installer';
+import { isRegistrySlug } from '@/registry';
+import { promptStreams } from '@/cli/context';
 import type { CliContext, MutationOptions } from '@/cli/types';
+import {
+  chooseAll,
+  confirmChanges,
+  showPackagePreview,
+  showPackageResult,
+} from '@/cli/ui/package-ui';
+import { select } from '@/cli/terminal';
+import { requireMutationTty, selectScope } from './selection';
 
-/** Подтверждает список и удаляет только показанные подключения; ошибка элемента не останавливает пакет. */
+/** Выбирает пакет, скиллы и подключения из lock. Подтверждение строится под блокировкой. */
 export async function removeSkills(
   context: CliContext,
-  names: string[],
+  slug: string | undefined,
   options: MutationOptions,
 ): Promise<void> {
   const streams = promptStreams(context);
-  const agents = parseAgents(options.agent);
-  const requested = [...new Set(names)];
-  requested.forEach(assertSkillName);
-  if (!requested.length && (!streams.input.isTTY || !streams.output.isTTY))
-    throw new Error(
-      'Для выбора скиллов нужны stdin и stdout терминала (TTY); в скриптах используйте remove demo --yes.',
-    );
-  const target = new Installer(context.runtime, {
-    scope: scopeOf(options),
-    report: (message) => context.stdout.write(`${message}\n`),
-  });
-  const loading = createLoading(streams);
-  const records = await loading.run('Чтение установленных скиллов…', () => target.list(agents));
-  const ui = createRemoveUi(streams, scopeOf(options), agents);
-  const byName = new Map(records.map((record) => [record.name, record]));
-  const matching = requested.flatMap((name) => {
-    const record = byName.get(name);
-    if (record) return [record];
-    ui.missing(name);
-    return [];
-  });
-  if (!records.length || (requested.length && !matching.length)) {
-    ui.empty();
-    return;
-  }
-  const selected = requested.length ? matching : await ui.select(records);
-  if (selected === null) return;
-  ui.preview(selected);
+  requireMutationTty(streams, options.yes);
+  if (options.yes && !slug) throw new Error('Для remove --yes укажите имя пакета.');
+  if (slug && !isRegistrySlug(slug)) throw new Error('Укажите slug установленного пакета.');
+  const explicit = parseAgents(options.agent);
+  const scope = await selectScope(options, context.runtime, streams);
+  const cancelled = () => showPackageResult(null, '', context.stdout);
+  if (scope === null) return cancelled();
+  const installer = new Installer(context.runtime, { scope });
+  let names = options.skill;
+  let agents = explicit;
   if (!options.yes) {
-    if (!streams.input.isTTY || !streams.output.isTTY)
-      throw new Error(
-        'Для подтверждения удаления нужны stdin и stdout терминала (TTY); в скриптах используйте remove <name> --yes.',
-      );
-    if (!(await ui.review(selected))) return;
-  }
-  const results: InstallationChange[] = [];
-  await loading.run('Удаление скиллов…', async () => {
-    for (const record of selected) {
-      try {
-        const affected = record.agents.filter((agent) => !agents.length || agents.includes(agent));
-        results.push(await target.remove(record.name, affected));
-      } catch (cause) {
-        results.push({
-          name: record.name,
-          status: 'failed',
-          errors: [errorMessage(cause)],
-        });
-      }
+    const packages = await installer.list();
+    if (!slug && !packages.length) {
+      context.stdout.write('Установленных пакетов нет.\n');
+      return;
     }
+    if (!slug) {
+      const selected = await select({
+        ...streams,
+        message: 'Выберите пакет',
+        options: packages.map((pkg) => ({ value: pkg.slug, label: pkg.slug, hint: pkg.version })),
+        initialValue: packages[0]!.slug,
+      });
+      if (selected === null) return cancelled();
+      slug = selected;
+    }
+    const pkg = packages.find((item) => item.slug === slug);
+    if (!pkg) throw new Error(`Пакет ${slug} не установлен.`);
+    if (!names.length) {
+      const chosen = await chooseAll(
+        'Выберите скиллы для удаления',
+        pkg.skills.map((item) => ({ value: item.name, label: item.name })),
+        streams,
+      );
+      if (chosen === null) return cancelled();
+      names = chosen;
+    }
+    for (const name of names)
+      if (!pkg.skills.some((item) => item.name === name))
+        throw new Error(`Скилл ${name} не установлен в пакете ${slug}.`);
+    if (!agents.length) {
+      const installed = new Set(
+        pkg.skills
+          .filter((item) => names.includes(item.name))
+          .flatMap((item) => item.connections.map((connection) => connection.agent)),
+      );
+      const chosen = await chooseAll(
+        'Выберите подключения для удаления',
+        AGENTS.filter((agent) => installed.has(agent.id)).map((agent) => ({
+          value: agent.id,
+          label: agent.label,
+        })),
+        streams,
+      );
+      if (chosen === null) return cancelled();
+      agents = chosen;
+    }
+  }
+  const result = await installer.remove(slug!, names, agents, async (preview) => {
+    showPackagePreview(preview, context.stdout);
+    return confirmChanges(`Удалить выбранные подключения пакета ${slug}?`, streams, options.yes);
   });
-  ui.finish(selected, results);
-  const errors = results.flatMap((result) =>
-    result.status === 'partial' || result.status === 'failed' ? result.errors : [],
-  );
-  if (results.some((result) => result.status === 'partial' || result.status === 'failed'))
-    throw new Error(`Не удалось удалить один или несколько скиллов: ${errors.join('; ')}`);
+  showPackageResult(result, `Подключения пакета ${slug} удалены.`, context.stdout);
 }

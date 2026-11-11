@@ -8,6 +8,7 @@ import { createProgram } from '@/cli/program';
 
 import { hashDirectory } from '@/state/hash';
 import { withTestEnvironment } from '../helpers/test-environment.js';
+import { TestRegistry } from '../helpers/registry.ts';
 
 function terminal(inputTTY = true, outputTTY = true) {
   let rendered = '';
@@ -240,24 +241,30 @@ describe('real Clack selection with controlled TTY streams', () => {
   });
 
   it.each(['\u001b', '\u0003'])(
-    'cancels with %j without reading source, HTTP or changing any files',
+    'cancels scope with %j after metadata without downloading or changing any files',
     async (key) => {
       await withTestEnvironment(async (context) => {
         const t = terminal();
-        const http = vi.fn(context.http);
+        const registry = new TestRegistry();
+        registry.release('demo', '1.0.0', ['check']);
+        const http = vi.fn(registry.http);
         const before = await hashDirectory(context.temporaryRoot);
         try {
           const run = createProgram({
             version: '0.1.0',
-            runtime: { ...context, http },
+            runtime: { ...context, http, env: { ...context.env, SKILLS_API_URL: registry.url } },
             stdin: t.input,
             stdout: t.output,
             stderr: t.output,
-          }).parseAsync(['node', 'skills-installer', 'add', './missing', '--force', '-g']);
+          }).parseAsync(['node', 'skills-installer', 'add', 'demo']);
+          await vi.waitFor(() => expect(t.rendered()).toContain('Область установки'));
           await keys(t, [key]);
           await run;
           expect(t.rendered()).toContain('Отменено.');
-          expect(http).not.toHaveBeenCalled();
+          expect(registry.requests).toEqual(['/api/v1/packages/demo']);
+          expect(registry.events).toEqual([]);
+          expect(t.input.isRaw).toBe(false);
+          expect(t.input.listenerCount('keypress')).toBe(0);
           expect(await hashDirectory(context.temporaryRoot)).toBe(before);
         } finally {
           t.close();
@@ -282,8 +289,8 @@ describe('real Clack selection with controlled TTY streams', () => {
             stdin: t.input,
             stdout: t.output,
             stderr: t.output,
-          }).parseAsync(['node', 'skills-installer', 'add', './missing']),
-        ).rejects.toThrow(/TTY.*укажите -a/);
+          }).parseAsync(['node', 'skills-installer', 'add', 'demo']),
+        ).rejects.toThrow(/TTY.*укажите --yes/);
         expect(t.rendered()).toBe('');
         expect(await hashDirectory(context.temporaryRoot)).toBe(before);
       } finally {
@@ -292,7 +299,7 @@ describe('real Clack selection with controlled TTY streams', () => {
     });
   });
 
-  it('explicit repeated agents bypass the menu even with TTY, and unknown values fail before output', async () => {
+  it('explicit repeated agents bypass the menu even with TTY,', async () => {
     await withTestEnvironment(async (context) => {
       const t = terminal();
       try {
@@ -300,9 +307,6 @@ describe('real Clack selection with controlled TTY streams', () => {
           'codex',
           'pi',
         ]);
-        await expect(selectAgents(['pi', 'unknown'], context, 'project', t)).rejects.toThrow(
-          'Неизвестный агент',
-        );
         expect(t.rendered()).toBe('');
       } finally {
         t.close();

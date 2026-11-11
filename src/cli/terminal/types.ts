@@ -2,6 +2,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { Key } from 'node:readline';
 
 export interface PromptStreams {
+  readonly signal?: AbortSignal;
   readonly input: Readable & {
     readonly isTTY?: boolean;
     readonly isRaw?: boolean;

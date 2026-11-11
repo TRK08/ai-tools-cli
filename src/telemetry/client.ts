@@ -1,34 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId } from '@/agents';
-import type { InstallationScope, RuntimeContext } from '@/runtime';
+import type { RuntimeContext } from '@/runtime';
 
 export interface RegistryEventContext {
   readonly registryUrl: string;
   readonly slug: string;
-  readonly version?: string;
-  readonly operation: 'add' | 'update';
-  readonly scope: InstallationScope;
-  readonly agents: readonly AgentId[];
+  readonly version: string;
+  readonly components: readonly string[];
 }
 
-export interface TelemetryEnvelope {
-  readonly schemaVersion: 1;
+interface PackageEvent {
   readonly eventId: string;
   readonly event: 'download' | 'install';
-  readonly occurredAt: string;
-  readonly cliVersion: string;
-  readonly skill: {
-    readonly name: string;
-    readonly sourceType: 'registry';
-    readonly source: string;
-  };
-  readonly context: {
-    readonly operation: 'add' | 'update';
-    readonly scope: InstallationScope;
-    readonly agents: readonly AgentId[];
-    readonly version?: string;
-    readonly status?: 'success' | 'partial' | 'failed';
-  };
+  readonly version: string;
+  readonly components: readonly { readonly kind: 'skill'; readonly name: string }[];
 }
 
 export interface TelemetryOptions {
@@ -42,7 +26,6 @@ export class Telemetry {
   /** Создаёт список отправок в памяти с заданными окружением и тайм-аутом. */
   constructor(
     private readonly runtime: RuntimeContext,
-    private readonly cliVersion: string,
     private readonly options: TelemetryOptions = {},
   ) {}
 
@@ -50,43 +33,21 @@ export class Telemetry {
    * Формирует registry-событие и запускает фоновую отправку, учитывая отключение статистики. Неверный
    * endpoint и сбои отправки не меняют результат операции; данные на диск не записываются.
    */
-  emit(
-    event: 'download' | 'install',
-    input: RegistryEventContext,
-    status?: 'success' | 'partial' | 'failed',
-  ): void {
+  emit(event: 'download' | 'install', input: RegistryEventContext): void {
     if (
+      input.components.length === 0 ||
       this.options.disabled ||
       this.runtime.env.DISABLE_TELEMETRY ||
       this.runtime.env.DO_NOT_TRACK
     )
       return;
     try {
-      const endpoint = new URL(
-        this.runtime.env.SKILLS_TELEMETRY_ENDPOINT?.trim() ||
-          `${input.registryUrl}/api/v1/skills/events`,
-      );
-      if (
-        !['http:', 'https:'].includes(endpoint.protocol) ||
-        endpoint.username ||
-        endpoint.password ||
-        endpoint.hash
-      )
-        return;
-      const payload: TelemetryEnvelope = {
-        schemaVersion: 1,
+      const endpoint = new URL(`${input.registryUrl}/api/v1/packages/${input.slug}/events`);
+      const payload: PackageEvent = {
         eventId: randomUUID(),
         event,
-        occurredAt: new Date().toISOString(),
-        cliVersion: this.cliVersion,
-        skill: { name: input.slug, sourceType: 'registry', source: input.registryUrl },
-        context: {
-          operation: input.operation,
-          scope: input.scope,
-          agents: [...input.agents],
-          ...(input.version === undefined ? {} : { version: input.version }),
-          ...(status === undefined ? {} : { status }),
-        },
+        version: input.version,
+        components: [...new Set(input.components)].map((name) => ({ kind: 'skill', name })),
       };
       this.pending.push(this.post(endpoint, payload));
     } catch {
@@ -98,7 +59,7 @@ export class Telemetry {
    * Отправляет JSON с ограниченным ожиданием, по тайм-ауту вызывает abort. Закрывает тело ответа и
    * подавляет транспортные ошибки, включая отмену.
    */
-  private async post(endpoint: URL, payload: TelemetryEnvelope): Promise<void> {
+  private async post(endpoint: URL, payload: PackageEvent): Promise<void> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {

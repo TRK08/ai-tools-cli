@@ -1,4 +1,4 @@
-import type { AddDecision } from '@/installer';
+import type { Decision } from '@/installer';
 import type { InstallationScope } from '@/runtime';
 import { type PromptStreams, confirm, select, terminalText } from '@/cli/terminal';
 
@@ -7,7 +7,7 @@ export function confirmAdd(
   name: string,
   streams: PromptStreams,
   signal: AbortSignal,
-): Promise<AddDecision> {
+): Promise<Decision> {
   return confirm({
     ...streams,
     message: `Установить ${terminalText(name)}?`,

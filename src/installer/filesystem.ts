@@ -1,9 +1,21 @@
-import { cp, lstat, mkdir, mkdtemp, readlink, rename, rm, rmdir, symlink } from 'node:fs/promises';
+import type { InstallationScope } from '@/runtime';
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  rmdir,
+  symlink,
+} from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { hasErrorCode } from '@/errors';
 import { WORKSPACE_PREFIX } from '@/state';
 import { nativePath, samePath } from '@/paths';
-import { OWNED_WORKSPACE_CLEANUP } from '@/sources';
+const WORKSPACE_CLEANUP = { recursive: true, force: true, maxRetries: 3, retryDelay: 100 };
 
 /** Подменяемый файловый I/O для проверок обрабатываемых ошибок на временных корнях. */
 export const installerFileSystem = {
@@ -11,6 +23,7 @@ export const installerFileSystem = {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readlink,
   rename,
   rm,
@@ -109,7 +122,7 @@ export class FileTransaction {
           },
         );
       }
-      await fs.rm(files.workspace, OWNED_WORKSPACE_CLEANUP).catch((cleanupError: unknown) => {
+      await fs.rm(files.workspace, WORKSPACE_CLEANUP).catch((cleanupError: unknown) => {
         throw new Error(
           `Операция отменена откатом, но удалить временный каталог не удалось: ${files.workspace}.`,
           {
@@ -120,7 +133,7 @@ export class FileTransaction {
       throw cause;
     }
     // Lock уже сохранён: сбой очистки не должен откатывать файлы к прежнему состоянию.
-    await fs.rm(files.workspace, OWNED_WORKSPACE_CLEANUP).catch((cause: unknown) => {
+    await fs.rm(files.workspace, WORKSPACE_CLEANUP).catch((cause: unknown) => {
       throw new Error(
         `Операция завершена, но удалить временный каталог не удалось: ${files.workspace}.`,
         {
@@ -135,37 +148,70 @@ export class FileTransaction {
    * Переименовывает объект и регистрирует обратный rename для отката. Ошибка EXDEV пробрасывается без
    * замены через копирование.
    */
-  async move(source: string, destination: string): Promise<void> {
+  async move(source: string, destination: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     await this.fs.rename(source, destination);
     this.undo.push(() => this.fs.rename(destination, source));
   }
 
   /** Копирует снимок в собственный staging без разыменования ссылок; очисткой владеет транзакция. */
-  async stageCopy(source: string, name: string): Promise<string> {
+  async stageCopy(source: string, name: string, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted();
     const destination = nativePath.join(this.workspace, `staging-${name}`);
     await this.fs.cp(source, destination, {
       recursive: true,
+      filter: () => {
+        signal?.throwIfAborted();
+        return true;
+      },
       force: false,
       errorOnExist: true,
       verbatimSymlinks: true,
     });
+    signal?.throwIfAborted();
     return destination;
   }
 
-  /** Создаёт symlink POSIX или junction Windows с абсолютной целью; откат снимает только ссылку. */
-  async link(target: string, destination: string): Promise<void> {
-    await this.fs.symlink(target, destination, nativePath.sep === '\\' ? 'junction' : 'dir');
+  /** Проект получает относительный directory symlink, global — symlink или junction Windows; без fallback. */
+  async link(
+    target: string,
+    destination: string,
+    scope: InstallationScope = 'global',
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    const relative = scope === 'project';
+    await this.fs.symlink(
+      relative
+        ? nativePath
+            .relative(nativePath.dirname(destination), target)
+            .split(nativePath.sep)
+            .join('/')
+        : target,
+      destination,
+      !relative && nativePath.sep === '\\' ? 'junction' : 'dir',
+    );
     this.undo.push(() => this.fs.rm(destination));
   }
 
   /** Снимает только объект ссылки без rename между томами; откат восстанавливает исходный target. */
-  async unlink(path: string, expectedTarget: string): Promise<void> {
+  async unlink(
+    path: string,
+    expectedTarget: string,
+    scope: InstallationScope = 'global',
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
     const target = await this.fs.readlink(path);
     if (!samePath(nativePath.resolve(nativePath.dirname(path), target), expectedTarget))
       throw new Error(`Цель ссылки изменилась перед удалением: ${path}.`);
     await this.fs.rm(path);
     this.undo.push(() =>
-      this.fs.symlink(target, path, nativePath.sep === '\\' ? 'junction' : 'dir'),
+      this.fs.symlink(
+        target,
+        path,
+        scope === 'global' && nativePath.sep === '\\' ? 'junction' : 'dir',
+      ),
     );
   }
 }

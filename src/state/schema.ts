@@ -1,21 +1,19 @@
-import { agentConnectionKind, isAgentId, isDirectAgent, type AgentId } from '@/agents';
-import type { SourceIdentity } from '@/sources/types';
-import { isFullSemVer, isRegistrySlug } from '@/registry';
+import { AGENTS, agentConnectionKind, isAgentId, type AgentId } from '@/agents';
+import { getRegistryUrl, isFullSemVer, isRegistrySlug, MAX_RELEASE_COMPONENTS } from '@/registry';
 import { StateError } from '@/errors';
-import { normalizeRegistryUrl } from './identity';
 import {
   assertSkillName,
   getSkillDirectory,
   portableConnectionPath,
-  portableSourcePath,
   validatePortablePathText,
   validatePathText,
   type StatePaths,
 } from './paths';
-import { assertPortableNames, nativePath, pathIdentityKey } from '@/paths';
+import { assertPortableNames, isPathWithin, nativePath, pathIdentityKey } from '@/paths';
 import {
   LOCK_VERSION,
-  type InstallationRecord,
+  type InstalledPackage,
+  type InstalledSkill,
   type LockFile,
   type ManagedConnection,
 } from './types';
@@ -64,38 +62,6 @@ function agent(value: unknown): AgentId {
   return value;
 }
 
-/**
- * Проверяет и нормализует постоянный источник, не принимая временные URL.
- *
- * @param storageInput - true допускает runtime-пути при сериализации; false проверяет сохранённый формат.
- */
-function source(value: unknown, paths: StatePaths, storageInput: boolean): SourceIdentity {
-  const entry = object(value, 'source');
-  if (entry.kind === 'registry') {
-    keys(entry, ['kind', 'registryUrl', 'slug']);
-    const slug = text(entry.slug, 'slug');
-    assertSkillName(slug);
-    if (!isRegistrySlug(slug))
-      invalid('Slug реестра должен содержать строчные латинские буквы, цифры и одиночные дефисы.');
-    return {
-      kind: 'registry',
-      registryUrl: normalizeRegistryUrl(text(entry.registryUrl, 'registryUrl')),
-      slug,
-    };
-  }
-  if (entry.kind !== 'directory' && entry.kind !== 'archive')
-    invalid('Неподдерживаемый тип источника.');
-  keys(entry, ['kind', 'path']);
-  const path = text(entry.path, 'source.path');
-  if (!storageInput && paths.scope === 'project') validatePortablePathText(path);
-  else validatePathText(path);
-  if (!storageInput && nativePath.isAbsolute(path) !== (paths.scope === 'global'))
-    invalid(
-      'Сохранённый путь локального источника должен быть относительным в проекте и абсолютным в глобальной области.',
-    );
-  return { kind: entry.kind, path: portableSourcePath(path, paths) };
-}
-
 /** Проверяет агент/вид по единому каталогу и кодирует путь подключения по правилам области. */
 function connection(value: unknown, paths: StatePaths, storageInput: boolean): ManagedConnection {
   const entry = object(value, 'connection');
@@ -118,108 +84,117 @@ function connectionKey(path: string, paths: StatePaths): string {
   return pathIdentityKey(nativePath.resolve(paths.cwd, path));
 }
 
-/** Проверяет одну запись lock: имя, источник/политику, версии, хеши и согласованность подключений. */
-function record(
-  value: unknown,
-  name: string,
-  paths: StatePaths,
-  storageInput: boolean,
-): InstallationRecord {
-  assertSkillName(name);
-  const entry = object(value, `skills.${name}`);
-  keys(
-    entry,
-    ['name', 'source', 'version', 'policy', 'contentHash', 'agents', 'connections'],
-    ['archiveHash'],
-  );
-  if (entry.name !== name)
-    invalid('Ключ скилла в файле состояния должен совпадать с именем записи.');
-  const identity = source(entry.source, paths, storageInput);
-  const version = entry.version === null ? null : text(entry.version, 'version');
-  const policy = entry.policy;
-  if (identity.kind === 'registry') {
-    if (
-      !['latest', 'exact'].includes(policy as string) ||
-      version === null ||
-      !isFullSemVer(version)
-    )
-      invalid('Запись из реестра должна содержать версию и политику latest/exact.');
-    if (identity.slug !== name) invalid('Slug реестра должен совпадать с именем скилла.');
-  } else if (policy !== 'local') invalid('Для локальных записей требуется политика local.');
-  if (!Array.isArray(entry.agents) || entry.agents.length === 0)
-    invalid('В записи требуется хотя бы один агент.');
-  const desiredAgents = entry.agents.map(agent);
-  if (new Set(desiredAgents).size !== desiredAgents.length)
-    invalid('Повторяющиеся агенты недопустимы.');
-  if (!Array.isArray(entry.connections)) invalid('Поле connections должно быть массивом.');
-  const connections = entry.connections.map((value) => connection(value, paths, storageInput));
-  const groups = new Map<string, ManagedConnection[]>();
+/** Проверяет хеши и пути скилла по каталогу агентов; сохранённый глобальный путь не зависит от текущего env. */
+function skill(value: unknown, paths: StatePaths, storageInput: boolean): InstalledSkill {
+  const entry = object(value, 'skill');
+  keys(entry, ['name', 'installName', 'contentHash', 'archiveHash', 'connections']);
+  const name = text(entry.name, 'name');
+  const installName = text(entry.installName, 'installName');
+  assertSkillName(installName);
+  if (!isRegistrySlug(name) || !isRegistrySlug(installName))
+    invalid('Некорректное имя компонента или каталога установки.');
+  if (!Array.isArray(entry.connections) || !entry.connections.length)
+    invalid('В записи скилла нужно хотя бы одно подключение.');
+  const connections = entry.connections.map((item) => connection(item, paths, storageInput));
+  if (new Set(connections.map((item) => item.agent)).size !== connections.length)
+    invalid('Агент может иметь только одно подключение к скиллу.');
+  const shared = getSkillDirectory(paths, installName);
   for (const item of connections) {
-    const key = connectionKey(item.path, paths);
-    groups.set(key, [...(groups.get(key) ?? []), item]);
+    const absolute = nativePath.resolve(paths.cwd, item.path);
+    if (
+      item.kind === 'direct'
+        ? connectionKey(absolute, paths) !== connectionKey(shared, paths)
+        : isPathWithin(paths.skillsDirectory, absolute) ||
+          nativePath.basename(absolute) !== installName
+    )
+      invalid('Управляемый путь не соответствует имени установки и типу подключения.');
   }
-  const sharedKey = connectionKey(getSkillDirectory(paths, name), paths);
   if (
-    connections.some((item) => !desiredAgents.includes(item.agent)) ||
-    new Set(connections.map((item) => item.agent)).size !== connections.length ||
-    [...groups].some(
-      ([key, group]) =>
-        group.length > 1 &&
-        (key !== sharedKey || group.some((item) => !isDirectAgent(item.agent, paths.scope))),
+    paths.scope === 'project' &&
+    connections.some(
+      (item) =>
+        item.kind === 'link' &&
+        connectionKey(item.path, paths) !==
+          connectionKey(
+            nativePath.join(
+              AGENTS.find((agent) => agent.id === item.agent)!.project.directory(paths),
+              installName,
+            ),
+            paths,
+          ),
     )
   )
-    invalid(
-      'Управляемые подключения должны иметь уникальные пары агент/путь и относиться к указанным агентам.',
-    );
-  const archiveHash = Object.hasOwn(entry, 'archiveHash')
-    ? digest(entry.archiveHash, 'archiveHash')
-    : undefined;
-  if (identity.kind === 'directory' && archiveHash !== undefined)
-    invalid('Источник из папки не может содержать хеш архива.');
-  if (identity.kind !== 'directory' && archiveHash === undefined)
-    invalid('Записи архива и реестра должны содержать хеш архива.');
+    invalid('Проектное подключение должно находиться в каталоге своего агента.');
   return {
     name,
-    source: identity,
-    version,
-    policy: policy as InstallationRecord['policy'],
+    installName,
     contentHash: digest(entry.contentHash, 'contentHash'),
-    ...(archiveHash === undefined ? {} : { archiveHash }),
-    agents: desiredAgents.sort(),
-    connections: connections.sort((a, b) => (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0)),
+    archiveHash: digest(entry.archiveHash, 'archiveHash'),
+    connections: connections.sort((a, b) => a.agent.localeCompare(b.agent)),
   };
 }
 
-/**
- * Проверяет версию и весь lock, упорядочивает записи и запрещает общий управляемый путь у разных скиллов.
- *
- * @param storageInput - true для сериализации runtime-путей, false для строгого чтения сохранённых
- * данных.
- */
+/** Проверяет одну версию, канонический URL и уникальный установленный состав пакета. */
+function installedPackage(
+  value: unknown,
+  paths: StatePaths,
+  storageInput: boolean,
+): InstalledPackage {
+  const entry = object(value, 'package');
+  keys(entry, ['slug', 'registryUrl', 'version', 'skills']);
+  const slug = text(entry.slug, 'slug');
+  const version = text(entry.version, 'version');
+  const url = text(entry.registryUrl, 'registryUrl');
+  let registryUrl: string;
+  try {
+    registryUrl = getRegistryUrl(url, {});
+  } catch {
+    invalid('Некорректный базовый URL реестра.');
+  }
+  if (
+    !isRegistrySlug(slug) ||
+    !isFullSemVer(version) ||
+    !Array.isArray(entry.skills) ||
+    !entry.skills.length ||
+    entry.skills.length > MAX_RELEASE_COMPONENTS
+  )
+    invalid('Некорректный пакет, версия или установленный состав.');
+  const skills = entry.skills.map((item) => skill(item, paths, storageInput));
+  if (new Set(skills.map((item) => item.name)).size !== skills.length)
+    invalid('Имена компонентов в пакете должны быть уникальны.');
+  return {
+    slug,
+    registryUrl,
+    version,
+    skills: skills.sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+/** Проверяет lock version: 1 и эксклюзивное владение общими каталогами и путями агентов. */
 function normalize(value: unknown, paths: StatePaths, storageInput: boolean): LockFile {
   try {
     const lock = object(value, 'lock');
-    keys(lock, ['version', 'skills']);
-    if (lock.version !== LOCK_VERSION) invalid('Некорректная версия файла состояния.');
-    const skills = object(lock.skills, 'skills');
-    assertPortableNames(Object.keys(skills));
-    const records = Object.fromEntries(
-      Object.keys(skills)
-        .sort()
-        .map((name) => [name, record(skills[name], name, paths, storageInput)]),
-    );
-    const managedPaths = new Map<string, string>();
-    for (const entry of Object.values(records)) {
+    if (lock.version !== LOCK_VERSION)
+      invalid('Некорректная структура файла состояния: ожидается version: 1.');
+    keys(lock, ['version', 'packages']);
+    if (!Array.isArray(lock.packages)) invalid('Поле packages должно быть массивом.');
+    const packages = lock.packages.map((entry) => installedPackage(entry, paths, storageInput));
+    if (new Set(packages.map((entry) => entry.slug)).size !== packages.length)
+      invalid('В области может быть только одна запись для пакета.');
+    const skills = packages.flatMap((entry) => entry.skills);
+    assertPortableNames(skills.map((entry) => entry.installName));
+    const managedPaths = new Set<string>();
+    for (const entry of skills) {
       for (const connection of entry.connections) {
+        if (connection.kind === 'direct') continue;
         const key = connectionKey(connection.path, paths);
-        if (managedPaths.has(key) && managedPaths.get(key) !== entry.name)
-          invalid('Разные скиллы не могут управлять одним путём подключения.');
-        managedPaths.set(key, entry.name);
+        if (managedPaths.has(key)) invalid('Разные подключения не могут управлять одним путём.');
+        managedPaths.add(key);
       }
     }
     return {
       version: LOCK_VERSION,
-      skills: records,
+      packages: packages.sort((a, b) => a.slug.localeCompare(b.slug)),
     };
   } catch (cause) {
     if (cause instanceof StateError && cause.code === 'INVALID_PATH') {

@@ -3,7 +3,6 @@ import { lstat, open, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StateError, hasErrorCode } from '@/errors';
 import { assertScopeLocation } from './filesystem';
-import { assertSourceCompatible } from './identity';
 import { withScopeLock } from './mutex';
 import { LOCK_TEMP_PREFIX, type StatePaths } from './paths';
 import { parseLockFile, serializeLockFile } from './schema';
@@ -37,8 +36,8 @@ export const defaultStateFileIO: StateFileIO = {
 export interface StateTransaction {
   /** Читает проверенный lock либо null, пока сеанс активен. */
   readonly read: () => Promise<LockFile | null>;
-  /** Сохраняет lock внутри уже захваченной блокировки области. */
-  readonly write: (lock: LockFile) => Promise<void>;
+  /** Сохраняет lock под блокировкой; отмена проверяется до атомарного rename, после него commit завершён. */
+  readonly write: (lock: LockFile, signal?: AbortSignal) => Promise<void>;
 }
 
 export class StateStore {
@@ -113,9 +112,9 @@ export class StateStore {
           assertActive();
           return this.read();
         },
-        write: async (lock) => {
+        write: async (lock, signal) => {
           assertActive();
-          await this.writeAtomic(lock);
+          await this.writeAtomic(lock, signal);
         },
       };
       try {
@@ -158,18 +157,20 @@ export class StateStore {
    * @remarks Вызывается под блокировкой; ошибка до rename сохраняет прежний lock. При неудаче удаляет
    * временный файл; ошибка cleanup не скрывает исходную причину. Назначение до rename не удаляется.
    */
-  private async writeAtomic(lock: LockFile): Promise<void> {
+  private async writeAtomic(lock: LockFile, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const content = serializeLockFile(lock, this.paths);
     const next = parseLockFile(JSON.parse(content), this.paths);
     const previous = await this.read();
-    if (previous !== null) {
-      for (const record of Object.values(next.skills)) {
-        assertSourceCompatible(previous, record.name, record.source, this.paths);
-      }
+    for (const record of next.packages) {
+      const before = previous?.packages.find((entry) => entry.slug === record.slug);
+      if (before && before.registryUrl !== record.registryUrl)
+        throw new StateError('INVALID_LOCK', `Пакет ${record.slug} установлен из другого реестра.`);
     }
     const temporaryPath = join(this.paths.root, `${LOCK_TEMP_PREFIX}${randomUUID()}.tmp`);
     try {
       await this.io.writeTemporaryFile(temporaryPath, content);
+      signal?.throwIfAborted();
       await this.io.rename(temporaryPath, this.paths.lockPath);
     } catch (cause) {
       try {

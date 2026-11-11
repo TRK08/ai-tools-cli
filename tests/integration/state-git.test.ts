@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { withTestEnvironment } from '../helpers/test-environment.ts';
 
-it('tracks both project copies including deeply ignored resources while excluding state work files', async () => {
+it('tracks shared files and Claude symlinks including deeply ignored resources while excluding state work files', async () => {
   await withTestEnvironment(async (fixture) => {
     const gitConfig = join(fixture.temporaryRoot, 'gitconfig');
     await writeFile(gitConfig, '', { flag: 'wx' });
@@ -34,13 +34,6 @@ it('tracks both project copies including deeply ignored resources while excludin
       '.agents/skills/demo/.skills-installer-operation.lock',
       'nested/skills-installer-lock.json',
       'nested/.agents/skills/demo/resources.tgz',
-      '.claude/skills/demo/SKILL.md',
-      '.claude/skills/demo/nested/node_modules/resource/deep.tgz',
-      '.claude/skills/demo/nested/dist/.DS_Store',
-      '.claude/skills/demo/nested/.agents/.skills-installer-work-resource/file',
-      '.claude/skills/demo/.skills-installer-lock-resource.tmp',
-      '.claude/skills/demo/.skills-installer-operation.lock',
-      'nested/.claude/skills/demo/nested/node_modules/resource/deep.tgz',
     ];
     const ignored = [
       '.agents/.skills-installer-work-example/previous/SKILL.md',
@@ -54,6 +47,12 @@ it('tracks both project copies including deeply ignored resources while excludin
       const absolute = join(fixture.roots.cwd, path);
       await mkdir(dirname(absolute), { recursive: true });
       await writeFile(absolute, 'fixture');
+    }
+    for (const prefix of ['', 'nested/']) {
+      const link = `${prefix}.claude/skills/demo`;
+      await mkdir(dirname(join(fixture.roots.cwd, link)), { recursive: true });
+      await symlink('../../.agents/skills/demo', join(fixture.roots.cwd, link), 'dir');
+      kept.push(link);
     }
     const result = spawnSync('git', ['check-ignore', '--no-index', '--stdin'], {
       cwd: fixture.roots.cwd,

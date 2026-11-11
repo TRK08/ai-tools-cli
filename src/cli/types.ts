@@ -1,7 +1,7 @@
 import type { RuntimeContext } from '@/runtime';
 import type { PromptStreams } from '@/cli/terminal';
 
-/** Окружение одной команды; реальные зависимости создаются только в точке запуска. */
+/** Окружение одной команды. Реальные зависимости создаются в точке запуска. */
 export interface CliContext {
   readonly runtime: RuntimeContext;
   readonly version: string;
@@ -13,14 +13,21 @@ export interface CliContext {
 export interface ScopeOptions {
   readonly agent: string[];
   readonly global?: boolean;
+  readonly project?: boolean;
 }
+
 export interface MutationOptions extends ScopeOptions {
   readonly yes?: boolean;
-}
-export interface UpdateOptions extends MutationOptions {
-  readonly force?: boolean;
+  readonly skill: string[];
   readonly withoutStat?: boolean;
 }
-export interface AddOptions extends UpdateOptions {
+
+export interface FindOptions extends ScopeOptions {
+  readonly registry?: string;
+  readonly yes?: boolean;
+  readonly withoutStat?: boolean;
+}
+
+export interface AddOptions extends MutationOptions {
   readonly registry?: string;
 }

@@ -3,7 +3,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'fast-string-width';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAddUi } from '@/cli/ui/add-ui';
+import { runAddPreparation } from '@/cli/ui/add-ui';
 import { selectRegistrySkill } from '@/cli/ui/find-ui';
 
 import { RegistryClient } from '@/registry/client';
@@ -44,7 +44,7 @@ describe('loading during add preparation', () => {
     vi.useFakeTimers();
     const t = terminal();
     try {
-      expect(await createAddUi(t).run(async () => 'done')).toBe('done');
+      expect(await runAddPreparation(t, 'Подготовка скилла', async () => 'done')).toBe('done');
       await vi.advanceTimersByTimeAsync(1000);
       expect(t.rendered()).toBe('');
       expect(vi.getTimerCount()).toBe(0);
@@ -56,9 +56,12 @@ describe('loading during add preparation', () => {
   it('leaves fast operations silent and animates a slow operation after 200 ms', async () => {
     vi.useFakeTimers();
     const t = terminal();
-    const ui = createAddUi(t, true);
     let finish!: () => void;
-    const pending = ui.run(() => new Promise<void>((done) => (finish = done)));
+    const pending = runAddPreparation(
+      t,
+      'Подготовка скилла',
+      () => new Promise<void>((done) => (finish = done)),
+    );
     try {
       await vi.advanceTimersByTimeAsync(199);
       expect(t.rendered()).toBe('');
@@ -93,7 +96,11 @@ describe('loading during add preparation', () => {
     vi.useFakeTimers();
     const t = terminal(inputTTY, outputTTY);
     let finish!: () => void;
-    const pending = createAddUi(t).run(() => new Promise<void>((done) => (finish = done)));
+    const pending = runAddPreparation(
+      t,
+      'Подготовка скилла',
+      () => new Promise<void>((done) => (finish = done)),
+    );
     try {
       await vi.advanceTimersByTimeAsync(1000);
       expect(t.rendered()).toBe('');
@@ -110,7 +117,9 @@ describe('loading during add preparation', () => {
     vi.useFakeTimers();
     const t = terminal();
     let fail!: (cause: Error) => void;
-    const pending = createAddUi(t).run(
+    const pending = runAddPreparation(
+      t,
+      'Подготовка скилла',
       () => new Promise<void>((_resolve, reject) => (fail = reject)),
     );
     const rejected = expect(pending).rejects.toThrow('Preparation failed');
@@ -130,53 +139,28 @@ describe('loading during add preparation', () => {
     }
   });
 
-  it('clears preparation before confirmation, stays quiet during the question and resumes after approval', async () => {
+  it('clears the indicator before handing input to the next dialog', async () => {
     vi.useFakeTimers();
-    const t = terminal(true, true, 110);
-    const ui = createAddUi(t);
-    let prepared!: () => void, installed!: () => void;
-    const preparation = new Promise<void>((done) => (prepared = done));
-    const installation = new Promise<void>((done) => (installed = done));
-    const pending = ui.run(async () => {
-      await preparation;
-      const decision = await ui.review({
-        name: 'demo',
-        installationName: 'demo',
-        tags: [],
-        version: null,
-        description: 'Demo',
-        source: './demo',
-        scope: 'локальная — текущий проект',
-        sharedDirectory: '/private/tmp/loading-project/.agents/skills/demo',
-        destinations: [],
-      });
-      if (decision === 'approve') await installation;
-      return decision;
+    const t = terminal();
+    let proceed!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      proceed = resolve;
+    });
+    const pending = runAddPreparation(t, 'Подготовка', async (_signal, stop) => {
+      await ready;
+      stop();
+      expect(t.input.isRaw).toBe(false);
+      expect(t.input.listenerCount('keypress')).toBe(0);
+      t.output.write('Сводка');
     });
     try {
       await vi.advanceTimersByTimeAsync(280);
-      prepared();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(t.rendered()).toContain('Установить demo?');
-      expect(t.rendered().indexOf('\u001b[?25h')).toBeLessThan(
-        t.rendered().indexOf('Версия: локальный источник'),
-      );
-      const prompt = t.rendered();
-      await vi.advanceTimersByTimeAsync(1000);
-      expect(t.rendered()).toBe(prompt);
-      t.input.write('\u001b[C\r');
-      await vi.advanceTimersByTimeAsync(280);
-      expect(stripVTControlCharacters(t.rendered().slice(prompt.length))).toContain(
-        'Установка скилла',
-      );
-      installed();
-      expect(await pending).toBe('approve');
+      proceed();
+      await pending;
+      expect(t.rendered().indexOf('\u001b[?25h')).toBeLessThan(t.rendered().indexOf('Сводка'));
       expect(vi.getTimerCount()).toBe(0);
-      expect(t.input.isRaw).toBe(false);
     } finally {
-      prepared();
-      installed();
-      t.input.write('\u001b');
+      proceed();
       await pending;
       t.close();
     }
@@ -196,14 +180,14 @@ describe('loading in existing command screens', () => {
       );
       const pending = selectRegistrySkill(
         (changed) => new RegistryFindSearch(client, changed),
-        'de',
+        'dem',
         t,
       );
       try {
         await vi.advanceTimersByTimeAsync(280);
         finish(
           outcome === 'success'
-            ? Response.json({ items: [] })
+            ? Response.json({ items: [], total: 0, limit: 10, offset: 0 })
             : new Response(null, { status: 503 }),
         );
         await vi.advanceTimersByTimeAsync(0);
@@ -215,7 +199,7 @@ describe('loading in existing command screens', () => {
         await vi.advanceTimersByTimeAsync(1000);
         expect(t.rendered()).toBe(ready);
       } finally {
-        finish(Response.json({ items: [] }));
+        finish(Response.json({ items: [], total: 0, limit: 10, offset: 0 }));
         t.input.emit('keypress', '\u001b', { name: 'escape' });
         await pending;
         t.close();
@@ -235,7 +219,7 @@ describe('loading in existing command screens', () => {
     });
     const pending = selectRegistrySkill(
       (changed) => new RegistryFindSearch(client, changed),
-      'de',
+      'dem',
       t,
     );
     try {

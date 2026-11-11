@@ -8,21 +8,19 @@
 
 [CI](../.github/workflows/ci.yml) проверяет Linux/macOS/Windows на обеих версиях Node.
 На каждой комбинации выполняются сборка, компонентные и интеграционные тесты,
-восемь e2e собранного CLI и smoke одного общего Linux npm-архива.
+e2e собранного CLI и smoke одного общего Linux npm-архива.
 
 | Уровень       | Что проверяется                                                                                                      |
 | ------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Компоненты    | Windows/POSIX-пути, переносимые имена, коллизии, хеширование, файловые операции, аргументы CLI и терминальные потоки |
 | Интеграции    | Реальные временные файлы, источники, копии и junction, блокировки, отмена и откат                                    |
-| E2E           | Registry/directory/archive в project/global, повреждённая загрузка и ошибка доставки статистики                      |
-| Git roundtrip | Настоящие commit/clone на текущей ОС, NFC/NFD × autocrlf=false/true, обе проектные копии и lock                      |
+| E2E           | Пакеты registry в project/global, повреждённая загрузка и ошибка доставки статистики                                 |
+| Git roundtrip | Настоящие commit/clone на текущей ОС, Unicode-ресурсы × autocrlf=false/true, общая копия, symlink Claude и lock      |
 | Npm smoke     | Состав tar, executable-mode bin, настоящие local/global executable или Windows `.cmd`, `--help` и `--version`        |
 
-Git fixtures включают LF/CRLF/mixed endings, binary, hidden и глубокие ignored
-ресурсы, отдельные NFC/NFD-имена, executable и пустую папку. Проверяются bytes
-обеих обычных копий и contentHash, no-op без переписывания, защита ручных правок,
-force, list/remove без внешнего source и сохранность Vercel `skills-lock.json`.
-Совместно коллидирующие NFC/регистром имена отклоняются тестами источников.
+Git fixtures содержат Unicode-пути, бинарный ресурс и общая копия и относительный symlink Claude.
+Проверяются исходные bytes и contentHash, работа list/remove после clone.
+Коллизии по NFC и регистру отклоняются проверкой ZIP.
 
 Компонентная модель path.win32 дополняет настоящий Windows I/O. Hosted runner
 может иметь повышенные права или Developer Mode; его результат не подтверждает
@@ -31,7 +29,7 @@ force, list/remove без внешнего source и сохранность Verc
 
 ## Обнаружение скиллов реальными агентами
 
-После установки закоммитьте проектные копии и lock, затем клонируйте проект
+После установки закоммитьте общую копию, symlink Claude и lock, затем клонируйте проект
 в отдельный каталог с изолированными HOME/XDG и профилями агентов.
 Запустите Claude Code, Codex, OpenCode, Cursor и Pi и проверьте обнаружение скилла
 штатным способом каждого агента, без явной передачи пути к скиллу.
@@ -41,17 +39,24 @@ force, list/remove без внешнего source и сохранность Verc
 
 ## Нативная проверка обычным Windows-пользователем
 
-Сценарии выполняются без администратора и Developer Mode, с изолированными
-пользовательскими каталогами и временным проектом.
+Для проектного Claude нужен настоящий directory symlink, глобально используется
+junction. Проверяйте два сценария: разрешено создание symlink и отказ из-за
+недостаточных прав. Во втором случае пакет должен откатиться целиком без fallback
+на копию. Непривилегированное создание symlink зависит от Developer Mode и разрешений
+ОС. [Microsoft](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createsymboliclinkw)
 
-| Группа           | Сценарии                                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| Окружение        | PowerShell и cmd, local/global npm, Node 22.20 и 24                                                  |
-| Установка        | Все источники и агенты; только Claude и смешанный выбор; exact/latest, force, repeat и ручные правки |
-| Пути             | Пробелы, кириллица, long path, другой диск глобального CLAUDE_CONFIG_DIR                             |
-| Файловая система | Junction create/check/remove/undo, mutex, fsync/rename, busy/read-only files и recovery              |
-| Терминал         | Стрелки, Enter, Backspace, Delete, Esc, Ctrl+C, resize/Unicode, NO_COLOR/FORCE_COLOR и pipe          |
-| Агенты           | Обнаружение скилла Claude Code, Codex, OpenCode, Cursor и Pi после Git clone                         |
+Для Git checkout укажите `core.symlinks=true`; CLI сам настройки Git не меняет.
+Все проверки выполняются с изолированными пользовательскими каталогами и временным
+проектом. Отдельно проверяются Ctrl+C и обычная учётная запись.
+
+| Группа           | Сценарии                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Окружение        | PowerShell и cmd, local/global npm, Node 22.20 и 24                                                              |
+| Установка        | Registry, все агенты, текущий и точный релизы, повторный add и ручные правки                                     |
+| Пути             | Пробелы, кириллица, long path, другой диск глобального CLAUDE_CONFIG_DIR                                         |
+| Файловая система | Project symlink и global junction create/check/remove/undo, mutex, fsync/rename, busy/read-only files и recovery |
+| Терминал         | Стрелки, Enter, Backspace, Delete, Esc, Ctrl+C, resize/Unicode, NO_COLOR/FORCE_COLOR и pipe                      |
+| Агенты           | Обнаружение скилла Claude Code, Codex, OpenCode, Cursor и Pi после Git clone                                     |
 
 Для результата ручной проверки сохраняйте дату, ОС, версии Node и агента,
 тип учётной записи, команду или сценарий и фактический результат.

@@ -16,6 +16,4 @@ docs/tasks/
 !**/.agents/skills/**
 !**/.claude/skills/**
 !**/.agents/skills/*
-!**/.opencode/skills/*
-!**/.pi/skills/*
-!**/.cursor/skills/*
+!**/.claude/skills/*

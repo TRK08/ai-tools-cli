@@ -11,6 +11,7 @@ export type HttpTransport = typeof fetch;
 
 /** Явно передаваемые корни, окружение и HTTP; тесты подставляют изолированные зависимости. */
 export interface RuntimeContext {
+  readonly signal?: AbortSignal;
   readonly roots: FileSystemRoots;
   readonly env: Environment;
   readonly http: HttpTransport;

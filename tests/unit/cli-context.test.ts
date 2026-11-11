@@ -49,7 +49,7 @@ it('uses the supplied stderr for the final command error', async () => {
           ['add', 'demo'],
         ),
       ).toBe(1);
-      expect(err.rendered()).toContain('Ошибка: Для выбора агентов');
+      expect(err.rendered()).toContain('Ошибка: Для изменения установок без TTY');
       expect(out.rendered()).toBe('');
     } finally {
       out.close();

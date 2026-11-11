@@ -1,41 +1,58 @@
 import { parseAgents } from '@/agents';
 import { Installer } from '@/installer';
+import { isRegistrySlug } from '@/registry';
 import { Telemetry } from '@/telemetry';
-import { createUpdatesUi } from '@/cli/ui/updates-ui';
-import { promptStreams, scopeOf } from '@/cli/context';
-import type { CliContext, UpdateOptions } from '@/cli/types';
+import { promptStreams } from '@/cli/context';
+import type { CliContext, MutationOptions } from '@/cli/types';
+import { chooseAll, confirmChanges, showPackagePreview } from '@/cli/ui/package-ui';
+import { requireMutationTty, selectScope } from './selection';
 
-/** Обновляет пакет, показывает частичные результаты и ждёт телеметрию даже при ошибке. */
+/**
+ * Выбирает область для чтения lock; Installer проверяет её registry до меню обновлений.
+ * Показывает единый preview и выводит независимые ошибки пакетов.
+ */
 export async function updateSkills(
   context: CliContext,
-  name: string | undefined,
-  options: UpdateOptions,
+  slug: string | undefined,
+  options: MutationOptions,
 ): Promise<void> {
   const streams = promptStreams(context);
-  const ui = createUpdatesUi(streams, scopeOf(options));
-  const telemetry = new Telemetry(context.runtime, context.version, {
-    disabled: !!options.withoutStat,
-  });
-  const result = await ui
-    .run(() =>
-      new Installer(context.runtime, {
-        scope: scopeOf(options),
-        report: ui.report,
-        reviewUpdate: async (preview) => {
-          const ask = preview.status === 'available' && !options.yes;
-          ui.preview(preview, ask);
-          if (!ask) return 'approve';
-          if (!streams.input.isTTY || !streams.output.isTTY)
-            throw new Error(
-              'Для подтверждения обновления нужны stdin и stdout терминала (TTY); в скриптах используйте --yes.',
+  requireMutationTty(streams, options.yes);
+  if (slug && !isRegistrySlug(slug)) throw new Error('Укажите slug установленного пакета.');
+  if (!slug && options.skill.length) throw new Error('Для --skill укажите пакет.');
+  const agents = parseAgents(options.agent);
+  const scope = await selectScope(options, context.runtime, streams);
+  if (scope === null) {
+    context.stdout.write('Отменено.\n');
+    return;
+  }
+  const telemetry = new Telemetry(context.runtime, { disabled: !!options.withoutStat });
+  const installer = new Installer(context.runtime, { scope, telemetry });
+  const result = await installer
+    .update({ ...(slug && { slug }), agents, skills: options.skill }, async (previews) => {
+      const chosen =
+        slug || options.yes
+          ? previews.map((item) => item.slug)
+          : await chooseAll(
+              'Выберите пакеты для обновления',
+              previews.map((item) => ({
+                value: item.slug,
+                label: item.slug,
+                hint: `${item.previousVersion} → ${item.version}`,
+              })),
+              streams,
             );
-          return ui.review(preview);
-        },
-        telemetry,
-      }).update(name, options.force, parseAgents(options.agent)),
-    )
+      if (chosen === null) return null;
+      for (const preview of previews)
+        if (chosen.includes(preview.slug)) showPackagePreview(preview, context.stdout);
+      const decision = await confirmChanges('Применить обновления?', streams, options.yes);
+      return decision === 'approve' ? chosen : decision === 'decline' ? [] : null;
+    })
     .finally(() => telemetry.flush());
-  ui.finish(result);
-  if (result.status === 'failed')
-    throw new Error('Не удалось обновить один или несколько скиллов.');
+  for (const name of result.updated) context.stdout.write(`Обновлён пакет ${name}.\n`);
+  if (result.cancelled) context.stdout.write('Отменено.\n');
+  else if (!result.updated.length && !result.failures.length)
+    context.stdout.write('Без изменений.\n');
+  if (result.failures.length)
+    throw new Error(result.failures.map((item) => `${item.slug} — ${item.error}`).join('\n'));
 }

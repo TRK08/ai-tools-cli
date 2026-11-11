@@ -92,30 +92,6 @@ export function validatePortablePathText(path: string): void {
   }
 }
 
-/**
- * Кодирует источник относительно cwd в проекте и абсолютно глобально, без realpath.
- * Внешний источник проекта допустим на том же диске; другой диск отклоняется до подготовки.
- */
-export function portableSourcePath(path: string, paths: StatePaths): string {
-  const { resolve, relative, isAbsolute, sep } = nativePath;
-  validatePathText(path);
-  const absolute = resolve(paths.cwd, path);
-  if (paths.scope === 'global') return absolute;
-  const local = relative(paths.cwd, absolute);
-  if (isAbsolute(local)) {
-    throw new StateError('INVALID_PATH', 'Источник проекта должен находиться на том же диске.');
-  }
-  const portable = local.split(sep).join('/') || '.';
-  validatePortablePathText(portable);
-  return portable;
-}
-
-/** Разрешает источник относительно cwd без realpath; предварительно проверяет переносимость области. */
-export function resolveSourcePath(path: string, paths: StatePaths): string {
-  portableSourcePath(path, paths);
-  return nativePath.resolve(paths.cwd, path);
-}
-
 /** Кодирует назначение: проектное строго внутри cwd с /, глобальное — абсолютный нативный путь. */
 export function portableConnectionPath(path: string, paths: StatePaths): string {
   const { isAbsolute, resolve, relative, sep } = nativePath;
